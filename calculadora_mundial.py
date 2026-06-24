@@ -718,18 +718,43 @@ with st.sidebar:
         if texto_torneo.strip():
             st.session_state.texto_torneo_cache = texto_torneo
 
-    grupos_disponibles = list(dividir_grupos(texto_torneo).keys()) if texto_torneo.strip() else []
+    grupos_dict = dividir_grupos(texto_torneo) if texto_torneo.strip() else {}
+    grupos_disponibles = list(grupos_dict.keys())
 
     if grupos_disponibles:
-        grupo_sel = st.selectbox("📂 Grupo a analizar", grupos_disponibles)
-        if st.button("✅ Cargar grupo", use_container_width=True, type="primary"):
-            texto_grupo = dividir_grupos(texto_torneo).get(grupo_sel, "")
-            eq, jug, pen = parsear_resultados(texto_grupo)
-            if len(eq) >= 3:
-                cargar_estado(eq, jug, pen)
-                st.rerun()
-            else:
-                st.error("No se detectaron suficientes equipos.")
+        if len(grupos_disponibles) == 1:
+            # Sin encabezados o un solo bloque: cargar directo sin dropdown
+            grupo_unico = grupos_disponibles[0]
+            if st.button("✅ Cargar", use_container_width=True, type="primary"):
+                eq, jug, pen = parsear_resultados(grupos_dict[grupo_unico])
+                if len(eq) >= 3:
+                    cargar_estado(eq, jug, pen)
+                    st.rerun()
+                else:
+                    st.error("No se detectaron suficientes equipos.")
+        else:
+            # Multiples grupos (tipico de API con encabezados)
+            grupo_sel = st.selectbox("📂 Grupo a analizar", grupos_disponibles)
+            col_g1, col_g2 = st.columns(2)
+            with col_g1:
+                if st.button("✅ Cargar grupo", use_container_width=True, type="primary"):
+                    eq, jug, pen = parsear_resultados(grupos_dict.get(grupo_sel, ""))
+                    if len(eq) >= 3:
+                        cargar_estado(eq, jug, pen)
+                        st.rerun()
+                    else:
+                        st.error("No se detectaron suficientes equipos.")
+            with col_g2:
+                if st.button("🌍 Cargar todos", use_container_width=True,
+                             help="Carga todos los grupos para el tab Torneo completo"):
+                    primer = grupos_disponibles[0]
+                    eq0, jug0, pen0 = parsear_resultados(grupos_dict[primer])
+                    if len(eq0) >= 3:
+                        cargar_estado(eq0, jug0, pen0)
+                        st.session_state.texto_torneo_cache = texto_torneo
+                        st.rerun()
+                    else:
+                        st.error("El primer grupo no tiene suficientes equipos.")
 
     if st.session_state.ESTADO:
         E = st.session_state.ESTADO
@@ -802,7 +827,26 @@ with tabs[1]:
         st.info("No hay partidos pendientes en este grupo.")
     else:
         s = situacion(eq_sel, esc)
-        if obj == "full":
+        team_pend = sum(1 for p in pendientes if eq_sel in p)
+        T = len(equipos)
+
+        # Mapa objetivo → n para necesita_por_resultados
+        _obj_n = {"full": DIRECTO(), "campeon": 1, "top": n_val,
+                  "descenso": T - n_val, "tercero": 3}
+
+        # Si el equipo tiene 2+ partidos propios pendientes, cambia al análisis por puntos
+        if team_pend >= 2 and obj != "tercero":
+            n_pr = _obj_n.get(obj, DIRECTO())
+            st.info(
+                f"ℹ️ **{eq_sel}** tiene **{team_pend} partidos pendientes**. "
+                f"Con tantos por jugar el detalle gol por gol es muy grande, "
+                f"así que se muestra el resumen por resultado (G/E/P)."
+            )
+            st.markdown(necesita_por_resultados_texto(eq_sel, equipos, jugados, pendientes, n_pr))
+            st.divider()
+            st.markdown("**Tabla actual:**")
+            st.dataframe(tabla(equipos, jugados), use_container_width=True, hide_index=True)
+        elif obj == "full":
             if s["ya_directo"]:
                 st.success(f"🟢 **{eq_sel} ya clasificó directo** (siempre entre los {DIRECTO()} primeros).")
             elif s["eliminado"]:
@@ -819,10 +863,16 @@ with tabs[1]:
             if MEJORES_TERCEROS() > 0 and s["puede_tercero"] and not s["ya_directo"]:
                 st.markdown("---")
                 st.markdown(apartado_terceros_texto(eq_sel, esc, pendientes))
+            st.divider()
+            st.markdown("**Tabla actual:**")
+            st.dataframe(tabla(equipos, jugados), use_container_width=True, hide_index=True)
         elif obj == "tercero":
             st.markdown(apartado_terceros_texto(eq_sel, esc, pendientes))
         else:
             st.markdown(que_necesita_texto(eq_sel, esc, pendientes, obj, n=n_val))
+            st.divider()
+            st.markdown("**Tabla actual:**")
+            st.dataframe(tabla(equipos, jugados), use_container_width=True, hide_index=True)
 
 # ── Tab 2: Puesto puntual ────────────────────────────────────────────────────────
 with tabs[2]:
