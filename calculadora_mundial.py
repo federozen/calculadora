@@ -196,7 +196,8 @@ def _detalle_gol(g2, equipo, pend):
     me0, opp = _margen_pend(equipo, pend, fila); mr0, _ = _margen_pend(riv, pend, fila)
     de = int(fila[f"DG {equipo}"]) - me0; dr = int(fila[f"DG {riv}"]) - mr0
     gap = dr - de; K = gap + 1; riv_pend = bool(_pd_de(riv, pend))
-    if me0 > 0 and riv_pend:
+    solo_e = len(_pd_de(equipo, pend)) == 1; solo_r = len(_pd_de(riv, pend)) == 1
+    if me0 > 0 and solo_e and solo_r:
         if K >= 2:
             return (f"necesita ganarle a {opp} por al menos {_gol(K)} más que {riv}; "
                     f"si gana por {_gol(K-1)} más, igualan en diferencia de gol y se define por los goles a favor")
@@ -205,7 +206,7 @@ def _detalle_gol(g2, equipo, pend):
                     f"si ganan por la misma diferencia, igualan en DG y se define por los goles a favor")
         return (f"le alcanza con que su diferencia de gol final supere a la de {riv} (parte {_gol(-gap)} arriba); "
                 f"si {riv} la empareja, se define por los goles a favor")
-    if me0 > 0 and not riv_pend and K >= 1:
+    if me0 > 0 and solo_e and not riv_pend and K >= 1:
         cola = (f"con {_gol(K-1)} igualan en DG y define los goles a favor" if K - 1 >= 1
                 else "si igualan la DG, define los goles a favor")
         return f"necesita ganar por al menos {_gol(K)} para superar la diferencia de gol de {riv}; {cola}"
@@ -415,6 +416,106 @@ def mejor_resultado_texto(equipo, esc, pend, directo=None):
         flag = " 👍 lo que más le conviene" if i == 0 else ""
         lineas.append(f"• Si {equipo} **{o['r']}**: termina entre {o['mejor']}º y {o['peor']}º · "
                       f"sale 1º en {o['uno']}/{o['n']} · clasifica directo en {o['dir']}/{o['n']}{flag}")
+    return "\n\n".join(lineas)
+
+def _gana_todo(p): return bool(p) and all(s.startswith("le gana") for s in p.split(" y "))
+
+def conviene_otros_texto(equipo, esc, pend, directo=None):
+    """Qué le conviene al equipo en los partidos que NO juega."""
+    d = DIRECTO() if directo is None else directo
+    otros_pend = [p for p in pend if equipo not in p]
+    if not otros_pend:
+        return ""
+    df = esc.copy()
+    df["_p"] = df.apply(lambda r: _res_propio(r, equipo, pend), axis=1)
+    df["_o"] = df.apply(lambda r: _res_otros(r, equipo, pend), axis=1)
+    if _pd_de(equipo, pend):
+        sub = df[df["_p"].map(_gana_todo)]
+        cab = f"Si **{equipo} gana lo suyo**, le conviene en los otros partidos (de mejor a peor):"
+        if sub.empty: sub, cab = df, f"A **{equipo}** le conviene en los otros partidos (de mejor a peor):"
+    else:
+        sub, cab = df, f"A **{equipo}** le conviene en los otros partidos (de mejor a peor):"
+    rows = []
+    for o, g in sub.groupby("_o"):
+        gp = esc.loc[g.index, f"Pos {equipo}"]
+        rows.append({"o": o, "prom": float(gp.mean()), "uno": int((gp == 1).sum()),
+                     "dir": int((gp <= d).sum()), "n": len(g)})
+    rows.sort(key=lambda r: (round(r["prom"], 6), -r["dir"] / r["n"]))
+    lineas = [cab]
+    for i, r in enumerate(rows):
+        flag = " 👍" if i == 0 else ""
+        lineas.append(f"• Que {r['o']}: sale 1º en {r['uno']}/{r['n']} · clasifica directo en {r['dir']}/{r['n']}{flag}")
+    return "\n\n".join(lineas)
+
+def resumen_grupo_texto(equipos, jugados, esc=None, pend=None, directo=None):
+    """Pantallazo en texto del grupo: líder, escoltas y estado de la pelea."""
+    d = DIRECTO() if directo is None else directo
+    t = tabla(equipos, jugados); top = t.iloc[0]
+    txt = f"📋 **{top['Equipo']}** lidera con **{int(top['PTS'])} pts**"
+    if len(t) > 1: txt += f", escolta {t.iloc[1]['Equipo']} ({int(t.iloc[1]['PTS'])})."
+    else: txt += "."
+    partes = [txt]
+    if pend: partes.append("Falta(n): " + ", ".join(f"{l} vs {v}" for l, v in pend) + ".")
+    if esc is not None:
+        S = {e: situacion(e, esc, d) for e in equipos}
+        clas = [e for e in equipos if S[e]["ya_directo"]]
+        elim = [e for e in equipos if S[e]["eliminado"]]
+        disp = [e for e in equipos if not S[e]["ya_directo"] and not S[e]["eliminado"]]
+        if clas: partes.append("Ya clasificó: " + ", ".join(clas) + ".")
+        if elim: partes.append("Sin chances: " + ", ".join(elim) + ".")
+        pelean = [e for e in disp if S[e]["puede_directo"]]
+        if len(pelean) >= 2 and len(clas) < d:
+            partes.append(f"Pelean por entrar: {', '.join(pelean)}.")
+        elif disp:
+            partes.append("En disputa: " + ", ".join(disp) + ".")
+    return " ".join(partes)
+
+def necesita_por_resultados_texto(equipo, equipos, jugados, pendientes, n=None):
+    """Para muchos partidos: razona por resultado (G/E/P) y puntos, sin simular goles."""
+    n = DIRECTO() if n is None else n
+    if not pendientes:
+        return "No quedan partidos."
+    base = {e: _stats(equipos, jugados)[e]["pts"] for e in equipos}
+    mios  = [i for i, p in enumerate(pendientes) if equipo in p]
+    otros = [i for i in range(len(pendientes)) if i not in mios]
+    meta     = f"ser {CAMPEON()}" if n == 1 else f"clasificar (top {n})"
+    verbo_ok = f"es {CAMPEON()}"  if n == 1 else f"entra al top {n}"
+    porpts = {}
+    for own in product("LEV", repeat=len(mios)):
+        add = {e: 0 for e in equipos}
+        for k, i in enumerate(mios):
+            l, v = pendientes[i]
+            if own[k] == "L": add[l] += 3
+            elif own[k] == "V": add[v] += 3
+            else: add[l] += 1; add[v] += 1
+        for oth in product("LEV", repeat=len(otros)):
+            final = {e: base[e] + add[e] for e in equipos}
+            for k, i in enumerate(otros):
+                l, v = pendientes[i]
+                if oth[k] == "L": final[l] += 3
+                elif oth[k] == "V": final[v] += 3
+                else: final[l] += 1; final[v] += 1
+            p = final[equipo]
+            arriba = sum(1 for x in equipos if x != equipo and final[x] > p)
+            igual  = sum(1 for x in equipos if x != equipo and final[x] == p)
+            rem    = n - arriba
+            porpts.setdefault(p, []).append("safe" if rem >= igual + 1 else ("out" if rem <= 0 else "tie"))
+    niveles  = sorted(porpts, reverse=True)
+    safe_pts = [p for p in niveles if all(s == "safe" for s in porpts[p])]
+    out_pts  = [p for p in niveles if all(s == "out"  for s in porpts[p])]
+    medio    = [p for p in niveles if p not in safe_pts and p not in out_pts]
+    total_comb = 3 ** len(pendientes)
+    lineas = [f"**¿Qué necesita {equipo} para {meta}?** — por resultados ({total_comb:,} combinaciones)\n"]
+    if safe_pts:
+        lineas.append(f"✅ Con **{min(safe_pts)} pts** o más: {equipo} {verbo_ok} **pase lo que pase**.")
+    if medio:
+        borde = any("tie" in porpts[p] for p in medio)
+        rng = f"{min(medio)} a {max(medio)}" if min(medio) != max(medio) else f"{medio[0]}"
+        lineas.append(f"⚠️ Con **{rng} pts**: depende de los otros resultados" +
+                      (" (y en algunos casos de la diferencia de gol)" if borde else "") + ".")
+    if out_pts:
+        lineas.append(f"❌ Con **{max(out_pts)} pts** o menos: no le alcanza.")
+    lineas.append("\n_(Se razona por resultados; los empates de puntos por el último cupo se deciden por diferencia de gol.)_")
     return "\n\n".join(lineas)
 
 # ─── TORNEO COMPLETO ─────────────────────────────────────────────────────────────
@@ -658,6 +759,7 @@ tabs = st.tabs([
     "🟰 ¿Qué le conviene?",
     "🏆 Cuentas de liga",
     "🌍 Torneo completo",
+    "🗓️ Muchos partidos",
 ])
 
 # ── Tab 0: Tabla y panorama ──────────────────────────────────────────────────────
@@ -671,6 +773,7 @@ with tabs[0]:
         st.dataframe(panorama(equipos, jugados, esc), use_container_width=True, hide_index=True)
     if pendientes:
         st.caption("Partidos pendientes: " + " · ".join(f"{l} vs {v}" for l, v in pendientes))
+    st.info(resumen_grupo_texto(equipos, jugados, esc, pendientes))
 
 # ── Tab 1: Qué necesita ──────────────────────────────────────────────────────────
 with tabs[1]:
@@ -835,12 +938,16 @@ with tabs[6]:
 # ── Tab 7: Qué le conviene ───────────────────────────────────────────────────────
 with tabs[7]:
     st.subheader("🟰 ¿Qué le conviene a cada equipo?")
-    st.caption("El resultado propio ordenado de mejor a peor para su clasificación.")
+    st.caption("El resultado propio ordenado de mejor a peor, y qué hinchar en los otros partidos.")
     if not pendientes:
         st.info("No hay partidos pendientes.")
     else:
         eq_conv = st.selectbox("Equipo", equipos, key="conv_eq")
         st.markdown(mejor_resultado_texto(eq_conv, esc, pendientes))
+        otros_txt = conviene_otros_texto(eq_conv, esc, pendientes)
+        if otros_txt:
+            st.divider()
+            st.markdown(otros_txt)
 
 # ── Tab 8: Cuentas de liga ───────────────────────────────────────────────────────
 with tabs[8]:
@@ -884,3 +991,29 @@ with tabs[9]:
                     st.info("Los terceros no clasifican (MEJORES_TERCEROS = 0).")
                 for a in avisos_t:
                     st.caption(f"ℹ️ {a}")
+
+# ── Tab 10: Muchos partidos (por resultados) ──────────────────────────────────────
+with tabs[10]:
+    st.subheader("🗓️ ¿Y si faltan muchos partidos? — análisis por resultados")
+    st.caption(
+        "Cuando quedan 3, 4 o más partidos, simular gol por gol es muy lento. "
+        "Acá se razona por **resultado** (ganar/empatar/perder) y **puntos**: "
+        "te dice con cuántos puntos clasifica seguro, depende, o no alcanza. "
+        "Los empates de puntos por el último cupo se marcan como *definidos por diferencia de gol*."
+    )
+    col1, col2 = st.columns(2)
+    with col1:
+        eq_res = st.selectbox("Equipo", equipos, key="res_eq")
+    with col2:
+        n_res = st.number_input(f"Top N (1 = {CAMPEON()})", min_value=1, max_value=len(equipos)-1,
+                                value=DIRECTO(), key="res_n")
+    if not pendientes:
+        st.info("No hay partidos pendientes.")
+    else:
+        total_comb = 3 ** len(pendientes)
+        if total_comb > 500000:
+            st.warning(f"⚠️ Hay {total_comb:,} combinaciones — puede tardar unos segundos.")
+        if st.button("Calcular", type="primary", key="res_btn"):
+            with st.spinner("Calculando…"):
+                resultado_txt = necesita_por_resultados_texto(eq_res, equipos, jugados, pendientes, n_res)
+            st.markdown(resultado_txt)
