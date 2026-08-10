@@ -78,12 +78,12 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.4` (fuente única en `__version__` dentro del archivo principal;
-  la usan el título y `lpf_models.AuditMetadata.calculation_version`).
+- Versión: `3.8.6` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+  `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
 - Archivo principal: **~10.560 líneas** (arrancó en ~12.780).
-- **122 pruebas**, todas verdes. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
-- Se extrajeron **trece módulos** del monolito, todos verificados por equivalencia
-  exacta contra el original.
+- **132 pruebas**, todas verdes. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
+  las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
   equivalencia** (no se usa en la app, no la importes, no la edites).
 
@@ -144,6 +144,8 @@ ciclos); respétalo. De más básico a más compuesto:
 | `lpf_exact.py` | Cotas seguras (garantía conservadora, promedios). | — |
 | `lpf_pisos.py` | Piso por objetivo (mínimo posible / garantía / cota). | lpf_scenarios, lpf_exact |
 | `lpf_models.py` | Dataclasses de dominio y auditoría. | — |
+| `lpf_version.py` | Única versión del motor compartida por todas las interfaces. | — |
+| `lpf_services.py` | Contrato JSON-safe para standings, escalera, rango y pisos; futura frontera HTTP. | lpf_version, lpf_standings, lpf_scenarios, lpf_pisos |
 | `lpf_competition_narratives.py`, `lpf_competitive_context.py`, `lpf_display.py` | Relatos y presentación (ya existían). | varias |
 
 El motor `_resolver` / `_orden` ya no está en el archivo principal. `posiciones` y
@@ -310,6 +312,16 @@ Un futuro adaptador Opta debe vivir en esta misma frontera conceptual: resolver 
 nombres, estados y payloads propios y entregar estructuras simples a `lpf_loading`.
 No agregues una interfaz genérica ni un SDK hasta que exista ese consumidor concreto.
 
+### 8c quinquies. Frontera de servicios — resuelto en 3.8.5
+`lpf_services.py` expone cálculos con entrada/salida JSON-safe y errores estables sin
+incorporar un framework HTTP. La futura API debe ser una capa fina sobre estos
+servicios; no debe importar el archivo Streamlit ni volver a implementar cálculos.
+`API_CONTRACT.md` documenta la versión 1 del contrato.
+
+No agregues FastAPI/Flask ni un SDK de Opta hasta que exista el consumidor concreto.
+Si se amplía el contrato, hacelo operación por operación y comparando cada salida con
+el motor directo.
+
 ### 8d. Otros fetchers de red (dejalos para el final)
 Los caminos LPF de ESPN/FutbolArgentino.com ya tienen transporte y parsing separados.
 Todavía existen utilidades genéricas/otras fuentes (`tabla_desde_url`,
@@ -337,7 +349,7 @@ representación, hacelo con pruebas que cubran ambos usos.
 4. **No metas Streamlit en los módulos puros.** Si una función necesita
    `st.session_state`, o se queda en el archivo principal, o recibe el dato como
    parámetro.
-5. **Una sola fuente de verdad para la versión** (`__version__`). Si la subís,
+5. **Una sola fuente de verdad para la versión** (`lpf_version.__version__`). Si la subís,
    actualizá el CHANGELOG.
 6. **No inventes datos.** Si falta una tabla, la app debe decirlo, no rellenar. Las
    estimaciones van siempre rotuladas y separadas de los hechos exactos.

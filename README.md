@@ -1,14 +1,29 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.4
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.6
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
-La versión vigente siempre está en la constante `__version__` de `calculadora_futbol_argentino.py` (única fuente de verdad). El historial completo está en `CHANGELOG.md`.
+La versión vigente siempre está en `lpf_version.__version__` (única fuente de verdad compartida por Streamlit, auditoría y futuras interfaces). El historial completo está en `CHANGELOG.md`.
 
 La versión 3 prioriza tres objetivos:
 
 1. **Base coherente:** Zonas, Tabla Anual, promedios, fixture y resultados se reconcilian antes de habilitar una cuenta.
 2. **Explicación honesta:** distingue hechos exactos, garantías matemáticas, cotas conservadoras y estimaciones.
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
+
+## Corrección 3.8.6 · Streamlit
+
+- Corregida una referencia residual a `_lpf_add_source_issues` que podía producir `NameError` al entrar al newsroom/auditoría en Streamlit.
+- `_lpf_refresh_quality` usa ahora explícitamente `lpf_state.add_source_issues` con los mensajes guardados en la sesión.
+- Se agregaron pruebas de regresión del puente entre la interfaz y los módulos extraídos. Suite actual: **132 pruebas**.
+
+## Novedad 3.8.5 · Contrato de cálculos para una futura API
+
+- `lpf_services.py` expone cuatro cálculos con entrada/salida JSON-safe: standings, escalera de puntos, rango de puesto y piso por objetivo.
+- Los servicios sólo traducen/validan el contrato y reutilizan los motores existentes; no hay matemática duplicada.
+- Todas las respuestas llevan `contract_version` y `calculation_version`. Los errores de entrada usan `ContractError` con código y campo estables.
+- `lpf_version.py` es ahora la única fuente de versión, por lo que una API no necesita importar Streamlit para identificar el motor.
+- `API_CONTRACT.md` documenta payloads y respuestas. Todavía no se agregó un framework HTTP ni un SDK de Opta.
+- Suite: **130 pruebas** más 980 comparaciones aleatorias de equivalencia del servicio de standings.
 
 ## Novedad 3.8.4 · Proveedores desacoplados de HTTP
 

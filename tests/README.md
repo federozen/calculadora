@@ -5,7 +5,7 @@ enumeran todos los desenlaces posibles y se comparan, resultado por resultado,
 contra lo que dicen los solucionadores. Es la evidencia de que "los números
 siempre salen de Python y están validados".
 
-La suite actual contiene **122 pruebas**.
+La suite actual contiene **132 pruebas**.
 
 | Archivo | Qué cubre |
 | --- | --- |
@@ -19,6 +19,7 @@ La suite actual contiene **122 pruebas**.
 | `test_lpf_loading.py` | Preparación de carga sin I/O: canonicalización de resultados, carga offline, actualización automática, avance de standings, reconstrucción anual y rechazo de fotos insuficientes. |
 | `test_lpf_provider_adapters.py` | Fixtures locales de ESPN/FutbolArgentino.com: standings, zonas, scoreboards, estados, deduplicación y metadatos sin red. |
 | `test_lpf_http.py` | Transporte HTTP con `requests` simulado; verifica que no mezcle parsing ni Streamlit. |
+| `test_lpf_services.py` | Contrato JSON-safe de cálculos: equivalencia con standings, escenarios y pisos; serialización, errores y versión compartida. |
 | `test_lpf_standings.py` | Motor puro de tabla: estadísticas, desempates configurables, mano a mano, fair play/ranking, posiciones y clasificador in/out/pelea. |
 | `test_lpf_derive.py` | Derivación: reconstrucción del Apertura e inferencia determinista. |
 | `test_lpf_reconcile.py` | Reconciliación: nóminas conocidas, estadísticas, merge sin duplicar, encaje en zonas. |

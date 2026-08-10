@@ -1,3 +1,23 @@
+## 3.8.6 · 2026-08-10
+
+### Corrección de arranque en Streamlit
+
+- Se corrigió un `NameError` en `_lpf_refresh_quality`: después de extraer la lógica a `lpf_state.add_source_issues` había quedado una llamada residual al nombre antiguo `_lpf_add_source_issues`.
+- La ruta de auditoría vuelve a pasar explícitamente `PROM_SOURCE_ISSUES` desde `st.session_state` al helper puro, preservando exactamente el comportamiento anterior.
+- Se agregaron dos pruebas de regresión sobre el puente Streamlit → `lpf_state` para detectar referencias residuales a helpers extraídos antes del despliegue.
+- No cambia ninguna fórmula ni contrato de cálculo; es una corrección de integración de la interfaz. La suite queda en **132 pruebas**.
+
+## 3.8.5 · 2026-08-10
+
+### Contrato JSON para la futura API de cálculos
+
+- Se agregó `lpf_services.py`, una fachada pura que recibe payloads compatibles con JSON y delega en los motores existentes sin importar Streamlit, `requests` ni proveedores.
+- Primer contrato versionado (`contract_version = "1"`) para cuatro operaciones: tabla/posiciones, escalera exacta de puntos, rango exacto de puesto en una ventana y piso por objetivo de corte.
+- Todas las respuestas incluyen `calculation_version`; la versión del motor pasó a `lpf_version.py` para que Streamlit, auditoría y una futura API compartan la misma fuente sin importar el archivo principal. Esto corrige además el valor residual `3.8.2` que todavía tenía `AuditMetadata`.
+- Se agregó `ContractError` con `code`, `message` y `field` para disponer de errores estables que una futura capa HTTP pueda mapear sin incorporar un framework web ahora.
+- Se documentó el contrato en `API_CONTRACT.md`. No se agregó FastAPI, servidor HTTP, autenticación ni SDK de Opta.
+- La suite sube de 122 a **130 pruebas**. Además se verificaron **980 casos aleatorios** de equivalencia del servicio de standings contra `lpf_standings._orden`, con cuatro configuraciones de desempate.
+
 ## 3.8.4 · 2026-08-10
 
 ### HTTP separado de los adaptadores de proveedor

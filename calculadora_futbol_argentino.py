@@ -2,11 +2,11 @@
 ⚽ Calculadora de escenarios — LPF 2026
 Convertido de Jupyter Notebook (v2) a Streamlit
 
-La versión vigente está en ``__version__`` (única fuente de verdad).
+La versión vigente está en ``lpf_version.__version__`` (única fuente de verdad).
 El historial completo está en ``CHANGELOG.md``.
 """
 
-__version__ = "3.8.4"
+from lpf_version import __version__
 
 import streamlit as st
 from itertools import product, combinations
@@ -35,7 +35,7 @@ from lpf_standings import (
     DEFAULT_CRITERIOS, _stats, liga_tabla_df, _liga_in_out,
     posiciones as _standings_posiciones, tabla as _standings_tabla,
 )
-from lpf_state import LPF_APERTURA_PJ, build_lpf_state, opening_is_valid
+from lpf_state import LPF_APERTURA_PJ, add_source_issues, build_lpf_state, opening_is_valid
 
 # La interfaz muestra nombres periodísticos (River, Boca, Vélez, etc.) sin
 # cambiar las claves canónicas que usa el motor para fixtures y cálculos.
@@ -9455,7 +9455,9 @@ def _lpf_refresh_quality(E):
         E.get("jugados") or [],
         opening_snapshot=opening,
     )
-    report = _lpf_add_source_issues(report)
+    report = add_source_issues(
+        report, st.session_state.get("PROM_SOURCE_ISSUES") or []
+    )
     E["data_quality"] = report
     st.session_state.LPF_DATA_QUALITY = report
     return report
