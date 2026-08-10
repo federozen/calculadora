@@ -1,0 +1,405 @@
+# Instrucciones para continuar mejorando el proyecto
+
+Este documento es el traspaso para la IA (o persona) que siga trabajando en la
+**Calculadora del Fútbol Argentino · LPF 2026**. Léelo entero antes de tocar código.
+Está escrito para que puedas continuar con el mismo criterio y la misma red de
+seguridad con que se trabajó hasta acá.
+
+---
+
+## 0. Objetivo (leé esto primero)
+
+Tu tarea tiene tres metas, en este orden de prioridad:
+
+1. **Que funcione.** La app tiene que levantar con `streamlit run` y andar. Antes de
+   cualquier mejora, verificá que arranca (sección 2).
+2. **Simplificar el código sin cambiar el comportamiento.** El archivo principal es
+   un monolito que se está desarmando en módulos chicos y claros. Seguí bajándolo,
+   reduciendo duplicación y aclarando lo confuso —pero **los números que devuelve la
+   app no pueden cambiar** (sección 4).
+3. **Dejarlo listo para mejoras.** Al terminar, el proyecto debe quedar más fácil de
+   entender y tocar que como lo encontraste: módulos con una responsabilidad clara,
+   pruebas verdes, linter limpio y documentación al día (sección 12).
+
+Regla mental para todo el trabajo: **simplificar es reducir complejidad, no agregar
+inteligencia.** No reescribas desde cero, no cambies el stack, no metas frameworks ni
+abstracciones "por las dudas". La mejor versión de este trabajo es aburrida, chica y
+verificable.
+
+---
+
+## 1. Qué es este proyecto
+
+Aplicación en **Python + Streamlit** que analiza la Liga Profesional 2026: playoffs
+por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios, escenarios
+de una fecha y pisos por objetivo. El punto de entrada es
+`calculadora_futbol_argentino.py`.
+
+**Principio rector, innegociable:** *los números siempre salen de Python
+determinístico y validado.* El modelo de lenguaje (cuando está activo) sólo
+interpreta la consulta del usuario y redacta; **nunca** calcula. No rompas esto.
+
+**Regla editorial:** la palabra "garantía" se reserva para cotas que no dependen de
+terceros ni de desempates. Distinguí siempre cuatro cosas y no las mezcles: *corte
+actual*, *mínimo todavía posible* (desempate a favor), *garantía matemática*
+(desempate en contra) y *estimación* (siempre rotulada como tal).
+
+---
+
+## 2. Cómo correr y verificar la app
+
+### Instalar y correr
+```bash
+pip install -r requirements.txt
+streamlit run calculadora_futbol_argentino.py
+```
+La app funciona sin configuración. El asistente de lenguaje es **opcional**: si querés
+activarlo, poné una `ANTHROPIC_API_KEY` en `.streamlit/secrets.toml` o desde la UI.
+Sin key, la app anda igual (sólo se apaga la redacción asistida; los cálculos no
+dependen de eso).
+
+### Verificar que sigue sana (corré esto después de cada cambio)
+```bash
+pip install pytest ruff --break-system-packages
+python -m pytest -q                                   # todas deben pasar
+python -m ruff check --select F,E9 *.py tests/*.py    # "All checks passed!"
+python -m py_compile calculadora_futbol_argentino.py lpf_*.py
+```
+
+### Verificar que la app realmente arranca (sin abrir un navegador)
+El archivo principal ejecuta UI al importarse, así que se puede hacer un "smoke test"
+con Streamlit simulado. Si el import corre **más allá de la carga de datos** (llega a
+código de UI), el arranque y la carga de datos están sanos. Guardá un stub mínimo de
+Streamlit y hacé `import calculadora_futbol_argentino`; si falla recién en un widget
+de UI (no en un `import` ni en la construcción de datos), estás bien. Este chequeo ya
+se usó y sirve para confirmar que ninguna extracción rompió la cadena de datos.
+
+---
+
+## 3. Estado actual (punto de partida)
+
+- Versión: `3.8.4` (fuente única en `__version__` dentro del archivo principal;
+  la usan el título y `lpf_models.AuditMetadata.calculation_version`).
+- Archivo principal: **~10.560 líneas** (arrancó en ~12.780).
+- **122 pruebas**, todas verdes. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- Se extrajeron **trece módulos** del monolito, todos verificados por equivalencia
+  exacta contra el original.
+- La copia original intacta está en `_original_referencia/` **sólo para probar
+  equivalencia** (no se usa en la app, no la importes, no la edites).
+
+---
+
+## 4. Qué significa "simplificar" acá (y qué NO hacer)
+
+### Simplificar es (en orden de valor y seguridad):
+- **Seguir sacando capas del monolito** a módulos con una responsabilidad clara,
+  usando el patrón seguro de la sección 6. Esto es lo principal.
+- **Borrar código muerto** (funciones sin usar, ramas inalcanzables). Ya se archivó
+  un fork entero (`calculadora_mundial.py` → `legacy/`) y se limpiaron variables y
+  código inalcanzable. Si encontrás más, sacalo (verificá con el linter que nadie lo
+  usa).
+- **Partir funciones gigantes** en piezas nombradas. El archivo tiene funciones de
+  cientos de líneas (p. ej. `cargar_lpf_espn`); separar la lógica pura de la UI las
+  hace legibles y testeables.
+- **Reducir duplicación**: si ves la misma lógica repetida, unificala en una función
+  y reutilizala.
+- **Aclarar sin reescribir**: mejores nombres, docstrings breves donde falten,
+  comentarios que expliquen el *porqué*.
+
+### Simplificar NO es:
+- **Reescribir desde cero.** Prohibido. El valor está en preservar el comportamiento.
+- **Cambiar los números.** Si un cálculo da distinto después de tu cambio, es un bug,
+  aunque "parezca más correcto". Cambios en la matemática van con una prueba que los
+  justifique (sección 9, regla 1).
+- **Cambiar el stack ni agregar dependencias pesadas.** Nada de reemplazar Streamlit,
+  meter una base de datos, un framework nuevo o un ORM.
+- **Abstraer de más.** No crees capas genéricas "por si acaso". Simplificá lo que
+  hay, no imagines lo que podría venir.
+- **Tocar todo a la vez.** Un módulo por vez, verificando entre cada paso.
+
+---
+
+## 5. Mapa de módulos
+
+El monolito se está desarmando en capas. El grafo de dependencias es un DAG (sin
+ciclos); respétalo. De más básico a más compuesto:
+
+| Módulo | Responsabilidad | Depende de |
+| --- | --- | --- |
+| `lpf_text.py` | Normalización de texto, detección de equipos, formateo de números. | — |
+| `lpf_clubs.py` | Canonicalización de nombres de clubes (`canon_club`, `canon_base`, `LPF_CLUBES`). | lpf_text |
+| `lpf_data_2026.py` | Datos fijos de la temporada: fixture, nóminas de zona, tabla anual, foto del Apertura, parser del fixture. | lpf_clubs |
+| `lpf_parsers.py` | Parsers de tablas pegadas (anual, promedios, fixture, lista de equipos). | lpf_text, lpf_clubs |
+| `lpf_standings.py` | Motor puro de tabla: estadísticas, desempates, orden, posiciones, tabla y clasificador in/out/pelea. Los criterios entran como parámetro. | — (pandas) |
+| `lpf_fixture_sources.py` | Fuentes de fixture y `expected_played_count` (ya existía). | — |
+| `lpf_data_quality.py` | Reportes de calidad de datos (ya existía). | lpf_models |
+| `lpf_state.py` | Constructor puro del estado LPF canónico: Apertura, Anual autoritativa, pendientes y auditoría. Todos los valores de sesión entran por parámetro. | lpf_clubs, lpf_data_quality, lpf_models |
+| `lpf_loading.py` | Preparación pura de carga: canonicaliza resultados, combina fuentes, avanza standings, reconstruye la Anual e infiere faltantes sin red ni Streamlit. | lpf_clubs, lpf_data_2026, lpf_data_quality, lpf_derive, lpf_fixture_sources, lpf_reconcile, lpf_state |
+| `lpf_http.py` | Transporte HTTP de fuentes públicas; no parsea ni conoce Streamlit. | requests |
+| `lpf_provider_adapters.py` | Adaptación pura de respuestas ESPN/FutbolArgentino.com a tablas/resultados/metadatos del dominio. | pandas, lpf_clubs, lpf_reconcile, lpf_text |
+| `lpf_reconcile.py` | Reconciliación e integridad: ajusta resultados a zonas, repara duplicados, avanza zonas, valida. | lpf_clubs, lpf_data_2026, lpf_fixture_sources, lpf_parsers |
+| `lpf_derive.py` | Deriva la foto del Apertura e infiere resultados faltantes. | lpf_text, lpf_clubs, lpf_data_2026, lpf_reconcile |
+| `lpf_intents.py` | Ruteo de intención del chat (consulta → `{"intent": ...}`). | lpf_text |
+| `lpf_scenarios.py` | Motor exacto MILP (scipy): escalera de puntos, rangos, escenarios. | lpf_models |
+| `lpf_exact.py` | Cotas seguras (garantía conservadora, promedios). | — |
+| `lpf_pisos.py` | Piso por objetivo (mínimo posible / garantía / cota). | lpf_scenarios, lpf_exact |
+| `lpf_models.py` | Dataclasses de dominio y auditoría. | — |
+| `lpf_competition_narratives.py`, `lpf_competitive_context.py`, `lpf_display.py` | Relatos y presentación (ya existían). | varias |
+
+El motor `_resolver` / `_orden` ya no está en el archivo principal. `posiciones` y
+`tabla` permanecen sólo como adaptadores mínimos de Streamlit que inyectan los
+criterios de sesión al motor puro de `lpf_standings`.
+
+---
+
+## 6. El patrón de extracción seguro (SEGUÍLO SIEMPRE)
+
+Toda extracción que se hizo respetó estos pasos. No te saltees ninguno.
+
+1. **Elegí un bloque cohesivo** de funciones relacionadas.
+2. **Mapeá el cierre de dependencias**: qué funciones y qué globales/constantes usa,
+   de forma transitiva. Una función sólo es extraíble si su cierre completo es
+   "puro": no toca `st.session_state` ni `requests`. (Ver script sugerido abajo.)
+3. **Verificá que no haya ciclos**: el módulo nuevo sólo puede importar de módulos ya
+   existentes, nunca del archivo principal.
+4. **Creá el módulo nuevo** con las funciones y sus imports (de `lpf_text`,
+   `lpf_clubs`, etc.). Poné un docstring que explique la responsabilidad.
+5. **Quitá los bloques del archivo principal** y **reimportá con el mismo nombre**
+   (`from lpf_nuevo import foo, bar`). Así ningún call-site cambia.
+6. **Corré el linter** (`ruff --select F,E9`). Va a atrapar imports faltantes
+   (`F821`) e imports sin uso (`F401`). Arreglalos. **Esto ya salvó de dos bugs.**
+7. **Probá equivalencia exacta** contra el original (ver sección 7). Es el paso
+   más importante: demuestra que el comportamiento no cambió.
+8. **Escribí pruebas permanentes** para el módulo nuevo.
+9. **Corré toda la suite**, actualizá `CHANGELOG.md`, `ARCHITECTURE.md` y
+   `tests/README.md`, y recién ahí das el paso por terminado.
+
+### Cuidado conocido con la extracción por texto
+Si extraés bloques buscando "desde `def X` hasta el próximo `def`", vas a arrastrar
+cualquier **constante o comentario de módulo que viva suelto entre dos funciones**.
+Ya pasó una vez (`_LPF_PROM_HISTORY_VERSION` terminó en el módulo equivocado; lo
+atrapó el linter). Revisá el módulo nuevo en busca de asignaciones de módulo que no
+correspondan (`grep -nE '^[A-Za-z_][A-Za-z0-9_]* *=' lpf_nuevo.py`).
+
+### Script para mapear el cierre de una función
+```python
+import re
+lines = open('calculadora_futbol_argentino.py').read().split('\n')
+defs = {}
+for i, l in enumerate(lines):
+    m = re.match(r'def ([A-Za-z_][A-Za-z0-9_]*)\(', l)
+    if m: defs.setdefault(m.group(1), i)
+def block(name):
+    s = defs[name]; e = s + 1
+    while e < len(lines) and not (lines[e].startswith('def ') or lines[e].startswith('class ')): e += 1
+    return '\n'.join(lines[s:e])
+# BFS del cierre desde una semilla; marca impuras las que tocan st/requests
+```
+
+---
+
+## 7. Cómo probar equivalencia exacta (imprescindible)
+
+La copia intacta original está en `_original_referencia/`. La técnica: cargar la
+función **original** en un namespace aislado (dándole sus dependencias ya extraídas)
+y compararla contra la nueva sobre muchas entradas reales.
+
+```python
+# Cargar la versión original de una función en un namespace controlado
+orig_lines = open('_original_referencia/calculadora_futbol_argentino_ORIGINAL.py').read().split('\n')
+def block(name, lines):
+    s = next(i for i,l in enumerate(lines) if l.startswith(f'def {name}('))
+    e = s+1
+    while e<len(lines) and not (lines[e].startswith(('def ','class '))): e+=1
+    return '\n'.join(lines[s:e])
+ns = {'canon_club': canon_club, ...}   # inyectá TODAS las dependencias
+exec(block('mi_funcion', orig_lines), ns)
+orig_fn = ns['mi_funcion']
+# comparar orig_fn(x) contra nueva(x) sobre cientos de entradas reales
+```
+
+Compará **capturando también las excepciones** (si el original lanza y el nuevo
+lanza lo mismo, son equivalentes). Un ejemplo real: `_lpf_infer_missing_results`
+lanza `ValueError` con cierta entrada inválida; original y nuevo lo hacen igual, y
+eso es equivalencia correcta.
+
+Usá datos reales de la temporada (`lpf_data_2026`) siempre que puedas, no ejemplos
+inventados. Al escribir tests, primero **inspeccioná la forma real de retorno** de la
+función (muchas devuelven tuplas con estructura, no lo que uno asume); no adivines.
+
+---
+
+## 8. Qué falta y cómo encararlo (hoja de ruta)
+
+### 8a. Lo que queda es más difícil: pará y cambiá de enfoque
+Lo pendiente ya **no** es extracción pura fácil. Es de dos tipos:
+
+- **Tejido de generación de texto editorial** (`lpf_*_texto`, `_copas_bloque_*`,
+  `lpf_que_se_juega_fecha`, etc.): son "puras" en el sentido de no tocar `st`, pero
+  forman un componente enorme y muy interconectado, y varias leen configuración vía
+  accesores (`DIRECTO()`, `CRITERIOS()`, `MEJORES_TERCEROS()`) que sí leen
+  `st.session_state`. Extraerlas requiere **inyección de dependencias** (pasar los
+  criterios como parámetro), lo que cambia firmas y call-sites. Es un refactor
+  mayor: hacelo de a poco y con muchísima prueba de equivalencia, o no lo hagas.
+
+- **Código pegado a la interfaz** (47 funciones con `st.session_state`, 11
+  `render_*`, y los cargadores `cargar_lpf_*`, `_lpf_rebuild_state`): acá el objetivo
+  no es "mover", es **separar la lógica de la presentación**. Extraé la lógica pura
+  que esté enterrada dentro de una función de UI a un helper puro y testeable, y
+  dejá en la UI sólo la parte de Streamlit. No muevas Streamlit a otro módulo.
+
+### 8b. Criterios de desempate — resuelto en 3.8.1
+El motor de ordenamiento (`_resolver`, `_orden`, `posiciones`, `tabla`) ya vive en
+`lpf_standings.py` y recibe `criterios` como parámetro. El módulo no toca Streamlit.
+El archivo principal conserva únicamente adaptadores de `posiciones` y `tabla` para
+inyectar `CRITERIOS()` sin cambiar los call-sites existentes.
+
+La extracción se comprobó en 1.470 casos aleatorios contra la copia original, con
+seis juegos de criterios y equivalencia exacta de orden, posiciones y tabla.
+
+Esta separación es también el primer límite preparado para una futura API: los
+consumidores nuevos deben llamar al módulo puro pasando la configuración explícita,
+no leer estado de interfaz.
+
+### 8c. Preparación para futura API y Opta
+La dirección arquitectónica acordada es:
+
+`proveedor → normalización/reconciliación → motores puros → API o Streamlit`.
+
+No agregues Opta, FastAPI ni otra dependencia sólo "por las dudas". Sí preservá estas
+reglas en cada refactor:
+
+- los motores reciben datos y configuración por parámetros;
+- ningún motor importa Streamlit ni código de red;
+- cualquier proveedor futuro traduce su payload al modelo canónico antes del cálculo;
+- la futura API importa módulos puros, nunca el archivo principal Streamlit;
+- entradas y salidas del núcleo deben poder representarse en JSON sin depender del
+  formato nativo del proveedor.
+
+### 8c bis. Constructor de estado — resuelto en 3.8.2
+`_lpf_rebuild_state` ya no contiene las reglas de armado de la foto LPF. Esa lógica vive
+en `lpf_state.build_lpf_state`, que recibe explícitamente zonas, resultados, Anual,
+Apertura, promedios, fixture y metadatos de Copa Argentina. El wrapper de Streamlit
+se limita a leer/escribir sesión.
+
+Esta es la frontera de entrada recomendada para una futura API después de que el
+proveedor haya sido normalizado. No hagas que un adaptador Opta escriba directamente
+`st.session_state`: debe producir las mismas estructuras que recibe `build_lpf_state`.
+
+### 8c ter. Preparación de cargas — resuelto en 3.8.3
+`cargar_lpf_todo` y `cargar_lpf_espn` ya no contienen la mayor parte de la lógica
+determinística de preparación. Esa capa vive en `lpf_loading.py` y no toca Streamlit
+ni la red. `normalize_results_for_zones` es el contrato mínimo de resultados para
+proveedores: canonicaliza clubes, convierte goles a enteros, filtra por la nómina y
+deduplica por identidad oficial.
+
+`prepare_offline_load` y `prepare_automatic_update` reciben fotos ya obtenidas y
+devuelven zonas/resultados/reconciliación/diagnósticos como estructuras Python
+simples. Esto permite que una futura API o un adaptador Opta reutilicen exactamente
+la misma preparación. No hagas que Opta escriba sesión ni que los fetchers entren en
+los motores.
+
+### 8c quater. Transporte y adaptadores de proveedor — resuelto para LPF en 3.8.4
+Los caminos automáticos principales de LPF ya separan transporte de parsing.
+`lpf_http.py` hace sólo HTTP; `lpf_provider_adapters.py` recibe HTML/JSON ya descargado
+y devuelve estructuras del dominio. El archivo Streamlit conserva la caché y la
+persistencia de sesión. Hay fixtures locales de FutbolArgentino.com y ESPN para probar
+sin internet.
+
+Un futuro adaptador Opta debe vivir en esta misma frontera conceptual: resolver IDs,
+nombres, estados y payloads propios y entregar estructuras simples a `lpf_loading`.
+No agregues una interfaz genérica ni un SDK hasta que exista ese consumidor concreto.
+
+### 8d. Otros fetchers de red (dejalos para el final)
+Los caminos LPF de ESPN/FutbolArgentino.com ya tienen transporte y parsing separados.
+Todavía existen utilidades genéricas/otras fuentes (`tabla_desde_url`,
+`partidos_desde_url`, football-data, Apify) que tocan red dentro del archivo principal.
+No las muevas sólo por uniformidad: primero agregá una red de seguridad específica si
+alguna pasa a ser relevante para el núcleo LPF o para la futura API.
+
+### 8e. Ambigüedad de promedios (deuda vieja, documentada)
+Hay una ambigüedad histórica en cómo se arma el diccionario de promedios (`prom`):
+en algunos lugares se trata como "totales acumulados" y en otros como "temporadas
+previas". `lpf_pisos._prom_totales_para_pisos` la maneja con cuidado. Si unificás la
+representación, hacelo con pruebas que cubran ambos usos.
+
+---
+
+## 9. Reglas de oro (no las rompas)
+
+1. **Nunca cambies el resultado de un cálculo sin una prueba que lo justifique.** El
+   valor del proyecto es su honestidad numérica.
+2. **Toda extracción se prueba por equivalencia exacta contra el original** antes de
+   darla por buena.
+3. **Corré `ruff --select F,E9` y `pytest` después de cada cambio.** Ambos deben
+   quedar limpios. El linter atrapa imports faltantes/sobrantes que el `py_compile`
+   no ve.
+4. **No metas Streamlit en los módulos puros.** Si una función necesita
+   `st.session_state`, o se queda en el archivo principal, o recibe el dato como
+   parámetro.
+5. **Una sola fuente de verdad para la versión** (`__version__`). Si la subís,
+   actualizá el CHANGELOG.
+6. **No inventes datos.** Si falta una tabla, la app debe decirlo, no rellenar. Las
+   estimaciones van siempre rotuladas y separadas de los hechos exactos.
+7. **Mantené el DAG de módulos.** Un módulo nuevo importa de los existentes, nunca
+   del archivo principal (evita ciclos).
+
+---
+
+## 10. Convenio de desempates (para no equivocarte en los cálculos)
+
+- **Mínimo posible / mejor puesto / "puede clasificar"** → desempate **a favor**:
+  sólo cuentan los rivales estrictamente por encima.
+- **Garantía / peor puesto / "puede quedar afuera"** → desempate **en contra**:
+  cuentan los rivales iguales o por encima.
+
+Esto está verificado por fuerza bruta en `tests/test_lpf_scenarios.py` y
+`tests/test_lpf_exact.py`. Si tocás el motor, esas pruebas te protegen.
+
+---
+
+## 11. Verificación de integridad de datos
+
+`tests/test_data_pipeline.py` comprueba que el fixture calza con las nóminas (30
+equipos, 16 partidos c/u, sin fantasmas) y que los datos llegan bien a la tabla y a
+los pisos, incluido el camino real de carga (`cargar_lpf_todo`) a través de los
+módulos extraídos y el constructor puro `lpf_state.build_lpf_state`. Si cambiás datos de la temporada o la reconciliación, estas
+pruebas son tu control.
+
+---
+
+## 12. Definición de "listo para mejoras" (cuándo terminaste)
+
+El trabajo está bien entregado cuando **todo** esto es cierto:
+
+- [ ] `streamlit run calculadora_futbol_argentino.py` **levanta y anda**.
+- [ ] `python -m pytest -q` pasa **todas** las pruebas.
+- [ ] `ruff --select F,E9 *.py tests/*.py` dice **"All checks passed!"**.
+- [ ] Cada módulo nuevo tiene **una responsabilidad clara**, un docstring, y **prueba
+      de equivalencia** documentada contra el original.
+- [ ] `CHANGELOG.md`, `ARCHITECTURE.md`, `tests/README.md` y este documento están
+      **al día** con lo que hiciste.
+- [ ] No quedó **código muerto** nuevo ni imports sin uso.
+- [ ] Los **números de la app no cambiaron** (lo garantizan las pruebas de
+      equivalencia y la suite).
+
+"Listo para mejoras" significa que la próxima persona pueda agregar una función nueva
+(por ejemplo, un objetivo o una vista) tocando **un módulo chico y testeable**, sin
+tener que leer 11.000 líneas. Cada extracción que hagas acerca ese objetivo.
+
+---
+
+## 13. Resumen de un vistazo
+
+- Meta: **que funcione**, **simplificar sin cambiar los números**, **dejarlo listo
+  para mejoras**. En ese orden.
+- Trabajá **de a un módulo por vez**, con calma.
+- **Extraé → reimportá con el mismo nombre → linteá → probá equivalencia → testeá →
+  documentá.**
+- Lo fácil ya se hizo; lo que queda pide inyección de dependencias o separar lógica
+  de presentación. El motor de ordenamiento, el constructor del estado LPF y la preparación determinística
+  de cargas ya están extraídos. El próximo trabajo seguro es separar parsing de fetch en
+  los proveedores que todavía hacen red, usando fixtures locales; no crear una API ni un
+  adaptador Opta hasta tener un consumidor real.
+- No reescribas, no cambies el stack, no abstraigas de más.
+- Ante la duda, la respuesta segura es **hacer menos y verificar más**.
