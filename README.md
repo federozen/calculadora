@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.8
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.10
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -10,23 +10,36 @@ La versión 3 prioriza tres objetivos:
 2. **Explicación honesta:** distingue hechos exactos, garantía exacta, referencia conservadora y estimaciones.
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
+## Corrección 3.8.10 · Compatibilidad de actualización parcial
+
+La UI y la fachada de servicios toleran temporalmente objetos `PisoObjetivo` de 3.8.7 o anteriores. Esto evita `AttributeError` si un despliegue manual reemplaza el archivo principal pero deja un `lpf_pisos.py` viejo. La recomendación sigue siendo desplegar todos los archivos del paquete de actualización.
+
+## Novedad 3.8.9 · Foto completa para Streamlit/API
+
+- `lpf_snapshot.py` reúne en una sola foto JSON-safe zonas, Anual, Apertura, jugados, pendientes, partidos restantes, antecedentes de promedios, fixture, reglas y auditoría.
+- `lpf_services.prepare_competition_snapshot` prepara esa foto y `calculate_competition_batch` permite ejecutar varias consultas sobre la misma entrada sin repetir carga/reconciliación.
+- El batch cubre puntos por objetivo, escalera exacta, rango de puesto y descenso combinado Anual + promedios.
+- La fórmula que arma los totales de promedios salió de Streamlit y quedó en `lpf_pisos.promedio_totales`, compartida por UI y futura API.
+- No se agregó servidor HTTP ni SDK de Opta. Un futuro adaptador Opta sólo debe producir la entrada normalizada para esta misma foto.
+- Suite actual: **147 pruebas**.
+
 ## Novedad 3.8.8 · Nombres editoriales unificados
 
 - Toda la app usa **mínimo posible**, **garantía exacta** y **referencia conservadora** para no mezclar números con significados distintos.
 - La referencia conservadora asegura si se alcanza, pero puede pedir puntos de más; la garantía exacta es el menor total comprobado.
 - Promedios muestra **Mínimo final** (si pierde todo) y **Máximo final** (si gana todo), en lugar de “piso/techo”.
 - Se corrigió el objetivo combinado de no descenso para que Anual y promedios se evalúen juntos antes de declarar al equipo salvado.
-- Suite actual: **140 pruebas**.
+- Suite de esa versión: **140 pruebas**.
 
 ## Corrección 3.8.6 · Streamlit
 
 - Corregida una referencia residual a `_lpf_add_source_issues` que podía producir `NameError` al entrar al newsroom/auditoría en Streamlit.
 - `_lpf_refresh_quality` usa ahora explícitamente `lpf_state.add_source_issues` con los mensajes guardados en la sesión.
-- Se agregaron pruebas de regresión del puente entre la interfaz y los módulos extraídos. Suite actual: **132 pruebas**.
+- Se agregaron pruebas de regresión del puente entre la interfaz y los módulos extraídos. Suite de esa versión: **132 pruebas**.
 
 ## Novedad 3.8.5 · Contrato de cálculos para una futura API
 
-- `lpf_services.py` expone cuatro cálculos con entrada/salida JSON-safe: standings, escalera de puntos, rango de puesto y puntos por objetivo.
+- `lpf_services.py` expone cálculos con entrada/salida JSON-safe y, desde 3.8.9, una foto canónica reutilizable con consultas por lote.
 - Los servicios sólo traducen/validan el contrato y reutilizan los motores existentes; no hay matemática duplicada.
 - Todas las respuestas llevan `contract_version` y `calculation_version`. Los errores de entrada usan `ContractError` con código y campo estables.
 - `lpf_version.py` es ahora la única fuente de versión, por lo que una API no necesita importar Streamlit para identificar el motor.

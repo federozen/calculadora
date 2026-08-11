@@ -75,10 +75,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.8` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.10` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
 - Archivo principal: **~10.600 líneas** (arrancó en ~12.780).
-- **140 pruebas**, todas verdes. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- **147 pruebas**, todas verdes. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -139,10 +139,11 @@ ciclos); respétalo. De más básico a más compuesto:
 | `lpf_intents.py` | Ruteo de intención del chat (consulta → `{"intent": ...}`). | lpf_text |
 | `lpf_scenarios.py` | Motor exacto MILP (scipy): escalera de puntos, rangos, escenarios. | lpf_models |
 | `lpf_exact.py` | Garantías conservadoras (línea segura, promedios). | — |
-| `lpf_pisos.py` | Puntos por objetivo (mínimo con chances / garantía exacta / garantía conservadora). | lpf_scenarios, lpf_exact |
+| `lpf_pisos.py` | Puntos por objetivo y combinación pura de antecedentes/temporada actual para promedios. | lpf_scenarios, lpf_exact |
 | `lpf_models.py` | Dataclasses de dominio y auditoría. | — |
 | `lpf_version.py` | Única versión del motor compartida por todas las interfaces. | — |
-| `lpf_services.py` | Contrato JSON-safe para standings, escalera, rango y pisos; futura frontera HTTP. | lpf_version, lpf_standings, lpf_scenarios, lpf_pisos |
+| `lpf_snapshot.py` | Foto canónica JSON-safe de competencia y selección de alcance por zona/Anual. | lpf_state, lpf_pisos |
+| `lpf_services.py` | Contrato JSON-safe para cálculos, snapshots y consultas por lote; futura frontera HTTP. | lpf_version, lpf_snapshot, lpf_standings, lpf_scenarios, lpf_pisos |
 | `lpf_competition_narratives.py`, `lpf_competitive_context.py`, `lpf_display.py` | Relatos y presentación (ya existían). | varias |
 
 El motor `_resolver` / `_orden` ya no está en el archivo principal. `posiciones` y
@@ -309,15 +310,17 @@ Un futuro adaptador Opta debe vivir en esta misma frontera conceptual: resolver 
 nombres, estados y payloads propios y entregar estructuras simples a `lpf_loading`.
 No agregues una interfaz genérica ni un SDK hasta que exista ese consumidor concreto.
 
-### 8c quinquies. Frontera de servicios — resuelto en 3.8.5
+### 8c quinquies. Frontera de servicios — resuelto en 3.8.5 y ampliado en 3.8.9
 `lpf_services.py` expone cálculos con entrada/salida JSON-safe y errores estables sin
-incorporar un framework HTTP. La futura API debe ser una capa fina sobre estos
-servicios; no debe importar el archivo Streamlit ni volver a implementar cálculos.
-`API_CONTRACT.md` documenta la versión 1 del contrato.
+incorporar un framework HTTP. `lpf_snapshot.py` arma una foto completa desde el mismo
+constructor de estado de Streamlit; `prepare_competition_snapshot` la expone y
+`calculate_competition_batch` permite varias consultas sobre esa misma foto. La futura
+API debe ser una capa fina sobre estos servicios; no debe importar el archivo Streamlit
+ni volver a implementar cálculos. `API_CONTRACT.md` documenta la versión 1.
 
-No agregues FastAPI/Flask ni un SDK de Opta hasta que exista el consumidor concreto.
-Si se amplía el contrato, hacelo operación por operación y comparando cada salida con
-el motor directo.
+La función pura `lpf_pisos.promedio_totales` arma los totales de promedios para UI y
+API; no vuelvas a duplicar esa fórmula dentro de Streamlit. No agregues FastAPI/Flask,
+persistencia de snapshots ni un SDK de Opta hasta que exista el consumidor concreto.
 
 ### 8d. Otros fetchers de red (dejalos para el final)
 Los caminos LPF de ESPN/FutbolArgentino.com ya tienen transporte y parsing separados.
@@ -329,7 +332,7 @@ alguna pasa a ser relevante para el núcleo LPF o para la futura API.
 ### 8e. Ambigüedad de promedios (deuda vieja, documentada)
 Hay una ambigüedad histórica en cómo se arma el diccionario de promedios (`prom`):
 en algunos lugares se trata como "totales acumulados" y en otros como "temporadas
-previas". `lpf_pisos._prom_totales_para_pisos` la maneja con cuidado. Si unificás la
+previas". `lpf_pisos.promedio_totales` concentra esa combinación y el wrapper Streamlit sólo aporta las previas cargadas. Si unificás la
 representación, hacelo con pruebas que cubran ambos usos.
 
 ---

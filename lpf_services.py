@@ -10,8 +10,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 
-from lpf_pisos import piso_por_corte
+from lpf_pisos import piso_no_descenso, piso_por_corte
 from lpf_scenarios import point_ladder, scenario_rank_bounds
+from lpf_snapshot import build_competition_snapshot, snapshot_average_totals, snapshot_scope
 from lpf_standings import DEFAULT_CRITERIOS, _orden
 from lpf_version import __version__
 
@@ -254,6 +255,27 @@ def calculate_rank_window(payload: Mapping[str, object]) -> dict[str, object]:
     return _envelope("rank_window", result)
 
 
+
+def _floor_exact_guarantee(floor: object) -> int | None:
+    """Tolera objetos PisoObjetivo de contratos internos anteriores a 3.8.8."""
+    try:
+        return getattr(floor, "garantia_exacta")
+    except AttributeError:
+        if bool(getattr(floor, "exacto", False)):
+            return getattr(floor, "piso_exacto", None)
+        return None
+
+
+def _floor_conservative_reference(floor: object) -> int | None:
+    """Tolera objetos PisoObjetivo de contratos internos anteriores a 3.8.8."""
+    try:
+        return getattr(floor, "referencia_conservadora")
+    except AttributeError:
+        if bool(getattr(floor, "exacto", False)):
+            return None
+        value = getattr(floor, "piso_conservador", None)
+        return value if value is not None else getattr(floor, "piso_exacto", None)
+
 def calculate_objective_floor(payload: Mapping[str, object]) -> dict[str, object]:
     """Expone los puntos necesarios para quedar dentro de un corte de tabla."""
     payload = _mapping(payload)
@@ -272,9 +294,198 @@ def calculate_objective_floor(payload: Mapping[str, object]) -> dict[str, object
     floor = piso_por_corte(base, rest, matches, team, cutoff, clave=key, nombre=name)
     result = asdict(floor)
     result["minimum_possible"] = floor.minimo_posible
-    result["exact_guarantee"] = floor.garantia_exacta
-    result["conservative_reference"] = floor.referencia_conservadora
+    result["exact_guarantee"] = _floor_exact_guarantee(floor)
+    result["conservative_reference"] = _floor_conservative_reference(floor)
     result["safe_value"] = floor.piso
     result["floor"] = floor.piso  # alias legado del contrato v1
     result["reading"] = floor.lectura()
     return _envelope("objective_floor", result)
+
+
+
+def _optional_mapping(payload: Mapping[str, object], field: str) -> Mapping[str, object] | None:
+    raw = payload.get(field)
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ContractError("invalid_mapping", f"'{field}' debe ser un objeto.", field=field)
+    return raw
+
+
+def _zones_mapping(payload: Mapping[str, object]) -> Mapping[str, Mapping[str, Mapping[str, object]]]:
+    raw = payload.get("zones")
+    if not isinstance(raw, Mapping) or not raw:
+        raise ContractError("invalid_zones", "'zones' debe ser un objeto no vacío.", field="zones")
+    for label, base in raw.items():
+        if not isinstance(base, Mapping):
+            raise ContractError("invalid_zone", f"La zona '{label}' debe ser un objeto.", field="zones")
+        for team, row in base.items():
+            if not isinstance(row, Mapping):
+                raise ContractError(
+                    "invalid_zone_row",
+                    f"La fila de '{team}' en la zona '{label}' debe ser un objeto.",
+                    field="zones",
+                )
+    return raw  # type: ignore[return-value]
+
+
+def _fixture_payload(raw: object) -> list[Mapping[str, object]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+        raise ContractError("invalid_fixture", "'fixture' debe ser una lista.", field="fixture")
+    out: list[Mapping[str, object]] = []
+    for index, row in enumerate(raw):
+        if not isinstance(row, Mapping):
+            raise ContractError(
+                "invalid_fixture",
+                f"Partido inválido en fixture[{index}].",
+                field="fixture",
+            )
+        if not str(row.get("l", "")).strip() or not str(row.get("v", "")).strip():
+            raise ContractError(
+                "invalid_fixture",
+                f"Partido inválido en fixture[{index}].",
+                field="fixture",
+            )
+        out.append(row)
+    return out
+
+
+def prepare_competition_snapshot(payload: Mapping[str, object]) -> dict[str, object]:
+    """Construye una foto completa y JSON-safe usando el estado canónico de la app."""
+    payload = _mapping(payload)
+    zones = _zones_mapping(payload)
+    played = _played_matches(payload.get("played"))
+    annual = _optional_mapping(payload, "annual")
+    opening = _optional_mapping(payload, "opening")
+    previous = _optional_mapping(payload, "previous_averages")
+    fixture = _fixture_payload(payload.get("fixture"))
+    rules = payload.get("rules") or {}
+    if not isinstance(rules, Mapping):
+        raise ContractError("invalid_rules", "'rules' debe ser un objeto.", field="rules")
+    try:
+        annual_relegations = int(rules.get("annual_relegations", 1))
+        average_relegations = int(rules.get("average_relegations", 1))
+    except (TypeError, ValueError) as exc:
+        raise ContractError("invalid_rules", "Las reglas de descenso deben ser enteras.", field="rules") from exc
+
+    snapshot, report = build_competition_snapshot(
+        zones,
+        played=played,
+        annual=annual,  # type: ignore[arg-type]
+        opening=opening,  # type: ignore[arg-type]
+        previous_averages=previous,
+        fixture=fixture,
+        annual_relegations=annual_relegations,
+        average_relegations=average_relegations,
+    )
+    snapshot["audit"] = report
+    return _envelope("competition_snapshot", snapshot)
+
+
+def _snapshot_query_scope(
+    snapshot: Mapping[str, object],
+    query: Mapping[str, object],
+) -> tuple[Mapping[str, object], Mapping[str, int], list[tuple[str, str]]]:
+    scope = str(query.get("scope", "zone") or "zone").strip().lower()
+    zone = str(query.get("zone", "") or "").strip() or None
+    try:
+        return snapshot_scope(snapshot, scope, zone=zone)
+    except ValueError as exc:
+        field = "zone" if scope == "zone" else "scope"
+        raise ContractError("invalid_scope", str(exc), field=field) from exc
+
+
+def _objective_result(floor: object) -> dict[str, object]:
+    result = asdict(floor)  # type: ignore[arg-type]
+    result["minimum_possible"] = floor.minimo_posible  # type: ignore[attr-defined]
+    result["exact_guarantee"] = _floor_exact_guarantee(floor)  # type: ignore[attr-defined]
+    result["conservative_reference"] = _floor_conservative_reference(floor)  # type: ignore[attr-defined]
+    result["safe_value"] = floor.piso  # type: ignore[attr-defined]
+    result["reading"] = floor.lectura()  # type: ignore[attr-defined]
+    return result
+
+
+def calculate_competition_batch(payload: Mapping[str, object]) -> dict[str, object]:
+    """Ejecuta varias consultas sobre una misma foto canónica sin recalcular la carga."""
+    payload = _mapping(payload)
+    snapshot = payload.get("snapshot")
+    queries = payload.get("queries")
+    if not isinstance(snapshot, Mapping):
+        raise ContractError("invalid_snapshot", "'snapshot' debe ser un objeto.", field="snapshot")
+    if not isinstance(queries, Sequence) or isinstance(queries, (str, bytes)) or not queries:
+        raise ContractError("invalid_queries", "'queries' debe ser una lista no vacía.", field="queries")
+
+    outputs: list[dict[str, object]] = []
+    for index, raw_query in enumerate(queries):
+        if not isinstance(raw_query, Mapping):
+            raise ContractError("invalid_query", f"Consulta inválida en queries[{index}].", field="queries")
+        qtype = str(raw_query.get("type", "") or "").strip().lower()
+        query_id = str(raw_query.get("id", index))
+        team = str(raw_query.get("team", "") or "").strip()
+
+        if qtype in {"objective_points", "point_ladder", "rank_window"}:
+            base, remaining, matches = _snapshot_query_scope(snapshot, raw_query)
+            if not team:
+                raise ContractError("missing_field", "Falta el campo obligatorio 'team'.", field="team")
+            if team not in base:
+                raise ContractError("unknown_team", f"'{team}' no está en el alcance elegido.", field="team")
+
+        if qtype == "objective_points":
+            cutoff = _required_int(raw_query, "cutoff")
+            floor = piso_por_corte(
+                base,
+                remaining,
+                matches,
+                team,
+                cutoff,
+                clave=str(raw_query.get("objective_key", "objective") or "objective"),
+                nombre=str(raw_query.get("objective_name", "el objetivo") or "el objetivo"),
+            )
+            result = _objective_result(floor)
+
+        elif qtype == "point_ladder":
+            cutoff = _required_int(raw_query, "cutoff")
+            result = point_ladder(base, matches, team, cutoff)
+
+        elif qtype == "rank_window":
+            fixed = _fixed_results(raw_query.get("fixed"))
+            result = scenario_rank_bounds(base, matches, team, fixed)
+
+        elif qtype == "descent_points":
+            annual = snapshot.get("annual")
+            remaining = snapshot.get("remaining")
+            pending = snapshot.get("pending")
+            rules = snapshot.get("rules") or {}
+            if not isinstance(annual, Mapping) or not isinstance(remaining, Mapping) or not isinstance(pending, Sequence):
+                raise ContractError("invalid_snapshot", "El snapshot no tiene datos completos de descenso.", field="snapshot")
+            if not team:
+                raise ContractError("missing_field", "Falta el campo obligatorio 'team'.", field="team")
+            if team not in annual:
+                raise ContractError("unknown_team", f"'{team}' no está en la Tabla Anual.", field="team")
+            matches = _fixture_pairs(pending)
+            prom_totals = snapshot_average_totals(snapshot)
+            annual_relegations = int(rules.get("annual_relegations", 1)) if isinstance(rules, Mapping) else 1
+            average_relegations = int(rules.get("average_relegations", 1)) if isinstance(rules, Mapping) else 1
+            floor = piso_no_descenso(
+                annual,
+                remaining,
+                matches,
+                team,
+                n_anual=annual_relegations,
+                prom_totales=prom_totals,
+                n_prom=average_relegations,
+            )
+            result = _objective_result(floor)
+
+        else:
+            raise ContractError(
+                "unknown_query",
+                f"Tipo de consulta no soportado: '{qtype}'.",
+                field="type",
+            )
+
+        outputs.append({"id": query_id, "type": qtype, "result": result})
+
+    return _envelope("competition_batch", {"queries": outputs})

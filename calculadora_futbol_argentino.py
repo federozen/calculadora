@@ -23,7 +23,10 @@ from lpf_competition_narratives import (
     libertadores_story, relegation_story, round_preview_story, sudamericana_story, zone_story,
 )
 from lpf_scenarios import can_fail_with_points, exact_result_scenarios, point_ladder, scenario_rank_bounds, best_worst_window_scenarios, exact_rank_bounds_with_points, reachable_point_totals
-from lpf_pisos import pisos_de_equipo, tabla_pisos_objetivo, piso_no_descenso, piso_por_corte, VENTANA_EXACTA
+from lpf_pisos import (
+    VENTANA_EXACTA, piso_no_descenso, piso_por_corte, pisos_de_equipo,
+    promedio_totales, tabla_pisos_objetivo,
+)
 from lpf_competitive_context import competition_context, historical_reference
 from lpf_display import display_team, editorialize_frame, editorialize_spec, editorialize_text
 from lpf_fixture_sources import (
@@ -36,6 +39,27 @@ from lpf_standings import (
     posiciones as _standings_posiciones, tabla as _standings_tabla,
 )
 from lpf_state import LPF_APERTURA_PJ, add_source_issues, build_lpf_state, opening_is_valid
+
+
+def _piso_garantia_exacta(obj):
+    """Compatibilidad con PisoObjetivo 3.8.7 y anteriores."""
+    try:
+        return obj.garantia_exacta
+    except AttributeError:
+        return getattr(obj, "piso_exacto", None) if bool(getattr(obj, "exacto", False)) else None
+
+
+def _piso_referencia_conservadora(obj):
+    """Compatibilidad con PisoObjetivo 3.8.7 y anteriores."""
+    try:
+        return obj.referencia_conservadora
+    except AttributeError:
+        if bool(getattr(obj, "exacto", False)):
+            return None
+        value = getattr(obj, "piso_conservador", None)
+        if value is not None:
+            return value
+        return getattr(obj, "piso_exacto", None)
 
 # La interfaz muestra nombres periodísticos (River, Boca, Vélez, etc.) sin
 # cambiar las claves canónicas que usa el motor para fixtures y cálculos.
@@ -1106,14 +1130,14 @@ def liga_que_necesita_texto(equipo, base, rest, zonas, texto, pend=None):
         L.append(f"✅ Ya está adentro de **{nombre}** pase lo que pase.")
     elif calc.estado == "out":
         L.append(f"❌ Ya no puede entrar a **{nombre}** (matemáticamente quedó afuera).")
-    elif calc.garantia_exacta is not None:
-        falta = max(0, calc.garantia_exacta - pts[equipo])
+    elif _piso_garantia_exacta(calc) is not None:
+        falta = max(0, _piso_garantia_exacta(calc) - pts[equipo])
         L.append(
-            f"🔒 **Garantía exacta: {calc.garantia_exacta} puntos.** Es el menor total comprobado con el que "
+            f"🔒 **Garantía exacta: {_piso_garantia_exacta(calc)} puntos.** Es el menor total comprobado con el que "
             f"asegura {nombre} sin depender de otros resultados ni de desempates. Le faltan **{falta} puntos**."
         )
-    elif calc.referencia_conservadora is not None:
-        ref = int(calc.referencia_conservadora)
+    elif _piso_referencia_conservadora(calc) is not None:
+        ref = int(_piso_referencia_conservadora(calc))
         falta = max(0, ref - pts[equipo])
         if ref <= calc.techo:
             L.append(
@@ -1149,12 +1173,12 @@ def liga_que_necesita_texto(equipo, base, rest, zonas, texto, pend=None):
     pq = _porque_liga(equipo, base, rest, zonas, texto, pend)
     if pq:
         L.append("🔍 **Por qué:** " + pq)
-    if calc.garantia_exacta is not None:
+    if _piso_garantia_exacta(calc) is not None:
         L.append(
             f"_La garantía es exacta porque el equipo está dentro de la ventana de {VENTANA_EXACTA} partidos o menos "
             "y el fixture permite resolver los escenarios compatibles._"
         )
-    elif calc.referencia_conservadora is not None:
+    elif _piso_referencia_conservadora(calc) is not None:
         L.append(
             "_La referencia conservadora es un número seguro, no el mínimo necesario: puede pedir puntos de más. "
             f"La garantía exacta se busca con {VENTANA_EXACTA} partidos restantes o menos y fixture disponible._"
@@ -1181,14 +1205,14 @@ def _porque_liga(equipo, base, rest, zonas, texto, pend=None):
             f"su máximo es {pmax[equipo]} pts (ganando sus {g}), y ya hay {len(arr)} por encima de ese total "
             f"({muestra}): no los puede pasar."
         )
-    if calc.garantia_exacta is not None:
-        falta = max(0, calc.garantia_exacta - pts[equipo])
+    if _piso_garantia_exacta(calc) is not None:
+        falta = max(0, _piso_garantia_exacta(calc) - pts[equipo])
         return (
-            f"el motor exacto resolvió el fixture pendiente y comprobó que {calc.garantia_exacta} es el menor total "
+            f"el motor exacto resolvió el fixture pendiente y comprobó que {_piso_garantia_exacta(calc)} es el menor total "
             f"que asegura {nombre} en todos los escenarios compatibles; hoy tiene {pts[equipo]}, por eso le faltan {falta}."
         )
-    if calc.referencia_conservadora is not None:
-        ref = int(calc.referencia_conservadora)
+    if _piso_referencia_conservadora(calc) is not None:
+        ref = int(_piso_referencia_conservadora(calc))
         falta = max(0, ref - pts[equipo])
         if pend:
             return (
@@ -10318,25 +10342,8 @@ if st.session_state.get("workspace_nav") not in _WORKSPACES:
 
 
 def _prom_totales_para_pisos(anual, Z):
-    """{equipo: (pts_totales, pj_totales)} para la exigencia por promedios.
-
-    Suma la temporada previa cargada (si existe) al acumulado actual de la Anual.
-    Devuelve None si no hay tabla de promedios para no inventar datos.
-    """
-    previous = st.session_state.get("PROMEDIOS") or {}
-    if not previous or not anual:
-        return None
-    pj_actual = {e: d.get("pj", 0) for b in (Z or {}).values() for e, d in b.items()}
-    totales = {}
-    for e, row in anual.items():
-        prev = previous.get(e)
-        cur_pts = int(row.get("pts", 0))
-        cur_pj = int(pj_actual.get(e, row.get("pj", 0)))
-        if prev:
-            totales[e] = (cur_pts + int(prev[0]), cur_pj + int(prev[1]))
-        else:
-            totales[e] = (cur_pts, cur_pj)
-    return totales
+    """Adaptador Streamlit para los totales puros usados por promedios."""
+    return promedio_totales(anual, Z, st.session_state.get("PROMEDIOS") or {})
 
 
 def _pisos_frame(pisos):
@@ -10350,9 +10357,9 @@ def _pisos_frame(pisos):
             "Hoy": p.puntos_hoy,
             "Techo": p.techo,
             "Mínimo posible": p.minimo_posible if p.minimo_posible is not None else "—",
-            "Garantía exacta": p.garantia_exacta if p.garantia_exacta is not None else "—",
-            "Referencia conservadora": p.referencia_conservadora if p.referencia_conservadora is not None else "—",
-            "Cálculo": "Exacto" if p.exacto else ("Conservador" if p.referencia_conservadora is not None else "—"),
+            "Garantía exacta": _piso_garantia_exacta(p) if _piso_garantia_exacta(p) is not None else "—",
+            "Referencia conservadora": _piso_referencia_conservadora(p) if _piso_referencia_conservadora(p) is not None else "—",
+            "Cálculo": "Exacto" if p.exacto else ("Conservador" if _piso_referencia_conservadora(p) is not None else "—"),
             "Lectura": p.lectura(),
         })
     return pd.DataFrame(filas)
@@ -10470,9 +10477,9 @@ def render_pisos_workspace(E):
                 filas.append({
                     "Equipo": e, "PTS": p.puntos_hoy, "Restan": int(rest.get(e, 0)),
                     "Techo": p.techo,
-                    "Garantía exacta": p.garantia_exacta if p.garantia_exacta is not None else "—",
-                    "Referencia conservadora": p.referencia_conservadora if p.referencia_conservadora is not None else "—",
-                    "Cálculo": "Exacto" if p.exacto else ("Conservador" if p.referencia_conservadora is not None else "—"),
+                    "Garantía exacta": _piso_garantia_exacta(p) if _piso_garantia_exacta(p) is not None else "—",
+                    "Referencia conservadora": _piso_referencia_conservadora(p) if _piso_referencia_conservadora(p) is not None else "—",
+                    "Cálculo": "Exacto" if p.exacto else ("Conservador" if _piso_referencia_conservadora(p) is not None else "—"),
                     "Estado": {"in": "Salvado", "out": "En zona de baja", "pelea": "En riesgo"}.get(p.estado, p.estado),
                 })
             ui_dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True, height=520)

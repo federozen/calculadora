@@ -24,7 +24,7 @@ Todas las operaciones devuelven:
 ```json
 {
   "contract_version": "1",
-  "calculation_version": "3.8.6",
+  "calculation_version": "3.8.10",
   "calculation": "standings",
   "result": {}
 }
@@ -108,6 +108,54 @@ Función: `calculate_objective_floor(payload)`.
 ```
 
 Además de los campos internos históricos de `PisoObjetivo`, la salida publica `minimum_possible`, `exact_guarantee`, `conservative_reference` y `safe_value`. `floor` se conserva sólo como alias legado del contrato v1 y apunta al valor seguro vigente. `reading` devuelve la lectura editorial con los mismos términos que Streamlit.
+
+
+## 5. Foto canónica de competencia
+
+Función: `prepare_competition_snapshot(payload)`. Recibe datos ya normalizados y usa
+`lpf_state.build_lpf_state`; no crea una segunda verdad paralela. La salida reúne en
+un único objeto `zones`, `annual`, `opening`, `played`, `pending`, `remaining`,
+`previous_averages`, `fixture`, `rules` y `audit`.
+
+Entrada conceptual:
+
+```json
+{
+  "zones": {"A": {"Equipo": {"pts": 10, "pj": 5, "dg": 3, "gf": 8, "ga": 5}}},
+  "played": [{"home": "A", "away": "B", "home_goals": 1, "away_goals": 0}],
+  "annual": {},
+  "opening": {},
+  "previous_averages": {"Equipo": {"points": 70, "played": 55}},
+  "fixture": [{"f": 7, "l": "A", "v": "B", "tipo": "zone", "zona": "A"}],
+  "rules": {"annual_relegations": 1, "average_relegations": 1}
+}
+```
+
+La auditoría puede devolver `blocked`; eso describe la calidad de la foto. El servicio
+no inventa datos para volverla válida.
+
+## 6. Varias consultas sobre una misma foto
+
+Función: `calculate_competition_batch(payload)`. Es stateless: el cliente manda la
+foto y una lista `queries`. No hay IDs de servidor ni persistencia en esta versión.
+
+```json
+{
+  "snapshot": {"...": "resultado de competition_snapshot"},
+  "queries": [
+    {"id": "playoffs", "type": "objective_points", "scope": "zone", "zone": "A", "team": "River Plate", "cutoff": 8},
+    {"id": "escalera", "type": "point_ladder", "scope": "zone", "zone": "A", "team": "River Plate", "cutoff": 8},
+    {"id": "rango", "type": "rank_window", "scope": "annual", "team": "River Plate"},
+    {"id": "descenso", "type": "descent_points", "team": "River Plate"}
+  ]
+}
+```
+
+Tipos soportados: `objective_points`, `point_ladder`, `rank_window` y
+`descent_points`. Los tres primeros pueden seleccionar `scope=zone` (con `zone`) o
+`scope=annual`; descenso usa siempre la Anual, los pendientes y los antecedentes de
+promedios de la foto. La respuesta conserva el orden de las consultas y devuelve su
+`id`.
 
 ## Futuro adaptador HTTP
 

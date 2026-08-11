@@ -36,6 +36,41 @@ VENTANA_EXACTA = 8
 MAX_MATCHES = 140
 
 
+def promedio_totales(
+    anual: Mapping[str, object],
+    zonas: Mapping[str, Mapping[str, object]],
+    previas: Mapping[str, object] | None,
+) -> dict[str, tuple[int, int]] | None:
+    """Combina la temporada actual con antecedentes para el cálculo de promedios.
+
+    ``previas`` usa el contrato histórico ``{equipo: (puntos_previos, pj_previos)}``
+    que ya produce ``parse_promedios``. La función es pura para que Streamlit y una
+    futura API construyan exactamente los mismos totales antes de llamar al motor.
+    """
+    if not previas or not anual:
+        return None
+    pj_actual = {
+        equipo: int((fila or {}).get("pj", 0))
+        for base in (zonas or {}).values()
+        for equipo, fila in base.items()
+    }
+    totales: dict[str, tuple[int, int]] = {}
+    for equipo, raw in anual.items():
+        fila = raw if isinstance(raw, Mapping) else {}
+        prev = previas.get(equipo)
+        cur_pts = int(fila.get("pts", 0))
+        cur_pj = int(pj_actual.get(equipo, fila.get("pj", 0)))
+        if isinstance(prev, Mapping):
+            prev_pts = int(prev.get("pts", prev.get("points", 0)))
+            prev_pj = int(prev.get("pj", prev.get("played", 0)))
+            totales[equipo] = (cur_pts + prev_pts, cur_pj + prev_pj)
+        elif isinstance(prev, (tuple, list)) and len(prev) >= 2:
+            totales[equipo] = (cur_pts + int(prev[0]), cur_pj + int(prev[1]))
+        else:
+            totales[equipo] = (cur_pts, cur_pj)
+    return totales
+
+
 @dataclass
 class PisoObjetivo:
     """Resultado de puntos necesarios para un equipo y un objetivo puntual."""

@@ -1,3 +1,23 @@
+## 3.8.10 · 2026-08-10
+
+### Compatibilidad de despliegues parciales en Puntos por objetivo
+
+- Se blinda la interfaz frente a repositorios con archivos mezclados: si `calculadora_futbol_argentino.py` nuevo recibe un `PisoObjetivo` de 3.8.7 o anterior, deriva **garantía exacta** desde `piso_exacto/exacto` y **referencia conservadora** desde `piso_conservador` en vez de lanzar `AttributeError`.
+- La misma compatibilidad se aplica a `lpf_services`, para que una futura API tampoco falle ante objetos internos del contrato anterior.
+- No cambia ninguna fórmula, umbral ni resultado matemático. La corrección es exclusivamente de integración/compatibilidad.
+
+## 3.8.9 · 2026-08-10
+
+### Foto canónica de competencia y consultas por lote
+
+- Se agregó `lpf_snapshot.py`: construye una foto autocontenida de la competencia a partir del mismo `lpf_state.build_lpf_state` que usa Streamlit. Incluye zonas, Tabla Anual, Apertura, jugados, pendientes, partidos restantes, antecedentes de promedios, fixture, reglas y auditoría. No hace red ni importa Streamlit.
+- `lpf_state` conserva ahora los antecedentes de promedios dentro del estado canónico; esto evita que una futura API tenga que reconstruir una parte de la competencia por fuera del estado.
+- La combinación de puntos/PJ actuales con antecedentes para promedios salió de Streamlit y vive en `lpf_pisos.promedio_totales`. El wrapper de la UI sólo aporta `st.session_state.PROMEDIOS`. Se verificó equivalencia exacta en 1.500 casos aleatorios contra la fórmula 3.8.8.
+- `lpf_services.prepare_competition_snapshot` expone esa foto con entrada/salida JSON-safe y auditoría incluida. Una foto puede enviarse luego a `calculate_competition_batch` para resolver varias consultas sin repetir la carga o reconciliación.
+- El batch admite `objective_points`, `point_ladder`, `rank_window` y `descent_points`, con alcance por zona o Tabla Anual cuando corresponde. Descenso reutiliza la misma combinación Anual + promedios que Streamlit.
+- No se agregó persistencia de snapshots, IDs de sesión, FastAPI, base de datos ni SDK de Opta: la frontera sigue siendo stateless y verificable.
+- La suite sube de 140 a **147 pruebas**.
+
 ## 3.8.8 · 2026-08-10
 
 ### Terminología unificada en todas las narraciones y corrección del objetivo descenso
