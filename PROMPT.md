@@ -44,7 +44,7 @@ Todas las cuentas y todos los textos con números los produce **código determin
 
 ## 6. Cómo están hechas las cuentas hoy (auditá cada una)
 - **Techo (pmax):** `pts + 3 × partidos_restantes`.
-- **Piso seguro** ("qué necesita para asegurar"): función `_linea_garantia`. Busca (búsqueda binaria) el **máximo puntaje que el k-ésimo rival puede alcanzar en el peor caso**, descontando los **mano a mano** (cuando dos rivales se enfrentan, de ese partido salen 3 puntos al par, no 6). Es una **cota segura** (nunca dice "entrás" si no). La usan por igual **playoffs, descenso y copas** (cambia `base` y `k`). Estaba validada con un test Monte-Carlo de seguridad; **re-auditala igual**.
+- **Referencia conservadora** (helper histórico `_linea_garantia`): busca el **máximo puntaje que el k-ésimo rival puede alcanzar en el peor caso**, descontando los **mano a mano** (cuando dos rivales se enfrentan, de ese partido salen 3 puntos al par, no 6). Si el equipo supera esa referencia, asegura el objetivo; puede pedir puntos de más y por eso no debe presentarse como la garantía exacta mínima. Se usa en playoffs, descenso y copas cambiando `base` y `k`.
 - **Opciones del piso:** piso **condicional** si ganás tus cruces directos (mano a mano) y lista de **rivales a superar** con su techo.
 - **Chances (probabilidades):** **Monte Carlo**. Modela cada partido con **fuerza por puntos/partido + forma reciente**, **localía** y **probabilidad de empate**, sobre el **fixture real**. Por objetivo: playoffs (posición en la zona, top 8), Libertadores/Sudamericana (posición en la reducida), descenso (último de promedios ∪ último de anual, con reasignación).
   - **Invariante de validación:** la suma de las probabilidades de un objetivo debe dar la **cantidad de cupos** (Libertadores = n_lib, Sudamericana = 6, descenso = 2, playoffs = 16). Conservá este chequeo.
@@ -95,3 +95,8 @@ Mostrá los datos de forma visual para ilustrar una nota. Usá lo que mejor sirv
 ## 12. Archivos adjuntos
 - `calculadora_futbol_argentino.py` — la app actual completa (auditá y rediseñá sobre esto).
 - `requirements.txt` — dependencias base (agregá lo que uses para gráficos, p. ej. `plotly`).
+
+
+### Convención editorial vigente
+
+En la interfaz y los textos para Argentina, **no usar “cota”**, “piso seguro”, “piso ajustado”, “puntaje que asegura” ni “seguro (conservador)” como etiquetas. Para los objetivos usar exactamente: **mínimo posible**, **garantía exacta** y **referencia conservadora**. La referencia conservadora es suficiente si se alcanza, pero puede pedir puntos de más; la garantía exacta es el menor total comprobado. “Piso” puede conservarse como nombre interno histórico. El cálculo exacto se activa por equipo con **8 partidos restantes o menos** (`VENTANA_EXACTA = 8`), no sólo en las últimas seis.

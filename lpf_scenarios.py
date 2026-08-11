@@ -237,7 +237,7 @@ def point_ladder(
         guaranteed = not fail.feasible
         if guaranteed and guarantee is None:
             guarantee = pts
-        status = "Garantía matemática" if guaranteed else "Clasificación condicionada"
+        status = "Garantía exacta" if guaranteed else "Clasificación condicionada"
         statuses.append(PointLadderRow(
             final_points=pts,
             status=status,

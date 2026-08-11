@@ -16,8 +16,8 @@ el modelo de lenguaje, cuando está activo, sólo interpreta la consulta y redac
 | `lpf_provider_adapters.py` | Adaptadores puros de ESPN/FutbolArgentino.com: HTML/JSON ya descargado → tablas, zonas, resultados y metadatos del dominio. |
 | `lpf_state.py` | Construcción pura del estado canónico LPF: selecciona/deriva Apertura, arma auditoría, Anual autoritativa, pendientes y metadatos sin leer Streamlit. |
 | `lpf_scenarios.py` | Optimización exacta (MILP con `scipy.optimize.milp`): escalera de puntajes, rangos y ventanas con postergados. |
-| `lpf_exact.py` | Núcleo determinístico y cotas seguras (garantía conservadora, promedios). Validado por fuerza bruta. |
-| `lpf_pisos.py` | **Piso por objetivo.** Unifica el cálculo del mínimo posible, la garantía y la cota para playoffs, copas y descenso. Reutiliza `lpf_scenarios` y `lpf_exact`; Python puro. |
+| `lpf_exact.py` | Núcleo determinístico y garantías conservadoras (línea segura, promedios). Validado por fuerza bruta. |
+| `lpf_pisos.py` | **Puntos por objetivo.** Unifica el cálculo del mínimo con chances, la garantía exacta y la garantía conservadora para playoffs, copas y descenso. Reutiliza `lpf_scenarios` y `lpf_exact`; Python puro. |
 | `lpf_competition_narratives.py` | Relatos de zonas, Libertadores, Sudamericana y descenso. |
 | `lpf_competitive_context.py` | Contexto de tabla, cruces internos y proyección del corte. |
 | `lpf_fixture_sources.py` | Parsers y validación de fuentes (FutbolArgentino.com, ESPN) sin inferir partidos por PJ. |
@@ -46,7 +46,7 @@ el modelo de lenguaje, cuando está activo, sólo interpreta la consulta y redac
    descenso). Un problema en un dominio no bloquea los demás.
 5. **Cálculo:**
    - Exacto → `lpf_scenarios` (MILP) para ventanas de hasta ocho fechas.
-   - Cota segura → `lpf_exact` para horizontes más grandes.
+   - Garantía conservadora → `lpf_exact` para horizontes más grandes.
    - Piso por objetivo → `lpf_pisos`, que elige entre ambos según la ventana.
 6. **Redacción y UI:** los renderizadores consumen los resultados estructurados.
 
@@ -80,26 +80,43 @@ No se agrega todavía un framework de API ni una interfaz genérica de proveedor
 primero se desacoplan dependencias reales y se prueban; la abstracción se incorpora
 cuando exista el primer consumidor concreto.
 
-## El piso por objetivo (`lpf_pisos`)
+## Puntos por objetivo (`lpf_pisos`)
 
 Los objetivos "quedar por encima de un corte" comparten estructura: un conjunto de
 equipos (`base`) y un corte (`corte`). Por eso una sola función, `piso_por_corte`,
 resuelve playoffs (zona, corte 8), Libertadores (tabla reducida, corte de plazas)
 y Sudamericana (reducida, corte ampliado). El descenso es el caso espejo y combina
-dos tablas: la Anual (exacta) y los promedios (cota por cocientes).
+dos tablas: la Anual (exacta cuando entra en ventana) y los promedios (referencia conservadora por cocientes).
 
 Para cada objetivo se devuelven tres números con significado distinto:
 
 - **Mínimo posible:** menor puntaje con el que *todavía existe* una combinación
   favorable (desempate a favor).
-- **Piso / garantía:** menor puntaje que asegura el objetivo sin depender de otros
-  resultados ni de desempates (desempate en contra).
-- **Cota conservadora:** línea segura para ventanas de más de ocho fechas; puede
-  pedir algún punto de más, pero nunca declara una garantía falsa.
+- **Garantía exacta:** menor puntaje comprobado que asegura el objetivo sin depender de otros resultados ni de desempates (desempate en contra).
+- **Referencia conservadora:** total seguro para ventanas grandes; si se alcanza asegura el objetivo, pero puede pedir puntos de más que la garantía exacta.
+
+
+## Frontera de servicios de cálculo
+
+`lpf_services.py` es una capa de aplicación fina y JSON-safe. No hace red, no conoce
+Streamlit ni proveedores y no contiene fórmulas propias: valida/traduce payloads y
+delega en `lpf_standings`, `lpf_scenarios` y `lpf_pisos`. Una futura API HTTP debe
+llamar esta capa en vez de importar `calculadora_futbol_argentino.py`.
+
+`lpf_version.py` contiene la única versión del motor y puede importarse desde cualquier
+interfaz sin disparar UI. El contrato externo se versiona de forma independiente con
+`lpf_services.CONTRACT_VERSION`. Ver `API_CONTRACT.md`.
+
+La arquitectura objetivo queda:
+
+`proveedor -> transporte -> adaptador -> loading/state -> motores -> services -> Streamlit/API`
+
+Streamlit puede seguir llamando motores directamente mientras se migra gradualmente;
+la existencia de `services` no obliga a reescribir la UI.
 
 ## Convenciones
 
-- La palabra "garantía" se reserva para cotas que no dependen de terceros ni de
+- En interfaz y narrativa no se usa “cota”. La palabra "garantía" se reserva para líneas que no dependen de terceros ni de
   desempates.
 - Las estimaciones (Monte Carlo, dificultad, corte probable) se publican siempre
   por separado y rotuladas como tales.

@@ -23,7 +23,7 @@ from lpf_competition_narratives import (
     libertadores_story, relegation_story, round_preview_story, sudamericana_story, zone_story,
 )
 from lpf_scenarios import can_fail_with_points, exact_result_scenarios, point_ladder, scenario_rank_bounds, best_worst_window_scenarios, exact_rank_bounds_with_points, reachable_point_totals
-from lpf_pisos import pisos_de_equipo, tabla_pisos_objetivo, piso_no_descenso, VENTANA_EXACTA
+from lpf_pisos import pisos_de_equipo, tabla_pisos_objetivo, piso_no_descenso, piso_por_corte, VENTANA_EXACTA
 from lpf_competitive_context import competition_context, historical_reference
 from lpf_display import display_team, editorialize_frame, editorialize_spec, editorialize_text
 from lpf_fixture_sources import (
@@ -1042,10 +1042,11 @@ def liga_duelos_texto(base, rest, pend, zonas):
     return "\n\n".join(L)
 
 def _opciones_liga(equipo, base, rest, pend, k, nombre, linea=None):
-    """Caminos además del piso seguro: (1) los rivales que pelean el corte y su máximo
-    posible ('terminar por encima de'); (2) el mano a mano — cuánto baja tu piso si les
-    ganás a los rivales directos. Adaptativo: detalla cuando son pocos cruces, resume
-    cuando son muchos. Riguroso (fuerza tus victorias y recalcula con _linea_garantia)."""
+    """Caminos alrededor de la referencia conservadora: rivales del corte y mano a mano.
+
+    La referencia es segura pero puede pedir puntos de más; la garantía exacta se
+    publica por separado cuando el motor exacto está disponible.
+    """
     if not pend:
         return []
     pts = {e: base[e]["pts"] for e in base}
@@ -1061,7 +1062,7 @@ def _opciones_liga(equipo, base, rest, pend, k, nombre, linea=None):
     if borde:
         lst = ", ".join(f"{x} (máx {m})" for x, m in borde)
         L.append(f"📊 **El corte de {nombre} lo disputan:** {lst}. Para asegurar sin depender tenés que quedar "
-                 f"por encima de suficientes de ellos; con menos que el piso seguro entrás igual si se quedan cortos "
+                 f"por encima de suficientes de ellos; con menos que la referencia conservadora también podés entrar si se quedan cortos "
                  f"(mirá «chances de {equipo}» o «qué le conviene a {equipo}»).")
     # (2) mano a mano: detalle si son pocos, resumen si son muchos
     enpelea = {x for x in base if x != equipo and _liga_in_out(x, base, rest, k) == "pelea"}
@@ -1072,48 +1073,68 @@ def _opciones_liga(equipo, base, rest, pend, k, nombre, linea=None):
             rest2[r] = max(0, rest2.get(r, 0) - 1)
         F2 = _linea_garantia(base, rest2, pend, equipo, k) + 1
         if len(h2h) <= 5 and F2 < F:
-            L.append(f"🔑 **Mano a mano:** si les ganás a {', '.join(h2h)}, tu piso seguro baja de {F} a **{F2}** "
+            L.append(f"🔑 **Mano a mano:** si les ganás a {', '.join(h2h)}, la referencia conservadora baja de {F} a **{F2}** "
                      f"(sumás vos y ellos no).")
         else:
-            L.append(f"🔑 **Mano a mano:** te quedan {len(h2h)} cruces con rivales directos; ganarlos baja tu piso "
+            L.append(f"🔑 **Mano a mano:** te quedan {len(h2h)} cruces con rivales directos; ganarlos puede bajar la referencia conservadora "
                      f"y los deja sin sumar. Pesa más en las últimas fechas, cuando la tabla se separa.")
     return L
 
 def liga_que_necesita_texto(equipo, base, rest, zonas, texto, pend=None):
-    pts = {e: base[e]["pts"] for e in base}; pmax = {e: pts[e] + 3 * rest.get(e, 0) for e in base}
-    orden = liga_tabla_df(base); pos = int(orden.set_index("Equipo").loc[equipo, "Pos"])
+    pts = {e: base[e]["pts"] for e in base}
+    orden = liga_tabla_df(base)
+    pos = int(orden.set_index("Equipo").loc[equipo, "Pos"])
     tgt = zona_target(zonas, texto)
     if not tgt:
         nombres = ", ".join(n for _, n, _ in zonas) if zonas else "—"
-        return f"¿Para qué zona? Configurá las zonas en el panel y preguntá, por ej., «qué necesita {equipo} para Libertadores». Zonas activas: {nombres}."
+        return (
+            f"¿Para qué zona? Configurá las zonas en el panel y preguntá, por ej., "
+            f"«qué necesita {equipo} para Libertadores». Zonas activas: {nombres}."
+        )
     k, nombre = tgt
-    gx = rest.get(equipo, 0); meta = "no descender" if nombre == "no descender" else f"entrar a {nombre}"
-    arriba = sum(1 for x in base if x != equipo and pmax[x] >= pts[equipo])
-    inalc = sum(1 for x in base if x != equipo and pts[x] > pmax[equipo])
-    otros = sorted((pmax[x] for x in base if x != equipo), reverse=True)
-    L = [f"**¿Qué necesita {equipo} para {meta}?**",
-         f"Está {pos}º con **{pts[equipo]} pts** y le quedan {gx} partidos ({3*gx} en juego)."]
-    if arriba < k:
+    gx = int(rest.get(equipo, 0))
+    meta = "no descender" if nombre == "no descender" else f"entrar a {nombre}"
+    calc = piso_por_corte(
+        base, rest, list(pend or []), equipo, k,
+        clave="liga", nombre=nombre,
+    )
+    L = [
+        f"**¿Qué necesita {equipo} para {meta}?**",
+        f"Está {pos}º con **{pts[equipo]} pts** y le quedan {gx} partidos ({3 * gx} en juego).",
+    ]
+    if calc.estado == "in":
         L.append(f"✅ Ya está adentro de **{nombre}** pase lo que pase.")
-    elif inalc >= k:
+    elif calc.estado == "out":
         L.append(f"❌ Ya no puede entrar a **{nombre}** (matemáticamente quedó afuera).")
+    elif calc.garantia_exacta is not None:
+        falta = max(0, calc.garantia_exacta - pts[equipo])
+        L.append(
+            f"🔒 **Garantía exacta: {calc.garantia_exacta} puntos.** Es el menor total comprobado con el que "
+            f"asegura {nombre} sin depender de otros resultados ni de desempates. Le faltan **{falta} puntos**."
+        )
+    elif calc.referencia_conservadora is not None:
+        ref = int(calc.referencia_conservadora)
+        falta = max(0, ref - pts[equipo])
+        if ref <= calc.techo:
+            L.append(
+                f"📌 **Referencia conservadora: {ref} puntos.** Si llega a ese total, asegura {nombre}; "
+                f"le faltan **{falta} puntos**. No significa que necesite exactamente {ref}: la garantía exacta "
+                f"puede ser menor y se calcula cuando quedan {VENTANA_EXACTA} partidos o menos con fixture disponible."
+            )
+        else:
+            L.append(
+                f"📌 La **referencia conservadora** queda en {ref} puntos, por encima de su techo de {calc.techo}. "
+                "Eso no demuestra por sí solo que el objetivo sea imposible: sólo indica que esta referencia amplia "
+                "no alcanza para resolver el caso y hay que mirar el motor exacto o los resultados ajenos."
+            )
+        if pend and ref > pts[equipo]:
+            L.extend(_opciones_liga(equipo, base, rest, pend, k, nombre, ref - 1))
     else:
-        # Piso AJUSTADO por los mano a mano si tenemos el fixture; si no, piso "todos ganan todo".
-        if pend:
-            linea = _linea_garantia(base, rest, pend, equipo, k)
-            necesita = max(0, (linea + 1) - pts[equipo]) if linea >= 0 else 0
-        else:
-            necesita = max(0, (otros[k-1] + 1) - pts[equipo]) if len(otros) >= k else 0
-        if necesita == 0:
-            L.append(f"✅ Ya está asegurado en **{nombre}**.")
-        elif necesita <= 3 * gx:
-            gan = -(-necesita // 3)
-            L.append(f"Necesita sumar **{necesita} pts** más (de {3*gx} en juego) para asegurarse — le alcanza con ganar {gan} de los {gx}.")
-        else:
-            L.append(f"No le alcanza por sí solo: necesitaría {necesita} pts y solo hay {3*gx} en juego → "
-                     f"tiene que ganar lo suyo **y** que los rivales pinchen.")
-        if pend and necesita > 0:
-            L.extend(_opciones_liga(equipo, base, rest, pend, k, nombre, linea))
+        L.append(
+            "Sigue en carrera, pero con los datos disponibles no hay todavía una garantía exacta ni una referencia "
+            "conservadora publicable."
+        )
+
     if pend:
         mios = [(a, b) for (a, b) in pend if equipo in (a, b)]
         if mios:
@@ -1121,16 +1142,23 @@ def liga_que_necesita_texto(equipo, base, rest, zonas, texto, pend=None):
             L.append("Le queda(n) por jugar: " + ", ".join(rivs) + ".")
             directos = [r for r in rivs if r in base and _liga_in_out(r, base, rest, k) == "pelea"]
             if directos:
-                L.append(f"⚔️ **Mano a mano:** se cruza con {', '.join(directos)}, rival(es) directo(s) por {nombre} — "
-                         f"ganarles vale doble (suma y los deja sin sumar).")
+                L.append(
+                    f"⚔️ **Mano a mano:** se cruza con {', '.join(directos)}, rival(es) directo(s) por {nombre} — "
+                    "ganarles vale doble (suma y los deja sin sumar)."
+                )
     pq = _porque_liga(equipo, base, rest, zonas, texto, pend)
     if pq:
         L.append("🔍 **Por qué:** " + pq)
-    if pend:
-        L.append("_El «ya está / quedó afuera» es exacto. Los puntos a sumar son un **piso ajustado**: es una línea segura "
-                 "(si la alcanzás, entrás fijo) que ya descuenta los mano a mano entre rivales, así no pide imposibles._")
-    else:
-        L.append("_Cuenta por puntos asumiendo que los rivales ganan todo lo suyo (piso seguro). Pegá el **fixture** para ver tus cruces directos._")
+    if calc.garantia_exacta is not None:
+        L.append(
+            f"_La garantía es exacta porque el equipo está dentro de la ventana de {VENTANA_EXACTA} partidos o menos "
+            "y el fixture permite resolver los escenarios compatibles._"
+        )
+    elif calc.referencia_conservadora is not None:
+        L.append(
+            "_La referencia conservadora es un número seguro, no el mínimo necesario: puede pedir puntos de más. "
+            f"La garantía exacta se busca con {VENTANA_EXACTA} partidos restantes o menos y fixture disponible._"
+        )
     return "\n\n".join(L)
 
 def _porque_liga(equipo, base, rest, zonas, texto, pend=None):
@@ -1138,54 +1166,41 @@ def _porque_liga(equipo, base, rest, zonas, texto, pend=None):
     if not tgt or equipo not in base:
         return None
     k, nombre = tgt
-    pts = {e: base[e]["pts"] for e in base}; pmax = {e: pts[e] + 3 * rest.get(e, 0) for e in base}
-    arriba = sum(1 for x in base if x != equipo and pmax[x] >= pts[equipo])
-    inalc = sum(1 for x in base if x != equipo and pts[x] > pmax[equipo])
-    g = rest.get(equipo, 0)
-    if arriba < k:
+    pts = {e: base[e]["pts"] for e in base}
+    pmax = {e: pts[e] + 3 * rest.get(e, 0) for e in base}
+    calc = piso_por_corte(base, rest, list(pend or []), equipo, k, clave="liga", nombre=nombre)
+    g = int(rest.get(equipo, 0))
+    if calc.estado == "in":
         pueden = sorted([x for x in base if x != equipo and pmax[x] >= pts[equipo]], key=lambda x: -pmax[x])
         cuales = f"solo {', '.join(pueden)} pueden igualar o superar ese puntaje" if pueden else "nadie puede igualar o superar ese puntaje"
-        return (f"aunque {equipo} pierda todo lo que le queda (se queda en {pts[equipo]}), {cuales}; como entran {k}, ya está adentro.")
-    if inalc >= k:
+        return f"aunque {equipo} pierda todo lo que le queda, {cuales}; como entran {k}, ya está adentro."
+    if calc.estado == "out":
         arr = sorted([x for x in base if x != equipo and pts[x] > pmax[equipo]], key=lambda x: -pts[x])
         muestra = ", ".join(arr[:4]) + (f" y {len(arr)-4} más" if len(arr) > 4 else "")
-        return (f"su techo es {pmax[equipo]} pts (ganando sus {g}), y ya hay {inalc} por encima de ese techo "
-                f"({muestra}): no los puede pasar.")
-    mx = pmax[equipo]
-    if pend:
-        # Explicación coherente con el PISO AJUSTADO por los mano a mano.
-        linea = _linea_garantia(base, rest, pend, equipo, k)
-        falta = max(0, (linea + 1) - pts[equipo])
-        otros = sorted(((x, pmax[x]) for x in base if x != equipo), key=lambda kv: -kv[1])
-        rt, rm = otros[k-1]
-        topk = [x for x, _ in otros[:k]]
-        topset = set(topk)
-        n_cru = sum(1 for (a, b) in pend if a in topset and b in topset)
-        if n_cru > 0 and linea < rm:
-            txt = (f"si los {k} de arriba ({', '.join(topk)}) ganaran TODO, el {k}º llegaría a {rm}; pero "
-                   f"entre ellos les quedan {n_cru} partido{'s' if n_cru != 1 else ''} por jugar, y en cada uno "
-                   f"esos puntos no pueden ir a los dos a la vez, así que en el mejor caso realizable el {k}º "
-                   f"no pasa de {linea}. Para asegurarte tenés que superarlo ({linea+1}) y hoy tenés "
-                   f"{pts[equipo]} → te faltan {falta}.")
-        else:
-            txt = (f"el {k}º que más puede sumar termina como mucho en {linea}; para asegurarte tenés que "
-                   f"superarlo ({linea+1}) y hoy tenés {pts[equipo]} → te faltan {falta}.")
-            if n_cru > 0:
-                txt += (f" (Hay {n_cru} cruce{'s' if n_cru != 1 else ''} entre los de arriba, pero no bajan la línea: "
-                        f"aun perdiéndolos, igual {k} pueden llegar a {linea} porque a alguno le alcanza con ganar el resto.)")
-        if mx <= linea:
-            txt += (f" Y aun ganando todo lo tuyo llegás a {mx}, que no supera esa línea: por eso no te alcanza "
-                    f"solo, necesitás que los de arriba también pinchen.")
-        return txt
-    otros = sorted(((x, pmax[x]) for x in base if x != equipo), key=lambda kv: -kv[1])
-    rt, rm = otros[k-1]
-    falta = max(0, rm + 1 - pts[equipo])
-    txt = (f"el {k}º que más puede sumar es {rt} (termina como mucho en {rm}); para asegurarte tenés que "
-           f"superarlo ({rm+1}) y hoy tenés {pts[equipo]} → te faltan {falta}.")
-    if mx <= rm:
-        txt += (f" Y aun ganando todo lo tuyo llegás a {mx}, que no le gana a {rt}: por eso no te alcanza solo, "
-                f"necesitás que {rt}" + (" y compañía" if k > 1 else "") + " pinche(n).")
-    return txt
+        return (
+            f"su máximo es {pmax[equipo]} pts (ganando sus {g}), y ya hay {len(arr)} por encima de ese total "
+            f"({muestra}): no los puede pasar."
+        )
+    if calc.garantia_exacta is not None:
+        falta = max(0, calc.garantia_exacta - pts[equipo])
+        return (
+            f"el motor exacto resolvió el fixture pendiente y comprobó que {calc.garantia_exacta} es el menor total "
+            f"que asegura {nombre} en todos los escenarios compatibles; hoy tiene {pts[equipo]}, por eso le faltan {falta}."
+        )
+    if calc.referencia_conservadora is not None:
+        ref = int(calc.referencia_conservadora)
+        falta = max(0, ref - pts[equipo])
+        if pend:
+            return (
+                f"la referencia conservadora descuenta los cruces entre rivales que no pueden ganar ambos a la vez. "
+                f"Con {ref} puntos asegura {nombre}; hoy tiene {pts[equipo]}, por eso la referencia marca {falta} más. "
+                "Puede ser más exigente que la garantía exacta."
+            )
+        return (
+            f"sin fixture, la referencia conservadora supone el escenario más exigente para los rivales. "
+            f"Marca {ref} puntos ({falta} más que hoy), pero puede pedir puntos de más porque no descuenta todos los cruces reales."
+        )
+    return "la tabla sigue abierta y todavía no hay un número seguro publicable con los datos disponibles."
 
 def _porque_numero_magico(equipo, eqs, jug, pen, n):
     ov = _stats(eqs, jug); rest = _restantes(eqs, pen)
@@ -1195,8 +1210,9 @@ def _porque_numero_magico(equipo, eqs, jug, pen, n):
         return f"aunque {equipo} no sume más, solo {arriba} pueden igualar o superar ese puntaje y entran {n}."
     otros = sorted(((x, pmax[x]) for x in eqs if x != equipo), key=lambda kv: -kv[1])
     rt, rm = otros[n-1]
-    return (f"el {n}º que más puede llegar es {rt} (tope {rm}); para asegurarte tenés que pasarlo ({rm+1}) "
-            f"y hoy tenés {pts[equipo]} → te faltan {max(0, rm+1-pts[equipo])}.")
+    return (f"la referencia conservadora toma al {n}º rival con mayor máximo posible: {rt}, hasta {rm} puntos. "
+            f"Superar ese total ({rm+1}) es suficiente; hoy tenés {pts[equipo]} → la referencia marca "
+            f"{max(0, rm+1-pts[equipo])} puntos más. Puede ser más exigente que el mínimo exacto.")
 
 def _porque_chances(equipo, esc):
     d = DIRECTO(); T = len(esc); pos = esc[f"Pos {equipo}"]; n = int((pos <= d).sum())
@@ -2791,7 +2807,7 @@ def importar_partidos_json(texto, filtro=""):
 
 
 def _prom_rangos(base, rest, prev):
-    """Por equipo: (promedio_hoy, piso = perdiendo todo, techo = ganando todo). Empareja nombres tolerante."""
+    """Por equipo: promedio actual, mínimo final (perdiendo todo) y máximo final (ganando todo)."""
     eqs = list(base.keys())
     mapped = {}
     asign = _asignar_nombres(list((prev or {}).keys()), eqs)
@@ -2814,7 +2830,7 @@ def _prom_rangos(base, rest, prev):
 def promedios_df(base, rest, prev):
     P = _prom_rangos(base, rest, prev)
     rows = [{"Equipo": e, "PROMEDIO": round(d["hoy"], 3), "Pts": d["tp"], "PJ": d["tj"],
-             "Piso": round(d["piso"], 3), "Techo": round(d["techo"], 3),
+             "Mínimo final": round(d["piso"], 3), "Máximo final": round(d["techo"], 3),
              "Previas": "sí" if d["con_prev"] else "solo actual"} for e, d in P.items()]
     df = pd.DataFrame(rows).sort_values("PROMEDIO", ascending=False).reset_index(drop=True)
     df.insert(0, "Pos", range(1, len(df) + 1))
@@ -2823,10 +2839,10 @@ def promedios_df(base, rest, prev):
 def promedio_que_necesita_texto(e, base, rest, prev, k=1, pend=None):
     """Explica el descenso por promedios con una referencia colectiva prudente.
 
-    Los pisos y techos individuales son exactos. La referencia para salvarse sin depender
-    descuenta los cruces entre rivales mediante ``safe_average_guarantee_points`` y
-    considera adverso un empate de promedio. Como puede pedir puntos de más, no se
-    presenta como una garantía mínima exacta.
+    El mínimo y el máximo individual son exactos: corresponden a perder o ganar todo.
+    La referencia conservadora para salvarse sin depender descuenta los cruces entre
+    rivales mediante ``safe_average_guarantee_points`` y considera adverso un empate de
+    promedio. Puede pedir puntos de más, por lo que no es una garantía exacta mínima.
     """
     if e not in base:
         return f"No encuentro a {e} en la tabla cargada."
@@ -2855,12 +2871,12 @@ def promedio_que_necesita_texto(e, base, rest, prev, k=1, pend=None):
         muestra = ", ".join(abajo_seguro[:4])
         L.append(
             f"✅ **Ya está a salvo del promedio:** aunque pierda todo lo que le queda, {muestra} "
-            "no pueden alcanzarlo ni ganando todo; sus techos quedan por debajo de su piso."
+            "no pueden alcanzarlo ni ganando todo: sus máximos posibles quedan por debajo del mínimo final de este equipo."
         )
     elif len(arriba_seguro) >= n - k:
         L.append(
             f"❌ **Condenado por promedio:** aun ganando todo llega a {_fmt_num_es(d['techo'], 3)} y ya hay "
-            f"{len(arriba_seguro)} equipos cuyos pisos quedan por encima de ese número."
+            f"{len(arriba_seguro)} equipos cuyos mínimos finales quedan por encima de ese número."
         )
     else:
         pelea = sorted(
@@ -2890,12 +2906,12 @@ def promedio_que_necesita_texto(e, base, rest, prev, k=1, pend=None):
             final_avg = (d["tp"] + pts_need) / final_den if final_den else 0.0
             if pts_need == 0:
                 L.append(
-                    "✅ **Referencia prudente:** aun sin sumar más puntos, los cruces pendientes impiden que "
-                    f"todos los rivales necesarios lo alcancen. Su piso final es {_fmt_num_es(final_avg, 3)}."
+                    "✅ **Referencia conservadora:** aun sin sumar más puntos, los cruces pendientes impiden que "
+                    f"todos los rivales necesarios lo alcancen. Su promedio final quedaría en {_fmt_num_es(final_avg, 3)}."
                 )
             else:
                 L.append(
-                    f"Para salvarse **sin depender de nadie**, la referencia prudente exige sumar "
+                    f"Para salvarse **sin depender de nadie**, la referencia conservadora exige sumar "
                     f"**{_texto_cantidad(pts_need, 'punto')}** de los {max_points} en juego y terminar con "
                     f"un promedio de al menos **{_fmt_num_es(final_avg, 3)}**."
                 )
@@ -2906,7 +2922,7 @@ def promedio_que_necesita_texto(e, base, rest, prev, k=1, pend=None):
             )
         else:
             L.append(
-                "La referencia prudente queda fuera de su alcance incluso ganando todo. Eso **no prueba por sí "
+                "La referencia conservadora queda fuera de su alcance incluso ganando todo. Eso **no prueba por sí "
                 "solo** que su máximo sea insuficiente: para afirmarlo hace falta un chequeo exacto del fixture."
             )
 
@@ -2943,8 +2959,8 @@ def promedio_que_necesita_texto(e, base, rest, prev, k=1, pend=None):
             )
 
     L.append(
-        "_Los pisos y techos individuales son exactos. La referencia colectiva de promedios es prudente y "
-        "puede pedir algún punto de más; por eso no se la llama garantía. Descuenta el sobreconteo de los cruces "
+        "_El mínimo y el máximo individual de promedio son exactos: perder todo o ganar todo. La referencia "
+        "conservadora puede pedir algún punto de más; por eso no se presenta como garantía exacta. Descuenta el "
         "entre rivales y, cuando se supone que el equipo gana todo, también las derrotas obligatorias de sus "
         "rivales directos. Los recién ascendidos computan sólo la temporada actual. Cargá las temporadas previas "
         "en el panel «📉 Promedios»._"
@@ -3015,8 +3031,8 @@ def lpf_playoffs_texto(equipo, Z, rest, pend=None):
     L.append("### Cómo leer estos números")
     L.append(
         "El informe separa el **corte actual**, la **proyección del modelo**, la **referencia histórica** y la "
-        "**garantía matemática**. La proyección y el antecedente describen una exigencia posible o probable. "
-        "La garantía responde otra pregunta: cuál es el **menor puntaje alcanzable** que asegura clasificar pase lo "
+        "**garantía exacta**. La proyección y el antecedente describen una exigencia posible o probable. "
+        "La garantía exacta responde otra pregunta: cuál es el **menor puntaje alcanzable** que asegura clasificar pase lo "
         "que pase. Si ese mínimo todavía no fue comprobado por el motor exacto, no se publica una garantía."
     )
     L.append(
@@ -3086,10 +3102,10 @@ def lpf_descenso_texto(Z, rest, apertura=None, prev=None, n_anual=1, n_prom=1, e
         else:
             _lin = _linea_garantia(anual, rest, pend, equipo, k_salvarse)
             if (_lin + 1 - pts_e) <= 3 * gx:
-                tit = (f"{equipo} tiene una referencia prudente de puntos al alcance para salvarse por la Tabla General, "
+                tit = (f"{equipo} tiene una referencia conservadora de puntos al alcance para salvarse por la Tabla General, "
                        "pero el mínimo exacto todavía debe comprobarse.")
             else:
-                tit = (f"{equipo} sigue en pelea por la Tabla General. La referencia prudente queda fuera de su techo, "
+                tit = (f"{equipo} sigue en pelea por la Tabla General. La referencia conservadora queda fuera de su techo, "
                        "pero eso no prueba que necesite ayuda: la dependencia exacta debe resolverla el motor completo.")
         L = [f"## {equipo} · Descenso 2026", f"**{tit}**",
              f"Bajan **{n_anual}** por la Tabla General y **{n_prom}** por promedios. "
@@ -3106,8 +3122,8 @@ def lpf_descenso_texto(Z, rest, apertura=None, prev=None, n_anual=1, n_prom=1, e
                 L.append("### Los partidos que le quedan")
                 L.append(" · ".join(mis))
         L.append("### Cómo leer estos números")
-        L.append("Los pisos, techos y escenarios describen lo que todavía puede pasar. La palabra **garantía** se "
-                 "reserva para un mínimo exacto comprobado; una referencia prudente que puede pedir puntos de más "
+        L.append("Los rangos y escenarios describen lo que todavía puede pasar. **Garantía exacta** se "
+                 "reserva para un mínimo exacto comprobado; una referencia conservadora que puede pedir puntos de más "
                  "no se presenta como garantía.")
         L.append("**Regla clave:** si el mismo equipo termina último en las dos tablas, desciende por promedios y el "
                  "segundo descenso pasa al siguiente peor de la anual (Estatuto AFA, art. 93).")
@@ -3377,7 +3393,7 @@ def _fmt_entero_es(value):
 def _armar_contexto_competitivo(equipo, base, pend, k, objetivo, strength_base=None):
     """Construye la capa viva de tabla + fixture y la referencia histórica.
 
-    Si la simulación falla, la garantía matemática sigue disponible: esta capa es
+    Si la simulación falla, la garantía exacta sigue disponible: esta capa es
     estimativa y nunca bloquea el informe exacto/conservador.
     """
     if not pend or equipo not in base:
@@ -3458,7 +3474,7 @@ def _contexto_competitivo_bloque(equipo, nombre_obj, objetivo, contexto, histori
             f"formas de completar el fixture**, resolviendo cada partido una sola vez. En esas simulaciones, el "
             f"corte final tuvo una mediana de **{_fmt_num_es(mediana)} puntos** y el 50% central quedó entre "
             f"**{_fmt_num_es(bajo)} y {_fmt_num_es(alto)}**. En otras palabras, **{_fmt_num_es(mediana)} es el "
-            "corte final típico dentro del modelo**: no reemplaza al corte de hoy y no es una garantía matemática."
+            "corte final típico dentro del modelo**: no reemplaza al corte de hoy y no es una garantía exacta."
         )
 
     if target_editorial is not None:
@@ -3582,12 +3598,11 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
                             historial=None, objetivo=None, mostrar_cruces=True,
                             mostrar_rivales=True, mostrar_amenazas=True,
                             meta_override=None):
-    """Explica proyección, caminos y garantía exacta sin mezclar conceptos.
+    """Explica proyección, mínimo posible, garantía exacta y referencia conservadora.
 
-    Regla editorial 3.7.22: la palabra "garantía" se reserva exclusivamente para
-    el menor puntaje alcanzable que el motor exacto comprobó suficiente pase lo
-    que pase. Las referencias prudentes de ``_linea_garantia`` pueden seguir
-    usándose internamente, pero nunca se presentan como una garantía.
+    La garantía exacta es el menor total comprobado. La referencia conservadora
+    también es segura si se alcanza, pero puede pedir puntos de más y por eso nunca
+    se presenta como el mínimo necesario.
     """
     salva = modo == "salvarse"
     verbo = "se salva" if salva else "entra"
@@ -3621,7 +3636,7 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
             f"La cuenta: {mio} puntos + {gx} partidos × 3 = **{techo} como máximo**, y no alcanza.",
         ]
 
-    # Referencia prudente: útil para diagnósticos internos, pero NO es garantía.
+    # Referencia conservadora: es un total suficiente, pero puede no ser el menor.
     if meta_override is None:
         referencia_prudente = _linea_garantia(base_red, rest, pend, equipo, k) + 1
     else:
@@ -3632,7 +3647,7 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
     meta_exacta = None
     # El Radar se mantiene acotado a la parte final del torneo para no convertir
     # una consulta editorial en un problema de optimización demasiado costoso.
-    if pend and gx <= 6:
+    if pend and gx <= VENTANA_EXACTA:
         try:
             ladder = point_ladder(base_red, pend, equipo, k, max_rows=8, max_matches=110)
             if ladder.get("available") and ladder.get("guarantee") is not None:
@@ -3680,7 +3695,7 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
 
     if guarantee_exact and meta_exacta is not None:
         faltan = max(0, meta_exacta - mio)
-        L.append(f"### 🔒 Mínimo exacto que asegura {objetivo_titulo}")
+        L.append(f"### 🔒 Garantía exacta · {objetivo_titulo}")
         L.append(
             f"El motor exacto comprobó que **{meta_exacta} puntos** es el menor total alcanzable con el que "
             f"{equipo} {verbo} **pase lo que pase**. Tiene {mio}: necesita sumar **{faltan} de los "
@@ -3691,37 +3706,45 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
             L.append(cb)
         L.append(
             f"Con cualquier puntaje alcanzable menor a **{meta_exacta}**, todavía existe al menos un escenario "
-            f"compatible que puede dejar a {equipo} afuera. Por eso {meta_exacta} es la garantía y no sólo una referencia."
+            f"compatible que puede dejar a {equipo} afuera. Por eso {meta_exacta} es la garantía exacta."
         )
         L.append(
             "**Cómo se obtuvo.** El motor resuelve el fixture pendiente como un único sistema: cada partido tiene "
             "una sola salida y los cruces entre rivales no pueden contarse dos veces."
         )
     else:
-        L.append("### 🔒 Garantía matemática")
+        if referencia_prudente is not None and mio <= referencia_prudente <= techo:
+            faltan_ref = max(0, referencia_prudente - mio)
+            L.append("### 📌 Referencia conservadora")
+            L.append(
+                f"**{referencia_prudente} puntos** es un total seguro: si {equipo} llega a esa marca, {verbo} sin "
+                f"depender de otros resultados. Le faltan **{faltan_ref} puntos**. Puede pedir puntos de más: no es "
+                "el mínimo exacto necesario."
+            )
+            if gx > VENTANA_EXACTA:
+                L.append(
+                    f"La **garantía exacta** se busca cuando a {equipo} le quedan {VENTANA_EXACTA} partidos o menos."
+                )
+
+        L.append("### 🔒 Garantía exacta")
         if max_fail_exact is True:
             L.append(
-                f"**No hay una garantía al alcance de {equipo}.** Incluso ganando sus {gx} partidos y llegando a "
+                f"**No hay una garantía exacta al alcance de {equipo}.** Incluso ganando sus {gx} partidos y llegando a "
                 f"**{techo} puntos**, el motor encontró al menos una combinación compatible que puede dejarlo afuera. "
                 "Como ése es su máximo, ningún puntaje menor puede garantizar la clasificación."
             )
         elif max_fail_exact is False:
             L.append(
                 f"El chequeo exacto confirmó que con su máximo de **{techo} puntos**, {equipo} {verbo} pase lo que pase. "
-                "Pero todavía **no está calculado el mínimo exacto** que lo asegura. Por eso no se publica un número de "
-                "garantía hasta que el Radar pueda encontrar el menor total suficiente."
+                "Pero todavía **no está calculado el menor total exacto** que lo asegura. La referencia conservadora, "
+                "si aparece arriba, es suficiente pero puede ser más alta que ese mínimo."
             )
         else:
             L.append(
-                "**Todavía no está calculada de manera exacta.** En esta etapa se muestran la realidad de hoy, la "
-                "proyección del modelo y las referencias históricas, pero ninguna de esas cifras se presenta como "
-                "garantía. La garantía aparecerá sólo cuando el motor pueda demostrar cuál es el menor puntaje "
-                "alcanzable que asegura el objetivo en todos los escenarios compatibles."
+                "**Todavía no está calculada.** La garantía exacta aparecerá sólo cuando el motor pueda demostrar cuál "
+                "es el menor puntaje alcanzable que asegura el objetivo en todos los escenarios compatibles. Mientras "
+                "tanto, la referencia conservadora se identifica por separado y nunca se presenta como el mínimo."
             )
-
-        # La referencia prudente se conserva sólo como control técnico interno.
-        # Nunca se muestra al usuario como puntaje necesario ni como garantía.
-        _ = referencia_prudente
 
         if mostrar_amenazas and amenazas_techo:
             muestra = amenazas_techo[:12]
@@ -4037,7 +4060,7 @@ def lpf_copas_necesita_texto(equipo, Z, rest, apertura=None, camps=("", "", ""),
                          "pero no consumen otro cupo por esa vía.")
     chica.append(
         "El informe separa el **corte actual**, la **proyección del modelo**, la **referencia histórica** y la "
-        "**garantía matemática**. La garantía es únicamente el **menor puntaje alcanzable** que asegura entrar pase "
+        "**garantía exacta**. La garantía es únicamente el **menor puntaje alcanzable** que asegura entrar pase "
         "lo que pase. Si el motor exacto todavía no puede demostrar ese mínimo, el informe dice que la garantía aún "
         "no está calculada y no reemplaza ese dato por una aproximación."
     )
@@ -4095,7 +4118,7 @@ def lpf_pendientes(Z, games=None, canon=None, played=None):
 
 
 def _linea_garantia(base, rest, pend, equipo, k):
-    """Piso seguro, delegado al núcleo aislado y validado por fuerza bruta.
+    """Referencia conservadora, delegada al núcleo aislado y validada por fuerza bruta.
 
     La línea prueba todos los subconjuntos relevantes y descuenta los puntos que no
     pueden existir cuando dos rivales se enfrentan. Puede ser conservadora, pero no
@@ -4521,9 +4544,16 @@ def numero_magico_texto(equipo, equipos, jugados, pend, n=1):
         if necesita == 0:
             lineas.append("✅ Ya está asegurado pase lo que pase.")
         elif necesita <= tope:
-            lineas.append(f"Necesita sumar **{necesita} pts** más para asegurarlo sin depender de nadie.")
+            ref = pts[equipo] + necesita
+            lineas.append(
+                f"📌 **Referencia conservadora: {ref} puntos.** Si llega a ese total, asegura el objetivo sin "
+                f"depender de nadie. Le faltan **{necesita} puntos**; el mínimo exacto puede ser menor."
+            )
         else:
-            lineas.append(f"No puede asegurarlo solo: necesitaría {necesita} y solo hay {tope} en juego → depende de que los rivales pinchen.")
+            lineas.append(
+                f"La referencia conservadora queda fuera de alcance: exigiría {necesita} puntos más y sólo hay "
+                f"{tope} en juego. Eso no prueba por sí solo que sea imposible: puede depender de que los rivales pinchen."
+            )
     pq = _porque_numero_magico(equipo, equipos, jugados, pend, n)
     if pq:
         lineas.append("🔍 **Por qué:** " + pq)
@@ -6161,7 +6191,7 @@ AYUDA_MD = """**Todo esto funciona escribiéndolo (no hace falta el asistente Cl
 - *Forma* / *Racha* — tabla de últimos 5 · *De local y de visitante* — rendimiento por condición
 - *Calendario* — qué tan difícil es el fixture que le queda a cada uno
 - *Mejores terceros* — el tablero de los 12 terceros con la línea de corte (necesita el torneo completo; placa)
-- *Promedios* / *Promedio de X* — el descenso a la argentina, con piso, techo y análisis exacto (cargá las previas en el panel)
+- *Promedios* / *Promedio de X* — el descenso a la argentina, con promedio actual, mínimo si pierde todo, máximo si gana todo y análisis (cargá las previas en el panel)
 - *Barras de River* — distribución de en qué puesto puede terminar (gráfico)
 - *Partido bisagra* — qué partido de los que faltan define más cosas
 - *Tabla por zonas* — para ligas: pinta la tabla por Libertadores/Sudamericana/descenso (configurá las zonas en el panel)
@@ -6208,7 +6238,7 @@ def _chat_catalog(E, team, other):
         return {
             "⭐ Más usadas": [
                 ("Previa del equipo", "Partido, rango de puestos e impacto en playoffs, copas o descenso.", f"Previa de {team}"),
-                ("Qué necesita", "Piso, techo, cruces directos y caminos para alcanzar el objetivo.", f"¿Qué necesita {team} para los playoffs?"),
+                ("Qué necesita", "Garantía exacta o referencia conservadora, cruces directos y caminos para alcanzar el objetivo.", f"¿Qué necesita {team} para los playoffs?"),
                 ("Qué le conviene", "Resultados de otras canchas que mejoran su escenario.", f"¿Qué le conviene a {team} para los playoffs?"),
                 ("Tabla de las zonas", "Posiciones actuales y línea de clasificación.", "Tabla de las dos zonas"),
                 ("Libertadores", "Panorama general de los cupos por la Tabla Anual.", "¿Cómo está la clasificación a la Libertadores?"),
@@ -6242,7 +6272,7 @@ def _chat_catalog(E, team, other):
             ],
             "📉 Descenso": [
                 ("Panorama del descenso", "Quién baja hoy por anual y quién por promedio.", "¿Cómo está el descenso?"),
-                ("Tabla de promedios", "Coeficientes, piso y techo de cada equipo.", "Promedios"),
+                ("Tabla de promedios", "Coeficientes, mínimo y máximo posible de cada equipo.", "Promedios"),
                 ("Situación del equipo", "Riesgo por las dos vías y qué necesita para salvarse.", f"¿Qué necesita {team} para no descender?"),
                 ("Chances de descenso", "Probabilidad estimada para equipos de la zona baja.", f"Chances de {team} para el descenso"),
                 ("Qué le conviene para salvarse", "Resultados ajenos que lo alejan de la zona roja.", f"¿Qué le conviene a {team} para salvarse?"),
@@ -6284,7 +6314,7 @@ def _chat_catalog(E, team, other):
             "📊 Tablas y visuales": [
                 ("Tabla de las zonas", "Vista completa con la línea de clasificación.", "Tabla de las dos zonas"),
                 ("Tabla Anual", "Acumulada para copas y descenso.", "Tabla Anual"),
-                ("Promedios", "Coeficientes con piso y techo.", "Promedios"),
+                ("Promedios", "Coeficientes con mínimo y máximo posible.", "Promedios"),
                 ("Proyección", "Puntos finales al ritmo actual.", "Proyección"),
                 ("Máximos", "Puntaje máximo alcanzable por cada equipo.", "Máximos"),
                 ("Distribución", "Chances por puesto o zona del equipo elegido.", f"Barras de {team}"),
@@ -6313,7 +6343,7 @@ def _chat_catalog(E, team, other):
             ("Qué necesita", "Cuenta por resultados o puntos.", f"¿Qué necesita {team}?"),
             ("Qué le conviene", "Mejor combinación propia y ajena.", f"¿Qué le conviene a {team}?"),
             ("Puesto exacto", "Qué resultados lo dejan en una posición concreta.", f"{team} puede salir 1º"),
-            ("Número mágico", "Puntos que aseguran el objetivo.", f"Número mágico de {team}"),
+            ("Número mágico", "Garantía exacta o referencia conservadora para el objetivo.", f"Número mágico de {team}"),
             ("Si terminara hoy", "Clasificados y orden actual.", "Si terminara hoy"),
             ("Simulador", "Fija resultados y recalcula la tabla.", "Simulador: qué pasa si"),
         ],
@@ -7203,7 +7233,7 @@ def lpf_otros_resultados_sim(equipo, Z, rest, pend, top=_LPF_TOP_OCTAVOS, jugado
         text.append("En lugar de decir que todos los partidos ‘dan igual’, el detalle muestra las diferencias "
                     "mínimas para auditoría, pero las rotula como no apreciables.")
     text.append(f"_ESTIMADO · {_fmt_entero_es(n)} simulaciones, semilla {seed}. Las columnas comparan la chance de playoffs "
-                "fijando por separado victoria local, empate y victoria visitante. No es una garantía matemática._")
+                "fijando por separado victoria local, empate y victoria visitante. No es una garantía exacta._")
     visible = [{k: v for k, v in row.items() if k != "_impact"} for row in rows]
     # Si nada es significativo, alcanza con los cinco partidos que más se acercan al umbral.
     if not significant:
@@ -7966,7 +7996,7 @@ def _router_lpf(acc, E):
                  else lpf_relato_descenso_texto(Z, rest, ap, prev, na, npro))
         out = [("md", _text)]
         if prev:
-            out.append(("df", promedios_df(anual, rest, prev), "Promedios (piso = perdiendo todo · techo = ganando todo)"))
+            out.append(("df", promedios_df(anual, rest, prev), "Promedios (mínimo = perdiendo todo · máximo = ganando todo)"))
         out.append(("df", lpf_anual_df(Z, ap), "Tabla General 2026"))
         return out
     if intent == "estado_fecha":
@@ -8179,7 +8209,7 @@ AYUDA_LPF = """### ⚽ Calculadora LPF 2026 — guía de uso
 ---
 
 ### 🏆 Playoffs (entran los 8 primeros de cada zona)
-- **¿Qué necesita River para los playoffs?** — la cuenta con el **piso seguro**, los **mano a mano**, las **opciones** (con cuánto entrás si les ganás a los de arriba, o terminando por encima de tal rival) y el «🔍 por qué»
+- **¿Qué necesita River para los playoffs?** — la cuenta con la **garantía exacta** o la **referencia conservadora**, los **mano a mano**, las **opciones** (con cuánto entrás si les ganás a los de arriba, o terminando por encima de tal rival) y el «🔍 por qué»
 - **Tabla** — las dos zonas con la línea de clasificación · **Octavos** — los 8 cruces si terminara hoy
 - **Relato de la zona** — el panorama escrito, listo para la nota
 - **Probabilidades** (o «chances de River») — % de entrar a los playoffs por simulación
@@ -8188,15 +8218,15 @@ AYUDA_LPF = """### ⚽ Calculadora LPF 2026 — guía de uso
 
 ### 📉 Descenso (bajan 2: uno por promedios y otro por la anual)
 - **Descenso** — quiénes se irían hoy por cada tabla, con la regla si el mismo es último en las dos
-- **¿Se salva Aldosivi?** — exacto por promedio y por anual, con piso, techo y **opciones** (mano a mano incluido)
+- **¿Se salva Aldosivi?** — por promedio y por anual, con rango posible, garantía/referencia y **opciones** (mano a mano incluido)
 - **Chances de Aldosivi para el descenso** — probabilidad de descender/salvarse por simulación (solo para equipos entre los últimos 6 de promedios o de la anual)
 - **¿Qué le conviene a Aldosivi para salvarse?** — qué resultado de la otra cancha lo aleja del descenso
-- **Promedios** — la tabla completa con PROMEDIO, piso y techo
+- **Promedios** — la tabla completa con PROMEDIO, mínimo si pierde todo y máximo si gana todo
 - _También:_ ¿quién se salva? · ¿quién está en riesgo? · zona de descenso
 
 ### 🌎 Copas 2027 (siempre primero la Libertadores)
 - **Copas** — cómo quedan las plazas de Libertadores y Sudamericana
-- **¿River llega a la Libertadores?** — tu puesto en la tabla **sin campeones**, con piso y **opciones**
+- **¿River llega a la Libertadores?** — tu puesto en la tabla **sin campeones**, con garantía/referencia y **opciones**
 - **Chances de River para la Libertadores** / **para la Sudamericana** — probabilidad por simulación (tabla de la anual sin campeones), cada copa por separado
 - **¿Qué le conviene a River para la Libertadores?** (o para la Sudamericana) — qué hinchar en la otra cancha para esa copa
 - **Anual** — la Tabla General 2026 (su 1º es Campeón de Liga)
@@ -8269,8 +8299,8 @@ def _router_liga_tabla(acc, E):
         kk = int(st.session_state.get("PROM_K", 1))
         if equipo:
             return [("md", promedio_que_necesita_texto(equipo, base, rest, prevP, kk, E["pendientes"])),
-                    ("df", promedios_df(base, rest, prevP), "Tabla de promedios (piso = perdiendo todo · techo = ganando todo)")]
-        return [("df", promedios_df(base, rest, prevP), "Tabla de promedios (piso = perdiendo todo · techo = ganando todo)"),
+                    ("df", promedios_df(base, rest, prevP), "Tabla de promedios (mínimo = perdiendo todo · máximo = ganando todo)")]
+        return [("df", promedios_df(base, rest, prevP), "Tabla de promedios (mínimo = perdiendo todo · máximo = ganando todo)"),
                 ("md", "_«Solo actual» = sin temporadas previas cargadas (recién ascendidos: es la regla). "
                        "Cargá las previas en el panel «📉 Promedios» y pedí «promedio de X» para el análisis._")]
     if intent == "terceros":
@@ -8412,8 +8442,8 @@ def ejecutar_accion(acc):
         kk = int(st.session_state.get("PROM_K", 1))
         if equipo:
             return [("md", promedio_que_necesita_texto(equipo, basex, restx, prev, kk, pen)),
-                    ("df", promedios_df(basex, restx, prev), "Tabla de promedios (piso = perdiendo todo · techo = ganando todo)")]
-        return [("df", promedios_df(basex, restx, prev), "Tabla de promedios (piso = perdiendo todo · techo = ganando todo)"),
+                    ("df", promedios_df(basex, restx, prev), "Tabla de promedios (mínimo = perdiendo todo · máximo = ganando todo)")]
+        return [("df", promedios_df(basex, restx, prev), "Tabla de promedios (mínimo = perdiendo todo · máximo = ganando todo)"),
                 ("md", "_«Solo actual» = sin temporadas previas cargadas (recién ascendidos: es la regla). "
                        "Cargá las previas en el panel «📉 Promedios» y pedí «promedio de X» para el análisis._")]
 
@@ -9416,7 +9446,7 @@ def render_newsroom(E):
 
 #### Cómo leer las cuentas
 
-**Garantía matemática:** es el **menor puntaje alcanzable** que asegura el objetivo pase lo que pase. Sólo se muestra cuando el motor exacto puede comprobarlo sobre el fixture completo. Antes de ese tramo no se publica una aproximación como garantía: se muestran por separado el corte actual, la proyección, las referencias y los puntajes condicionados.
+**Garantía exacta:** es el **menor puntaje alcanzable** que asegura el objetivo pase lo que pase. Sólo se muestra cuando el motor exacto puede comprobarlo sobre el fixture completo. Antes de ese tramo no se publica una aproximación como garantía: se muestran por separado el corte actual, la proyección, las referencias y los puntajes condicionados.
 
 **Rango de una fecha:** es exacto por puntos y respeta los partidos entre rivales. Si hay igualdad, abre el intervalo porque el marcador futuro cambia DG/GF y todavía pueden intervenir mano a mano, fair play o sorteo.
 
@@ -9595,7 +9625,7 @@ def render_definition_radar(E):
     if max_left > VENTANA_EXACTA:
         ui_caption(
             f"Algunos equipos todavía tienen hasta {max_left} partidos (postergados): para esos se "
-            "muestra una cota segura hasta que entren en sus últimas fechas. El resto ya usa el motor exacto."
+            "muestra una referencia conservadora hasta que entre en la ventana exacta. El resto ya usa el motor exacto."
         )
     lab = ui_selectbox("Zona", sorted(Z), key="radar_zone")
     base = Z[lab]
@@ -9619,16 +9649,17 @@ def render_definition_radar(E):
                     guarantee = exact.get("guarantee")
                     tipo = "Exacto"
             if guarantee is None and state == "pelea":
-                # Cota segura mientras el equipo tenga por delante más fechas que la ventana exacta.
+                # Referencia conservadora mientras el equipo tenga por delante más fechas que la ventana exacta.
                 linea = _linea_garantia(base, rest, pending, team, 8)
                 if linea is not None:
                     guarantee = min(ceiling, max(int(base[team]["pts"]), linea + 1))
-                    tipo = "Cota"
+                    tipo = "Conservador"
             radar.append({
                 "Pos": pos, "Equipo": team, "PTS": int(base[team]["pts"]),
                 "Restan": team_left, "Techo": ceiling,
                 "Mínimo posible": minimum,
-                "Piso que garantiza": guarantee,
+                "Garantía exacta": guarantee if tipo == "Exacto" else None,
+                "Referencia conservadora": guarantee if tipo == "Conservador" else None,
                 "Tipo": tipo,
                 "Estado": {"in": "Clasificado", "out": "Eliminado", "pelea": "En carrera"}.get(state, state),
             })
@@ -9928,7 +9959,7 @@ def render_visualizations_workspace(E):
             "Puntos": [current, cutoff, ceiling],
         }).set_index("Referencia")
         st.bar_chart(chart)
-        ui_caption("La garantía no se aproxima en esta vista. Cuando el motor exacto está disponible, ‘Calcular escalera exacta’ muestra el menor puntaje que asegura la clasificación.")
+        ui_caption("La garantía exacta no se aproxima. Cuando el motor exacto está disponible, ‘Calcular escalera exacta’ muestra el menor puntaje que asegura la clasificación.")
         if st.button("Calcular escalera exacta", key="viz_ladder", use_container_width=True):
             _render_point_ladder(team, base, rest, pending, 8, f"{team} · puntos y clasificación")
 
@@ -10274,7 +10305,7 @@ with st.sidebar:
 
 
 _WORKSPACES = [
-    "🎯 Pisos por objetivo",
+    "🎯 Puntos por objetivo",
     "🧭 Panel por equipo",
     "🎯 Escenarios",
     "🗞️ Mesa de redacción",
@@ -10287,7 +10318,7 @@ if st.session_state.get("workspace_nav") not in _WORKSPACES:
 
 
 def _prom_totales_para_pisos(anual, Z):
-    """{equipo: (pts_totales, pj_totales)} para el piso por promedios.
+    """{equipo: (pts_totales, pj_totales)} para la exigencia por promedios.
 
     Suma la temporada previa cargada (si existe) al acumulado actual de la Anual.
     Devuelve None si no hay tabla de promedios para no inventar datos.
@@ -10309,7 +10340,7 @@ def _prom_totales_para_pisos(anual, Z):
 
 
 def _pisos_frame(pisos):
-    """DataFrame legible a partir de una lista de PisoObjetivo."""
+    """DataFrame legible a partir de una lista de objetivos."""
     filas = []
     for p in pisos:
         if not p.aplica:
@@ -10319,24 +10350,26 @@ def _pisos_frame(pisos):
             "Hoy": p.puntos_hoy,
             "Techo": p.techo,
             "Mínimo posible": p.minimo_posible if p.minimo_posible is not None else "—",
-            "Piso": p.piso if p.piso is not None else "—",
-            "Tipo": "Exacto" if p.exacto else ("Cota segura" if p.piso is not None else "—"),
+            "Garantía exacta": p.garantia_exacta if p.garantia_exacta is not None else "—",
+            "Referencia conservadora": p.referencia_conservadora if p.referencia_conservadora is not None else "—",
+            "Cálculo": "Exacto" if p.exacto else ("Conservador" if p.referencia_conservadora is not None else "—"),
             "Lectura": p.lectura(),
         })
     return pd.DataFrame(filas)
 
 
 def render_pisos_workspace(E):
-    """Puerta de entrada simple: el piso de un equipo para todos sus objetivos.
+    """Puerta de entrada simple: los puntos necesarios para todos los objetivos de un equipo.
 
     Responde de una sola vez la pregunta más frecuente —«¿cuántos puntos necesita
     para clasificar / entrar a una copa / no descender?»— sin recordar comandos.
     """
-    ui_markdown("## Pisos por objetivo")
+    ui_markdown("## Puntos necesarios por objetivo")
     ui_caption(
-        "Cuántos puntos necesita cada equipo. **Mínimo posible** = el menor puntaje con "
-        "el que todavía existe una combinación favorable. **Piso** = el que ya garantiza "
-        "el objetivo sin depender de nadie ni de desempates."
+        "Cuántos puntos necesita cada equipo. **Mínimo posible** = el menor total con el que todavía existe "
+        "algún escenario favorable. **Garantía exacta** = el menor total comprobado que asegura el objetivo. "
+        "**Referencia conservadora** = un total seguro antes de la ventana exacta: si se alcanza, asegura, "
+        "pero puede pedir puntos de más."
     )
 
     Z = E.get("zonas_lpf") or {}
@@ -10377,8 +10410,9 @@ def render_pisos_workspace(E):
         max_left = max((int(rest.get(team, 0)), 0))
         if max_left > VENTANA_EXACTA:
             ui_caption(
-                f"A {team} le quedan {max_left} partidos: por ahora el piso se muestra como "
-                f"cota segura. El piso exacto se activa solo cuando quedan {VENTANA_EXACTA} fechas o menos."
+                f"A {team} le quedan {max_left} partidos: todavía no se calcula la **garantía exacta**. "
+                f"Por ahora se muestra una **referencia conservadora**: si la alcanza, asegura el objetivo, pero puede "
+                f"pedir puntos de más. El cálculo exacto se activa con {VENTANA_EXACTA} partidos restantes o menos."
             )
 
         # Escalera exacta: qué pasa punto por punto entre el mínimo y la garantía.
@@ -10397,16 +10431,16 @@ def render_pisos_workspace(E):
                     "Situación": estado,
                     "Camino de ejemplo": ejemplo or ("No depende de otros resultados" if "arant" in estado else "—"),
                 })
-            ui_markdown(f"**Escalera de {elegido.nombre}** — del mínimo posible a la garantía:")
+            ui_markdown(f"**Escalera de {elegido.nombre}** — del mínimo posible a la garantía exacta:")
             ui_dataframe(pd.DataFrame(filas_esc), use_container_width=True, hide_index=True)
             ui_caption(
                 "«Clasificación condicionada» = alcanza con ese puntaje según cómo salgan otros partidos. "
-                "«Garantía matemática» = entra sin depender de nadie ni de desempates."
+                "«Garantía exacta» = el menor total comprobado con el que entra sin depender de nadie ni de desempates."
             )
 
         any_prom = prom_totales is not None
         if not any_prom:
-            ui_caption("Para sumar el piso por promedios, pegá la tabla de promedios en el panel lateral.")
+            ui_caption("Para sumar la exigencia por promedios, pegá la tabla de promedios en el panel lateral.")
     else:
         objetivo = st.selectbox(
             "Objetivo",
@@ -10436,8 +10470,9 @@ def render_pisos_workspace(E):
                 filas.append({
                     "Equipo": e, "PTS": p.puntos_hoy, "Restan": int(rest.get(e, 0)),
                     "Techo": p.techo,
-                    "Piso p/ salvarse": p.piso if p.piso is not None else "—",
-                    "Tipo": "Exacto" if p.exacto else ("Cota" if p.piso is not None else "—"),
+                    "Garantía exacta": p.garantia_exacta if p.garantia_exacta is not None else "—",
+                    "Referencia conservadora": p.referencia_conservadora if p.referencia_conservadora is not None else "—",
+                    "Cálculo": "Exacto" if p.exacto else ("Conservador" if p.referencia_conservadora is not None else "—"),
                     "Estado": {"in": "Salvado", "out": "En zona de baja", "pelea": "En riesgo"}.get(p.estado, p.estado),
                 })
             ui_dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True, height=520)
@@ -10455,8 +10490,9 @@ def render_pisos_workspace(E):
             ui_dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True, height=520)
 
     ui_caption(
-        f"Los números salen del optimizador exacto (scipy) cuando quedan {VENTANA_EXACTA} fechas o menos; "
-        "si no, se informa una cota segura, nunca una garantía inventada."
+        f"El cálculo exacto se habilita por equipo cuando le quedan {VENTANA_EXACTA} partidos o menos. "
+        "Antes de eso se informa una referencia conservadora: si la alcanza, asegura el objetivo, aunque puede ser "
+        "más alta que la garantía exacta que se obtendrá después."
     )
 
 
@@ -10498,7 +10534,7 @@ for _col, (_button_label, _tool_label) in zip(_scenario_cols, _SCENARIO_SHORTCUT
     )
 
 _workspace = st.session_state["workspace_nav"]
-if _workspace == "🎯 Pisos por objetivo":
+if _workspace == "🎯 Puntos por objetivo":
     render_pisos_workspace(st.session_state.ESTADO)
     st.stop()
 if _workspace == "🧭 Panel por equipo":

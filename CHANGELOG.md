@@ -1,3 +1,26 @@
+## 3.8.8 · 2026-08-10
+
+### Terminología unificada en todas las narraciones y corrección del objetivo descenso
+
+- Toda la interfaz y las narraciones usan tres nombres distintos: **mínimo posible**, **garantía exacta** y **referencia conservadora**. Se eliminan de cara al usuario las etiquetas ambiguas **“puntaje que asegura”**, **“seguro (conservador)”**, **“piso seguro”** y **“piso ajustado”**.
+- La **referencia conservadora** es un total suficiente: si se alcanza, asegura el objetivo, pero puede pedir puntos de más. La **garantía exacta** es el menor total comprobado que asegura.
+- El relato general de “qué necesita”, playoffs, copas, descenso, Radar y escalera exacta comparte ahora la misma terminología. `lpf_scenarios.point_ladder` rotula sus filas garantizadas como **“Garantía exacta”**.
+- En promedios, las tablas visibles dejan de hablar de “piso/techo” y muestran **“Mínimo final”** (si pierde todo) y **“Máximo final”** (si gana todo).
+- `lpf_competition_narratives` usa `VENTANA_EXACTA = 8` como referencia del tramo final; ya no mantiene un umbral editorial separado de seis partidos.
+- Se corrigió la combinación de **Tabla Anual + promedios** en `piso_no_descenso`: un equipo no se declara salvado por la Anual si todavía necesita puntos por promedios, y cuando la referencia de promedios es más exigente que la garantía anual manda el mayor total seguro.
+- La fachada JSON agrega nombres explícitos `minimum_possible`, `exact_guarantee`, `conservative_reference` y `safe_value`; `floor` se conserva sólo como alias legado del contrato v1.
+- La suite queda en **140 pruebas**.
+
+## 3.8.7 · 2026-08-10
+
+### Terminología más clara y ventana exacta unificada
+
+- La interfaz deja de usar **“cota”** y deja de presentar **“piso”** como etiqueta principal para el objetivo. En lenguaje editorial se usan tres conceptos: **mínimo para seguir con chances**, **puntaje que asegura** y **puntaje seguro (conservador)**.
+- El puntaje seguro conservador también asegura el objetivo si se alcanza; la diferencia es que, antes de ejecutar el optimizador exacto, puede pedir algún punto de más que el menor total realmente necesario.
+- El espacio principal pasa de **“Pisos por objetivo”** a **“Puntos por objetivo”** y las tablas muestran **“Puntaje que asegura”** / **“Cálculo”**. Los nombres internos `piso_*` y el campo `floor` del contrato v1 se conservan por compatibilidad.
+- Se corrigió una desincronización residual: una narración antigua activaba `point_ladder` con seis partidos restantes. Ahora todas las rutas usan `VENTANA_EXACTA = 8`. En un torneo de 16 fechas, sin postergados, el cálculo exacto puede aparecer desde la **Fecha 9** (después de jugar ocho partidos).
+- El umbral es por **partidos restantes del equipo**, no por número nominal de fecha: los postergados pueden retrasar la entrada a la ventana exacta.
+
 ## 3.8.6 · 2026-08-10
 
 ### Corrección de arranque en Streamlit

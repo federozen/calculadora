@@ -11,6 +11,7 @@ from typing import Iterable, Mapping, Sequence
 
 from lpf_scenarios import exact_result_scenarios, scenario_rank_bounds
 from lpf_display import editorialize_text
+from lpf_pisos import VENTANA_EXACTA
 
 
 def _num(value: object, default: int = 0) -> int:
@@ -489,7 +490,7 @@ def _cup_stake_for_team(
     sud_boundary = effective[sud_cut - 1] if 0 < sud_cut <= len(effective) else None
     lib_gap = max(0, _num(lib_boundary["pts"]) - _num(row["pts"])) if lib_boundary else 999
     sud_gap = max(0, _num(sud_boundary["pts"]) - _num(row["pts"])) if sud_boundary else 999
-    late_stage = max(0, _num(remaining.get(team, 0))) <= 6
+    late_stage = max(0, _num(remaining.get(team, 0))) <= VENTANA_EXACTA
     near_lib = lib_cut > 0 and lib_state != "out" and (
         pos <= lib_cut or lib_gap <= 3 or (late_stage and lib_gap <= 6)
     )
@@ -1307,15 +1308,15 @@ def relegation_story(
             f"| {row['team']} | {row['pts']} | {row['pj']} | {_signed(row['dg'])} | {_gf(row)} |"
         )
     if avg_rows:
-        lines.append("\n| Promedios | Promedio | Pts | PJ | Piso | Techo |")
+        lines.append("\n| Promedios | Promedio | Pts | PJ | Mínimo final | Máximo final |")
         lines.append("|---|---:|---:|---:|---:|---:|")
         for row in avg_rows[-5:]:
             lines.append(
                 f"| {row.get('Equipo')} | {_decimal_es(row.get('PROMEDIO', 0))} | {row.get('Pts', 0)} | "
-                f"{row.get('PJ', 0)} | {_decimal_es(row.get('Piso', 0))} | {_decimal_es(row.get('Techo', 0))} |"
+                f"{row.get('PJ', 0)} | {_decimal_es(row.get('Mínimo final', row.get('Piso', 0)))} | {_decimal_es(row.get('Máximo final', row.get('Techo', 0)))} |"
             )
     lines.append(
-        "_Es una foto exacta de las tablas cargadas. Los pisos y techos de promedio son rangos matemáticos; no son una "
+        "_Es una foto exacta de las tablas cargadas. El mínimo y el máximo final del promedio son rangos matemáticos; no son una "
         "predicción de resultados._"
     )
     return editorialize_text("\n\n".join(lines))

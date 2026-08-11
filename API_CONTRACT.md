@@ -69,7 +69,7 @@ Función: `calculate_point_ladder(payload)`.
 ```
 
 Devuelve exactamente la salida de `lpf_scenarios.point_ladder`, convertida a JSON.
-La distinción entre mínimo posible, clasificación condicionada y garantía matemática
+La distinción entre mínimo posible, clasificación condicionada y garantía exacta
 sigue siendo responsabilidad del motor, no del contrato.
 
 ## 3. Rango de puesto en una ventana
@@ -91,7 +91,7 @@ claves de objeto:
 `result` usa `L` (gana local), `E` (empate) o `V` (gana visitante), igual que el
 motor interno.
 
-## 4. Piso por objetivo de corte
+## 4. Puntos por objetivo de corte
 
 Función: `calculate_objective_floor(payload)`.
 
@@ -107,9 +107,7 @@ Función: `calculate_objective_floor(payload)`.
 }
 ```
 
-Además de los campos de `PisoObjetivo`, la salida publica `floor` (mejor piso
-existente: exacto o conservador) y `reading` como lectura breve ya existente en el
-dominio.
+Además de los campos internos históricos de `PisoObjetivo`, la salida publica `minimum_possible`, `exact_guarantee`, `conservative_reference` y `safe_value`. `floor` se conserva sólo como alias legado del contrato v1 y apunta al valor seguro vigente. `reading` devuelve la lectura editorial con los mismos términos que Streamlit.
 
 ## Futuro adaptador HTTP
 

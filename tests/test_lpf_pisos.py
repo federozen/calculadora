@@ -19,7 +19,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from lpf_pisos import piso_por_corte, piso_no_descenso  # noqa: E402
+from lpf_pisos import PisoObjetivo, piso_por_corte, piso_no_descenso  # noqa: E402
 
 OUTCOMES = ("L", "E", "V")
 
@@ -202,6 +202,69 @@ def test_no_descenso_combina_dos_tablas():
     assert p.puntos_hoy == 8
     # Con corte de salvación top (6-1)=5, F pelea por no ser último.
     assert p.estado in {"in", "out", "pelea"}
+
+
+def test_valor_seguro_prioriza_referencia_si_el_objetivo_global_no_es_exacto():
+    p = PisoObjetivo(
+        clave="descenso", nombre="no descender", puntos_hoy=20, techo=30,
+        piso_exacto=24, piso_conservador=27, exacto=False,
+    )
+    assert p.garantia_exacta is None
+    assert p.referencia_conservadora == 27
+    assert p.piso == 27
+    assert "Referencia conservadora: 27 puntos" in p.lectura()
+
+
+def test_valor_seguro_muestra_garantia_cuando_el_calculo_global_es_exacto():
+    p = PisoObjetivo(
+        clave="playoffs", nombre="los playoffs", puntos_hoy=20, techo=30,
+        piso_exacto=25, piso_conservador=27, exacto=True,
+    )
+    assert p.garantia_exacta == 25
+    assert p.referencia_conservadora is None
+    assert p.piso == 25
+    assert "Garantía exacta: con 25 puntos" in p.lectura()
+
+
+def test_no_descenso_no_declara_salvado_si_promedios_aun_exigen_puntos(monkeypatch):
+    anual = {
+        "A": {"pts": 20}, "B": {"pts": 12}, "C": {"pts": 10}, "D": {"pts": 8},
+    }
+    rest = {team: 1 for team in anual}
+    matches = [("A", "B"), ("C", "D")]
+    prom_totales = {team: (100, 80) for team in anual}
+
+    import lpf_pisos as mod
+    monkeypatch.setattr(mod, "safe_average_guarantee_points", lambda *args, **kwargs: 3)
+
+    p = mod.piso_no_descenso(
+        anual, rest, matches, "A", n_anual=1, prom_totales=prom_totales, n_prom=1,
+    )
+    assert p.estado == "pelea"
+    assert not p.exacto
+    assert p.garantia_exacta is None
+    assert p.referencia_conservadora == 23
+    assert p.piso == 23
+
+
+def test_no_descenso_es_exacto_si_anual_manda_y_promedios_ya_quedan_cubiertos(monkeypatch):
+    anual = {
+        "A": {"pts": 20}, "B": {"pts": 12}, "C": {"pts": 10}, "D": {"pts": 8},
+    }
+    rest = {team: 1 for team in anual}
+    matches = [("A", "B"), ("C", "D")]
+    prom_totales = {team: (100, 80) for team in anual}
+
+    import lpf_pisos as mod
+    monkeypatch.setattr(mod, "safe_average_guarantee_points", lambda *args, **kwargs: 0)
+
+    p = mod.piso_no_descenso(
+        anual, rest, matches, "A", n_anual=1, prom_totales=prom_totales, n_prom=1,
+    )
+    assert p.estado == "in"
+    assert p.exacto
+    assert p.garantia_exacta == 20
+    assert p.referencia_conservadora is None
 
 
 if __name__ == "__main__":

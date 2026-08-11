@@ -32,17 +32,14 @@ verificable.
 
 Aplicación en **Python + Streamlit** que analiza la Liga Profesional 2026: playoffs
 por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios, escenarios
-de una fecha y pisos por objetivo. El punto de entrada es
+de una fecha y puntos por objetivo. El punto de entrada es
 `calculadora_futbol_argentino.py`.
 
 **Principio rector, innegociable:** *los números siempre salen de Python
 determinístico y validado.* El modelo de lenguaje (cuando está activo) sólo
 interpreta la consulta del usuario y redacta; **nunca** calcula. No rompas esto.
 
-**Regla editorial:** la palabra "garantía" se reserva para cotas que no dependen de
-terceros ni de desempates. Distinguí siempre cuatro cosas y no las mezcles: *corte
-actual*, *mínimo todavía posible* (desempate a favor), *garantía matemática*
-(desempate en contra) y *estimación* (siempre rotulada como tal).
+**Regla editorial:** no usar **“cota”**, **“piso seguro”**, **“piso ajustado”**, **“puntaje que asegura”** ni **“seguro (conservador)”** como etiquetas de cara al usuario. Usar siempre **mínimo posible**, **garantía exacta** y **referencia conservadora**. La referencia conservadora también asegura si se alcanza, pero puede pedir puntos de más; la garantía exacta es el menor total comprobado. Distinguí siempre: *corte actual*, *mínimo posible* (desempate a favor), *garantía exacta* (desempate en contra), *referencia conservadora* y *estimación* (siempre rotulada como tal).
 
 ---
 
@@ -78,10 +75,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.6` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.8` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
-- Archivo principal: **~10.560 líneas** (arrancó en ~12.780).
-- **132 pruebas**, todas verdes. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- Archivo principal: **~10.600 líneas** (arrancó en ~12.780).
+- **140 pruebas**, todas verdes. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -141,8 +138,8 @@ ciclos); respétalo. De más básico a más compuesto:
 | `lpf_derive.py` | Deriva la foto del Apertura e infiere resultados faltantes. | lpf_text, lpf_clubs, lpf_data_2026, lpf_reconcile |
 | `lpf_intents.py` | Ruteo de intención del chat (consulta → `{"intent": ...}`). | lpf_text |
 | `lpf_scenarios.py` | Motor exacto MILP (scipy): escalera de puntos, rangos, escenarios. | lpf_models |
-| `lpf_exact.py` | Cotas seguras (garantía conservadora, promedios). | — |
-| `lpf_pisos.py` | Piso por objetivo (mínimo posible / garantía / cota). | lpf_scenarios, lpf_exact |
+| `lpf_exact.py` | Garantías conservadoras (línea segura, promedios). | — |
+| `lpf_pisos.py` | Puntos por objetivo (mínimo con chances / garantía exacta / garantía conservadora). | lpf_scenarios, lpf_exact |
 | `lpf_models.py` | Dataclasses de dominio y auditoría. | — |
 | `lpf_version.py` | Única versión del motor compartida por todas las interfaces. | — |
 | `lpf_services.py` | Contrato JSON-safe para standings, escalera, rango y pisos; futura frontera HTTP. | lpf_version, lpf_standings, lpf_scenarios, lpf_pisos |

@@ -1,4 +1,4 @@
-"""Piso por objetivo — el mínimo que cada equipo necesita para cada meta.
+"""Puntos por objetivo — cuánto necesita cada equipo para cada meta.
 
 Este módulo unifica un cálculo que hasta ahora estaba disperso: para cada objetivo
 (playoffs, Libertadores, Sudamericana, no descender) responde tres números con
@@ -6,11 +6,11 @@ significado distinto y sin mezclarlos:
 
 - **Mínimo posible:** el menor puntaje final con el que *todavía existe* una
   combinación de resultados que logra el objetivo. No es una garantía.
-- **Piso (garantía exacta):** el menor puntaje que asegura el objetivo sin
-  depender de otros resultados ni de desempates. Sale del optimizador MILP.
-- **Piso conservador:** una cota segura para ventanas grandes, cuando el motor
-  exacto no se activa. Nunca declara una garantía falsa; puede pedir algún punto
-  de más.
+- **Garantía exacta:** el menor puntaje que asegura el objetivo sin depender de
+  otros resultados ni de desempates. Sale del optimizador exacto.
+- **Referencia conservadora:** un número seguro para ventanas grandes, cuando el
+  motor exacto todavía no se activa. Si se alcanza, el objetivo queda asegurado,
+  pero puede pedir algún punto de más que la garantía exacta.
 
 Todos los objetivos de tipo "quedar por encima de un corte" (playoffs y las dos
 copas) comparten la misma estructura: un conjunto de equipos y un corte. Por eso
@@ -38,7 +38,7 @@ MAX_MATCHES = 140
 
 @dataclass
 class PisoObjetivo:
-    """Resultado de piso para un equipo y un objetivo puntual."""
+    """Resultado de puntos necesarios para un equipo y un objetivo puntual."""
 
     clave: str
     nombre: str
@@ -58,9 +58,27 @@ class PisoObjetivo:
             self.caminos = []
 
     @property
+    def garantia_exacta(self) -> int | None:
+        """Menor total comprobado que asegura el objetivo, si el cálculo global es exacto."""
+        return self.piso_exacto if self.exacto else None
+
+    @property
+    def referencia_conservadora(self) -> int | None:
+        """Número seguro disponible cuando la garantía global todavía no es exacta."""
+        if self.exacto:
+            return None
+        if self.piso_conservador is not None:
+            return self.piso_conservador
+        return self.piso_exacto
+
+    @property
     def piso(self) -> int | None:
-        """Mejor piso disponible: el exacto si existe, si no el conservador."""
-        return self.piso_exacto if self.piso_exacto is not None else self.piso_conservador
+        """Valor seguro vigente; se conserva por compatibilidad interna/API."""
+        if self.exacto:
+            return self.piso_exacto
+        if self.piso_conservador is not None:
+            return self.piso_conservador
+        return self.piso_exacto
 
     def lectura(self) -> str:
         """Frase corta lista para publicar."""
@@ -72,11 +90,15 @@ class PisoObjetivo:
             return f"Sin chances: aun ganando todo llega a {self.techo} y no alcanza."
         piso = self.piso
         if piso is None:
-            return "En carrera; el piso exacto se calcula en el tramo final."
+            return "En carrera; la garantía exacta se calcula cuando entra en la ventana final."
         faltan = max(0, piso - self.puntos_hoy)
-        base = "garantiza" if self.exacto else "es una cota segura para"
         cola = "" if faltan == 0 else f" (le faltan {faltan})"
-        return f"Con {piso} puntos {base} {self.nombre}{cola}."
+        if self.exacto:
+            return f"Garantía exacta: con {piso} puntos asegura {self.nombre}{cola}."
+        return (
+            f"Referencia conservadora: {piso} puntos{cola}. Si llega a ese total, asegura "
+            f"{self.nombre}; el mínimo exacto puede ser menor."
+        )
 
 
 def _pts(base: Mapping[str, object], team: str) -> int:
@@ -150,7 +172,7 @@ def piso_por_corte(
     matches = _matches_del_pool(pend, pool)
     games_left = int(rest.get(team, 0))
 
-    # Cota conservadora: siempre disponible. safe_guarantee_line devuelve el mayor
+    # Referencia conservadora: siempre disponible. safe_guarantee_line devuelve el mayor
     # puntaje con el que `corte` rivales todavía pueden igualar al equipo; sumar uno
     # garantiza terminar por encima de ese grupo.
     try:
@@ -196,12 +218,12 @@ def piso_no_descenso(
     prom_totales: Mapping[str, tuple[int, int]] | None = None,
     n_prom: int = 1,
 ) -> PisoObjetivo:
-    """Piso para NO descender.
+    """Puntos necesarios para NO descender.
 
     En la LPF se baja por dos vías: el último de la Tabla Anual y el peor promedio.
-    Para estar salvado hay que estarlo en **las dos** tablas, así que el piso
-    efectivo es el mayor de los dos. La parte anual se resuelve con el motor exacto
-    (en el tramo final) y la de promedios con la cota conservadora por cocientes.
+    Para estar salvado hay que estarlo en **las dos** tablas, así que manda la
+    exigencia más alta. La parte anual se resuelve con el motor exacto (en el tramo
+    final) y la de promedios con una referencia conservadora por cocientes.
     """
     nombre = "no descender"
     if team not in anual:
@@ -227,32 +249,60 @@ def piso_no_descenso(
             )
             if extra is not None:
                 piso_prom = _pts(anual, team) + int(extra)
-                detalle_prom = "Incluye el piso por promedios (cota segura por cocientes)."
+                detalle_prom = "Incluye la exigencia por promedios (referencia conservadora por cocientes)."
         except Exception:
             piso_prom = None
 
-    # Combinar: hay que salvarse en las dos tablas.
+    # Combinar: para no descender hay que quedar a salvo en las dos tablas.
+    # La Anual puede tener garantía exacta; promedios aporta una referencia
+    # conservadora. Si esa referencia exige más que la garantía anual, el objetivo
+    # global deja de ser exacto y manda el mayor total seguro.
+    prom_disponible = bool(prom_totales and team in prom_totales)
+    annual_safe = parte_anual.piso
+    safe_values = [value for value in (annual_safe, piso_prom) if value is not None]
+
+    if parte_anual.estado == "out":
+        estado_global = "out"
+    elif prom_disponible:
+        promedio_ya_seguro = piso_prom is not None and piso_prom <= parte_anual.puntos_hoy
+        estado_global = "in" if parte_anual.estado == "in" and promedio_ya_seguro else "pelea"
+    else:
+        # Sin promedios no se inventa una conclusión sobre esa vía; se conserva la
+        # lectura anual y la interfaz avisa que falta cargar los antecedentes.
+        estado_global = parte_anual.estado
+
     resultado = PisoObjetivo(
         clave="descenso", nombre=nombre,
-        estado=parte_anual.estado,
+        estado=estado_global,
         puntos_hoy=parte_anual.puntos_hoy, techo=parte_anual.techo,
         minimo_posible=parte_anual.minimo_posible,
     )
-    pisos = [p for p in (parte_anual.piso_exacto, piso_prom) if p is not None]
-    if parte_anual.piso_exacto is not None and piso_prom is not None:
-        resultado.piso_exacto = parte_anual.piso_exacto
-        resultado.piso_conservador = max(pisos)
-        resultado.exacto = (piso_prom <= parte_anual.piso_exacto)
-    elif piso_prom is not None:
-        resultado.piso_conservador = piso_prom
-    else:
+
+    if not prom_disponible:
         resultado.piso_exacto = parte_anual.piso_exacto
         resultado.piso_conservador = parte_anual.piso_conservador
         resultado.exacto = parte_anual.exacto
+    elif (
+        parte_anual.exacto
+        and parte_anual.piso_exacto is not None
+        and piso_prom is not None
+        and piso_prom <= parte_anual.piso_exacto
+    ):
+        # La garantía exacta de la Anual ya supera la exigencia conservadora de
+        # promedios. Como cualquier total menor falla la Anual en algún escenario,
+        # ese mismo número es también el mínimo exacto del objetivo combinado.
+        resultado.piso_exacto = parte_anual.piso_exacto
+        resultado.exacto = True
+    else:
+        resultado.piso_exacto = parte_anual.piso_exacto
+        resultado.piso_conservador = max(safe_values) if safe_values else None
+        resultado.exacto = False
+
     resultado.detalle = detalle_prom
     if resultado.estado == "in":
         resultado.exacto = True
         resultado.piso_exacto = resultado.puntos_hoy
+        resultado.piso_conservador = None
     return resultado
 
 
@@ -302,7 +352,7 @@ def pisos_de_equipo(
     prom_totales: Mapping[str, tuple[int, int]] | None = None,
     n_prom: int = 1,
 ) -> list[PisoObjetivo]:
-    """Todos los pisos aplicables a un equipo, en orden editorial."""
+    """Todos los objetivos aplicables a un equipo, en orden editorial."""
     salida: list[PisoObjetivo] = []
     for spec in objetivos_de_equipo(zonas, anual, reducida, n_lib, team):
         salida.append(piso_por_corte(
@@ -327,7 +377,7 @@ def tabla_pisos_objetivo(
     nombre: str,
     orden: Sequence[str] | None = None,
 ) -> list[dict]:
-    """Filas listas para tabla: el piso de *cada* equipo para un mismo objetivo."""
+    """Filas listas para tabla: los puntos de *cada* equipo para un mismo objetivo."""
     equipos = list(orden) if orden else list(base)
     filas: list[dict] = []
     for e in equipos:
@@ -340,8 +390,9 @@ def tabla_pisos_objetivo(
             "Restan": int(rest.get(e, 0)),
             "Techo": p.techo,
             "Mínimo posible": p.minimo_posible,
-            "Piso (garantía)": p.piso,
-            "Exacto": "Sí" if p.exacto else "Cota",
+            "Garantía exacta": p.garantia_exacta,
+            "Referencia conservadora": p.referencia_conservadora,
+            "Cálculo": "Exacto" if p.exacto else "Conservador",
             "Estado": {"in": "Adentro", "out": "Afuera", "pelea": "En carrera"}.get(p.estado, p.estado),
         })
     return filas

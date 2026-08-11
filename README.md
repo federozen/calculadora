@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.6
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.8
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -7,8 +7,16 @@ La versión vigente siempre está en `lpf_version.__version__` (única fuente de
 La versión 3 prioriza tres objetivos:
 
 1. **Base coherente:** Zonas, Tabla Anual, promedios, fixture y resultados se reconcilian antes de habilitar una cuenta.
-2. **Explicación honesta:** distingue hechos exactos, garantías matemáticas, cotas conservadoras y estimaciones.
+2. **Explicación honesta:** distingue hechos exactos, garantía exacta, referencia conservadora y estimaciones.
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
+
+## Novedad 3.8.8 · Nombres editoriales unificados
+
+- Toda la app usa **mínimo posible**, **garantía exacta** y **referencia conservadora** para no mezclar números con significados distintos.
+- La referencia conservadora asegura si se alcanza, pero puede pedir puntos de más; la garantía exacta es el menor total comprobado.
+- Promedios muestra **Mínimo final** (si pierde todo) y **Máximo final** (si gana todo), en lugar de “piso/techo”.
+- Se corrigió el objetivo combinado de no descenso para que Anual y promedios se evalúen juntos antes de declarar al equipo salvado.
+- Suite actual: **140 pruebas**.
 
 ## Corrección 3.8.6 · Streamlit
 
@@ -18,7 +26,7 @@ La versión 3 prioriza tres objetivos:
 
 ## Novedad 3.8.5 · Contrato de cálculos para una futura API
 
-- `lpf_services.py` expone cuatro cálculos con entrada/salida JSON-safe: standings, escalera de puntos, rango de puesto y piso por objetivo.
+- `lpf_services.py` expone cuatro cálculos con entrada/salida JSON-safe: standings, escalera de puntos, rango de puesto y puntos por objetivo.
 - Los servicios sólo traducen/validan el contrato y reutilizan los motores existentes; no hay matemática duplicada.
 - Todas las respuestas llevan `contract_version` y `calculation_version`. Los errores de entrada usan `ContractError` con código y campo estables.
 - `lpf_version.py` es ahora la única fuente de versión, por lo que una API no necesita importar Streamlit para identificar el motor.
@@ -50,12 +58,12 @@ La versión 3 prioriza tres objetivos:
 - Estas separaciones permiten que una futura API use el mismo núcleo matemático y el mismo constructor de estado; un futuro adaptador Opta se limita a normalizar datos antes del cálculo.
 - El motor de posiciones conserva su validación de 1.470 casos aleatorios; el constructor de estado se comparó con la 3.8.1 en cinco rutas de carga.
 
-## Novedad 3.8.0 · Pisos por objetivo
+## Novedad 3.8.0 · Puntos por objetivo
 
-- Nuevo espacio **Pisos por objetivo**, la puerta de entrada por defecto: en una sola pantalla responde cuántos puntos necesita cada equipo para cada meta.
+- Nuevo espacio **Puntos por objetivo**, la puerta de entrada por defecto: en una sola pantalla responde cuántos puntos necesita cada equipo para cada meta.
 - El módulo `lpf_pisos.py` unifica el cálculo del piso de playoffs, Libertadores, Sudamericana y no descender. Los tres primeros son el mismo problema —quedar por encima de un corte en un conjunto de equipos— y se resuelven con la misma función.
-- Para cada objetivo informa tres números que no se mezclan: **mínimo posible** (existe una combinación favorable), **piso/garantía** (asegura sin depender de nadie ni de desempates) y **cota conservadora** (para ventanas de más de ocho fechas).
-- "No descender" combina Tabla Anual (exacta) y promedios (cota segura) y toma el piso más exigente.
+- Para cada objetivo informa tres números que no se mezclan: **mínimo posible** (existe una combinación favorable), **garantía exacta** (menor total comprobado que asegura sin depender de nadie ni de desempates) y **referencia conservadora** (total seguro para ventanas grandes que puede pedir puntos de más).
+- "No descender" combina Tabla Anual y promedios y toma la exigencia segura más alta de las dos vías.
 - Validado por fuerza bruta en `tests/test_lpf_pisos.py`.
 
 Ver `CHANGELOG.md` para el detalle de esta y las versiones anteriores.
@@ -124,7 +132,7 @@ streamlit run calculadora_futbol_argentino.py
 
 ## Espacios de trabajo
 
-- **Pisos por objetivo:** acceso principal por defecto. Cuántos puntos necesita cada equipo para cada meta.
+- **Puntos por objetivo:** acceso principal por defecto. Cuántos puntos necesita cada equipo para cada meta.
 - **Panel por equipo:** elegí equipo, objetivo y pregunta.
 - **Escenarios:** herramientas adaptadas de la calculadora del Mundial: gana/empata/pierde, qué pasa si, puesto puntual, mejor/peor caso, distribución y clasificados/eliminados.
 - **Mesa de redacción:** informes de previa y post fecha listos para trabajar.
@@ -143,14 +151,15 @@ streamlit run calculadora_futbol_argentino.py
 
 ## Cuatro referencias distintas
 
-La aplicación evita llamar “piso” a números diferentes:
+La aplicación separa con nombres claros cuatro referencias distintas:
 
 - **Corte actual:** puntos que tiene hoy el último clasificado.
-- **Mínimo todavía posible:** menor puntaje con el que existe una combinación favorable.
-- **Garantía matemática:** puntaje con el que entra sin depender de otros resultados ni desempates.
+- **Mínimo posible:** menor puntaje con el que existe una combinación favorable.
+- **Garantía exacta:** menor total comprobado con el que entra sin depender de otros resultados ni desempates.
+- **Referencia conservadora:** total seguro antes de la ventana exacta; si se alcanza, asegura, aunque puede pedir puntos de más.
 - **Corte estimado:** rango probable de la simulación; nunca se presenta como certeza.
 
-Cuando a un equipo le quedan más de ocho partidos, el informe usa una **garantía conservadora**: una cota segura que podría pedir algún punto de más. Apenas entra en sus últimas ocho fechas, el Radar habilita el optimizador exacto y arma la escalera de puntajes. El umbral se aplica **por equipo**, así que un partido postergado en otra cancha no bloquea el cálculo exacto del resto.
+Cuando a un equipo le quedan más de ocho partidos, el informe usa una **referencia conservadora**. Apenas entra en sus últimos ocho partidos, el Radar habilita el optimizador exacto, busca la **garantía exacta** y arma la escalera de puntajes. En un torneo de 16 fechas, sin postergados, esto ocurre desde la Fecha 9. El umbral se aplica **por equipo y por partidos restantes**, así que los postergados propios sí pueden retrasarlo.
 
 ## Datos y fuente de verdad
 
@@ -181,7 +190,7 @@ El modelo de lenguaje opcional interpreta consultas y redacta. Los números sale
 - `lpf_loading.py`: preparación/reconciliación de cargas ya adaptadas.
 - `lpf_state.py`: construcción del estado canónico LPF.
 - `lpf_scenarios.py`: optimización exacta para escalera, rangos y ventanas con postergados.
-- `lpf_exact.py`: núcleo determinístico original y cotas seguras.
+- `lpf_exact.py`: núcleo determinístico original y garantías conservadoras.
 - `tests/`: pruebas unitarias, fuerza bruta e invariantes.
 
 Más detalle en [ARCHITECTURE.md](ARCHITECTURE.md).
