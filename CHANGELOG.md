@@ -1,3 +1,13 @@
+## 3.8.24 · 2026-08-11
+
+### Contexto de copas fuera de Streamlit
+
+- `lpf_qualification.py` también concentra la normalización de clasificados fijos a Libertadores, los equipos todavía vivos en Copa Argentina y la etiqueta de actualización/fuente usada por las narrativas de copas.
+- `_lpf_fixed_lib_qualifiers`, `_lpf_copa_arg_alive_for_annual` y `_lpf_copa_snapshot` quedan como wrappers finos: sólo aportan los fallbacks guardados en `session_state` y delegan la lógica pura.
+- La equivalencia se verificó contra 3.8.23 en **600 estados de sesión**, con **1.800 comparaciones** de los tres wrappers, además de **800 casos** permanentes de normalización de clasificados/vivos.
+- La suite sube de 213 a **217 pruebas**. No cambia ningún cupo, orden de clasificación ni narrativa resultante.
+- El archivo principal requiere nuevas funciones de `lpf_qualification`, por lo que `LPF_RUNTIME_API` sube de 6 a **7** para detectar un deploy parcial antes del import.
+
 ## 3.8.23 · 2026-08-11
 
 ### Tabla Anual y reparto de plazas fuera de Streamlit

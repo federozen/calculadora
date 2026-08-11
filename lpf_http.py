@@ -7,7 +7,7 @@ ni los motores.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 6
+LPF_RUNTIME_API = 7
 
 
 import datetime as _dt

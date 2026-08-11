@@ -13,7 +13,7 @@ from lpf_data_quality import sum_opening_and_zones, validate_annual
 from lpf_standings import liga_tabla_df
 from lpf_text import _zlow
 
-LPF_RUNTIME_API = 6
+LPF_RUNTIME_API = 7
 
 
 def annual_base(
@@ -45,12 +45,9 @@ def annual_base(
     return {}
 
 
-def _match_team_name(name: object, teams: Sequence[str]) -> str:
-    """Empareja un nombre externo conservando la heurística histórica de la UI."""
-    raw = str(name or "").strip()
-    if not raw:
-        return ""
-    normalized = _zlow(raw)
+def _match_team_name_raw(name: object, teams: Sequence[str]) -> str:
+    """Replica ``_match_eq`` incluso para valores vacíos/no string históricos."""
+    normalized = _zlow(name)
     for team in teams:
         if _zlow(team) == normalized:
             return team
@@ -66,6 +63,65 @@ def _match_team_name(name: object, teams: Sequence[str]) -> str:
             best, score = team, overlap
     return str(best) if score and best is not None else ""
 
+
+def _match_team_name(name: object, teams: Sequence[str]) -> str:
+    """Empareja un nombre externo conservando la heurística histórica de la UI."""
+    raw = str(name or "").strip()
+    if not raw:
+        return ""
+    return _match_team_name_raw(raw, teams)
+
+
+
+def fixed_libertadores_qualifiers(
+    annual: Mapping[str, Mapping[str, object]],
+    *,
+    camps: Sequence[object] = ("", "", ""),
+    extras: Sequence[object] = ("", ""),
+    copa_replacement: object = "",
+) -> list[str]:
+    """Normaliza los clasificados ya fijos a Libertadores contra la Anual.
+
+    Mantiene la prioridad histórica de la app: campeones del Apertura, Clausura y
+    Copa Argentina, campeones argentinos de Libertadores/Sudamericana y, por
+    último, el reemplazo cargado para Copa Argentina. Los duplicados se eliminan
+    conservando el primer motivo/origen.
+    """
+    order = list(liga_tabla_df(annual)["Equipo"]) if annual else []
+    result: list[str] = []
+    raws = tuple(camps or ()) + tuple(extras or ())
+    if copa_replacement:
+        raws += (copa_replacement,)
+    for raw in raws:
+        team = _match_team_name(raw, order) if raw else ""
+        if team and team not in result:
+            result.append(team)
+    return result
+
+
+def copa_argentina_alive(
+    annual: Mapping[str, Mapping[str, object]],
+    alive: Sequence[object] | None = None,
+) -> list[str]:
+    """Normaliza equipos todavía vivos en Copa Argentina contra la Anual."""
+    order = list(liga_tabla_df(annual)["Equipo"]) if annual else []
+    result: list[str] = []
+    for raw in alive or ():
+        # El helper histórico llamaba ``_match_eq`` incluso con cadenas vacías.
+        # Preservamos esa semántica exacta por compatibilidad de comportamiento.
+        team = _match_team_name_raw(raw, order)
+        if team and team not in result:
+            result.append(team)
+    return result
+
+
+def copa_snapshot_label(updated: object = "", source: object = "") -> str:
+    """Devuelve la etiqueta editorial compacta de actualización/fuente de Copa."""
+    updated_text = str(updated or "").strip()
+    source_text = str(source or "").strip()
+    if updated_text and source_text:
+        return f"{updated_text}; fuente: {source_text}"
+    return updated_text or source_text
 
 def allocate_cup_slots(
     annual: Mapping[str, Mapping[str, object]],

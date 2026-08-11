@@ -184,3 +184,39 @@ def test_anual_y_plazas_delegan_logica_fuera_de_streamlit():
     assert "validate_annual" not in annual_calls
     assert "allocate_cup_slots" in slot_calls
     assert "liga_tabla_df" not in slot_calls
+
+
+def test_contexto_de_copas_delega_normalizacion_fuera_de_streamlit():
+    tree = _module_tree()
+    funcs = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in {
+            "_lpf_fixed_lib_qualifiers",
+            "_lpf_copa_arg_alive_for_annual",
+            "_lpf_copa_snapshot",
+        }
+    }
+    assert set(funcs) == {
+        "_lpf_fixed_lib_qualifiers",
+        "_lpf_copa_arg_alive_for_annual",
+        "_lpf_copa_snapshot",
+    }
+    calls = {
+        name: {
+            child.func.id
+            for child in ast.walk(node)
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+        }
+        for name, node in funcs.items()
+    }
+    assert "_qualification_fixed_libertadores_qualifiers" in calls["_lpf_fixed_lib_qualifiers"]
+    assert "_qualification_copa_argentina_alive" in calls["_lpf_copa_arg_alive_for_annual"]
+    assert "_qualification_copa_snapshot_label" in calls["_lpf_copa_snapshot"]
+    for node in funcs.values():
+        assert "liga_tabla_df" not in {
+            child.func.id
+            for child in ast.walk(node)
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+        }

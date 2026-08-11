@@ -11,7 +11,7 @@ from lpf_version import __version__
 import streamlit as st
 from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
-_REQUIRED_RUNTIME_API = 6
+_REQUIRED_RUNTIME_API = 7
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -68,7 +68,12 @@ from lpf_standings import (
     posiciones as _standings_posiciones, tabla as _standings_tabla,
 )
 from lpf_result_updates import apply_completed_results, table_position_changes
-from lpf_qualification import allocate_cup_slots, annual_base as _qualification_annual_base
+from lpf_qualification import (
+    allocate_cup_slots, annual_base as _qualification_annual_base,
+    copa_argentina_alive as _qualification_copa_argentina_alive,
+    copa_snapshot_label as _qualification_copa_snapshot_label,
+    fixed_libertadores_qualifiers as _qualification_fixed_libertadores_qualifiers,
+)
 from lpf_state import (
     LPF_APERTURA_PJ, build_lpf_state, opening_is_valid, refresh_lpf_quality_state,
 )
@@ -2935,33 +2940,25 @@ def _lpf_clausura_candidates(Z, rest):
     return out
 
 def _lpf_fixed_lib_qualifiers(anual, camps=("", "", ""), extras=("", "")):
-    order = list(liga_tabla_df(anual)["Equipo"]) if anual else []
-    result = []
-    raws = tuple(camps or ()) + tuple(extras or ())
-    _replacement = st.session_state.get("LPF_COPA_ARG_REEMPLAZO", "")
-    if _replacement:
-        raws += (_replacement,)
-    for raw in raws:
-        team = _match_eq(raw, order) if raw else ""
-        if team and team not in result:
-            result.append(team)
-    return result
+    """Wrapper Streamlit del contexto puro de clasificados fijos a Libertadores."""
+    return _qualification_fixed_libertadores_qualifiers(
+        anual,
+        camps=camps,
+        extras=extras,
+        copa_replacement=st.session_state.get("LPF_COPA_ARG_REEMPLAZO", ""),
+    )
 
 def _lpf_copa_arg_alive_for_annual(anual, vivos=None):
-    order = list(liga_tabla_df(anual)["Equipo"]) if anual else []
-    result = []
-    for raw in (vivos if vivos is not None else st.session_state.get("LPF_COPA_ARG_VIVOS") or []):
-        team = _match_eq(raw, order)
-        if team and team not in result:
-            result.append(team)
-    return result
+    """Wrapper Streamlit de los equipos vivos en Copa Argentina."""
+    if vivos is None:
+        vivos = st.session_state.get("LPF_COPA_ARG_VIVOS") or []
+    return _qualification_copa_argentina_alive(anual, vivos)
 
 def _lpf_copa_snapshot(updated="", source=""):
+    """Wrapper Streamlit de la etiqueta de actualización de Copa Argentina."""
     updated = updated or st.session_state.get("LPF_COPA_ARG_UPDATED", "")
     source = source or st.session_state.get("LPF_COPA_ARG_SOURCE", "")
-    if updated and source:
-        return f"{updated}; fuente: {source}"
-    return updated or source
+    return _qualification_copa_snapshot_label(updated, source)
 
 def lpf_relato_libertadores_texto(Z, rest, apertura=None, camps=("", "", ""), extras=("", ""),
                                    copa_alive=None, copa_updated="", copa_source=""):

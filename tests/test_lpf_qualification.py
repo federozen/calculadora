@@ -5,7 +5,10 @@ import random
 
 from lpf_clubs import LPF_CLUBES, canon_base
 from lpf_data_quality import sum_opening_and_zones, validate_annual
-from lpf_qualification import allocate_cup_slots, annual_base
+from lpf_qualification import (
+    allocate_cup_slots, annual_base, copa_argentina_alive, copa_snapshot_label,
+    fixed_libertadores_qualifiers,
+)
 from lpf_standings import liga_tabla_df
 from lpf_text import _zlow
 
@@ -194,3 +197,69 @@ def test_modulo_no_depende_de_streamlit_ni_red():
     source = (Path(__file__).resolve().parents[1] / "lpf_qualification.py").read_text(encoding="utf-8")
     assert "import streamlit" not in source
     assert "import requests" not in source
+
+
+def _reference_fixed_qualifiers(annual, camps=("", "", ""), extras=("", ""), replacement=""):
+    order = list(liga_tabla_df(annual)["Equipo"]) if annual else []
+    result = []
+    raws = tuple(camps or ()) + tuple(extras or ())
+    if replacement:
+        raws += (replacement,)
+    for raw in raws:
+        team = _reference_match(raw, order) if raw else ""
+        if team and team not in result:
+            result.append(team)
+    return result
+
+
+def _reference_copa_alive(annual, vivos):
+    order = list(liga_tabla_df(annual)["Equipo"]) if annual else []
+    result = []
+    for raw in vivos or []:
+        team = _reference_match(raw, order)
+        if team and team not in result:
+            result.append(team)
+    return result
+
+
+def test_contexto_copas_equivale_al_codigo_3823_en_800_casos():
+    rng = random.Random(3823)
+    teams = list(LPF_CLUBES)[:16]
+    annual = {
+        team: _row(60 - index, 30, 45 - index, 20)
+        for index, team in enumerate(teams)
+    }
+    aliases = {
+        "River Plate": "river",
+        "Boca Juniors": "boca",
+        "Atlético Tucumán": "tucuman",
+        "Argentinos Juniors": "argentinos",
+        "Estudiantes de La Plata": "estudiantes",
+    }
+    options = [""] + teams + [aliases.get(team, team) for team in teams] + ["equipo inexistente"]
+
+    for _ in range(400):
+        camps = tuple(rng.choice(options) for _ in range(3))
+        extras = tuple(rng.choice(options) for _ in range(2))
+        replacement = rng.choice(options)
+        assert fixed_libertadores_qualifiers(
+            annual, camps=camps, extras=extras, copa_replacement=replacement
+        ) == _reference_fixed_qualifiers(annual, camps, extras, replacement)
+
+    for _ in range(400):
+        vivos = [rng.choice(options) for _ in range(rng.randint(0, 12))]
+        assert copa_argentina_alive(annual, vivos) == _reference_copa_alive(annual, vivos)
+
+
+def test_contexto_copas_sin_anual_no_inventa_equipos():
+    assert fixed_libertadores_qualifiers(
+        {}, camps=("River", "Boca", ""), extras=("Racing", ""), copa_replacement="Tigre"
+    ) == []
+    assert copa_argentina_alive({}, ["River", "Boca"]) == []
+
+
+def test_copa_snapshot_label_conserva_formato_editorial_3823():
+    assert copa_snapshot_label("2026-08-11", "AFA") == "2026-08-11; fuente: AFA"
+    assert copa_snapshot_label("2026-08-11", "") == "2026-08-11"
+    assert copa_snapshot_label("", "AFA") == "AFA"
+    assert copa_snapshot_label("", "") == ""

@@ -6,7 +6,7 @@ por separado de la interfaz.
 
 from __future__ import annotations
 
-LPF_RUNTIME_API = 6
+LPF_RUNTIME_API = 7
 
 
 from itertools import combinations
