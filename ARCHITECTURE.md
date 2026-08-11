@@ -12,15 +12,19 @@ el modelo de lenguaje, cuando está activo, sólo interpreta la consulta y redac
 | `lpf_models.py` | Objetos de dominio (dataclasses), auditoría y resultados estructurados. No depende de Streamlit. |
 | `lpf_data_quality.py` | Normalización y reconciliación de Zonas, Anual, Promedios, fixture y resultados antes de habilitar cuentas. |
 | `lpf_loading.py` | Preparación pura de cargas: normaliza resultados de proveedores, reconcilia la foto offline/automática y prepara datos para el estado sin red ni Streamlit. |
-| `lpf_http.py` | Transporte HTTP puro de las fuentes públicas. No parsea datos ni importa Streamlit; la caché queda en el consumidor. |
+| `lpf_http.py` | Transporte HTTP puro de las fuentes públicas. También arma la ventana multi-request de scoreboards ESPN sin parsear eventos. No importa Streamlit; la caché queda en el consumidor. |
 | `lpf_provider_adapters.py` | Adaptadores puros de ESPN/FutbolArgentino.com: HTML/JSON ya descargado → tablas, zonas, resultados y metadatos del dominio. |
-| `lpf_state.py` | Construcción pura del estado canónico LPF: selecciona/deriva Apertura, arma auditoría, Anual autoritativa, pendientes y metadatos sin leer Streamlit. |
+| `lpf_table_selection.py` | Política pura de prioridad/fallback entre tablas de proveedores, último respaldo y candidatos locales. No lee red, disco ni sesión. |
+| `lpf_table_backup.py` | Serialización, persistencia atómica y recuperación del último respaldo válido de zonas + Anual. Conoce JSON/filesystem, pero no Streamlit ni proveedores. |
+| `competition_html_adapters.py` | Parsers puros de URLs genéricas del modo avanzado: HTML ya descargado → tabla textual o matriz de jugados/pendientes. |
+| `lpf_state.py` | Construcción y revalidación puras del estado canónico LPF: selecciona/deriva Apertura, migra fotos viejas, arma auditoría, Anual autoritativa, pendientes y metadatos sin leer Streamlit. |
 | `lpf_scenarios.py` | Optimización exacta (MILP con `scipy.optimize.milp`): escalera de puntajes, rangos y ventanas con postergados. |
 | `lpf_exact.py` | Núcleo determinístico y garantías conservadoras (línea segura, promedios). Validado por fuerza bruta. |
-| `lpf_pisos.py` | **Puntos por objetivo.** Unifica el cálculo del mínimo con chances, la garantía exacta y la garantía conservadora para playoffs, copas y descenso. Reutiliza `lpf_scenarios` y `lpf_exact`; Python puro. |
+| `lpf_pisos.py` | **Puntos por objetivo.** Unifica mínimo posible, total seguro y mínimo que asegura para playoffs, copas y descenso. Reutiliza `lpf_scenarios` y `lpf_exact`; Python puro. |
 | `lpf_competition_narratives.py` | Relatos de zonas, Libertadores, Sudamericana y descenso. |
 | `lpf_competitive_context.py` | Contexto de tabla, cruces internos y proyección del corte. |
 | `lpf_fixture_sources.py` | Parsers y validación de fuentes (FutbolArgentino.com, ESPN) sin inferir partidos por PJ. |
+| `lpf_schedule.py` | Agenda y calendario puros: normaliza horarios de proveedor a Argentina, resuelve jornada/postergados, ordena pendientes y define la ventana temporal de la Previa sin Streamlit. |
 | `lpf_display.py` | Nombres periodísticos y edición de texto/tablas para la interfaz. |
 | `lpf_text.py` | Utilidades de texto puras y sin dependencias (`_zlow`, `_norm_txt`, `detectar_equipo`, `detectar_equipos`), extraídas del archivo principal para poder probarlas aisladas. |
 | `lpf_derive.py` | Derivación e inferencia de datos: reconstruye la foto del Apertura e infiere resultados faltantes fijados por la tabla. Pura. |
@@ -30,12 +34,13 @@ el modelo de lenguaje, cuando está activo, sólo interpreta la consulta y redac
 | `lpf_parsers.py` | Parsers de tablas pegadas (`parse_tabla_anual`, `parse_promedios_tabla`, `parse_tabla_fixture`, ...): texto copiado → datos. Puros. |
 | `lpf_clubs.py` | Canonicalización de nombres de clubes (`canon_club`, `canon_base`, `LPF_CLUBES`): traduce cualquier variante al nombre canónico. Capa de dominio pura. |
 | `lpf_intents.py` | Ruteo de intención del chat (`_parse_kw`, `_pos_pedida`): traduce una consulta en lenguaje natural a un `{"intent": ...}`. Lógica pura; recibe la lista de equipos como parámetro. |
+| `lpf_runtime.py` | Verifica antes del arranque que los módulos críticos desplegados compartan el mismo nivel de compatibilidad interna, sin importarlos. |
 | `tests/` | Pruebas unitarias, de invariantes y comparación contra enumeración exhaustiva. |
 | `legacy/` | Código archivado que la app ya no importa (p. ej. `calculadora_mundial.py`). |
 
 ## Flujo de datos
 
-1. **Ingreso:** foto offline, actualización desde proveedor, o pegado manual. Para fuentes remotas, `lpf_http` hace sólo transporte y `lpf_provider_adapters` interpreta la respuesta sin tocar UI.
+1. **Ingreso:** foto offline, actualización desde proveedor, o pegado manual. Para fuentes remotas, `lpf_http` hace sólo transporte; `lpf_provider_adapters` interpreta ESPN/FutbolArgentino.com y `competition_html_adapters` interpreta las URLs HTML genéricas del modo avanzado, sin tocar UI. La prioridad entre tablas candidatas se resuelve en `lpf_table_selection`; la persistencia/recuperación del último respaldo válido vive en `lpf_table_backup`, sin acoplarse a Streamlit.
 2. **Preparación (`lpf_loading`):** los resultados se canonicalizan contra las zonas y las distintas fuentes se combinan/reconcilian sin conocer Streamlit ni la red.
 3. **Reconciliación y estado (`lpf_state` / `lpf_data_quality`):** se validan Zonas, se reconstruye la
    Tabla Anual desde la foto fija del Apertura más las zonas actuales, y se
@@ -46,26 +51,30 @@ el modelo de lenguaje, cuando está activo, sólo interpreta la consulta y redac
    descenso). Un problema en un dominio no bloquea los demás.
 5. **Cálculo:**
    - Exacto → `lpf_scenarios` (MILP) para ventanas de hasta ocho fechas.
-   - Garantía conservadora → `lpf_exact` para horizontes más grandes.
-   - Piso por objetivo → `lpf_pisos`, que elige entre ambos según la ventana.
-6. **Redacción y UI:** los renderizadores consumen los resultados estructurados.
+   - Total seguro → `lpf_exact` para horizontes más grandes.
+   - Puntos por objetivo → `lpf_pisos`, que elige entre ambos según la ventana.
+6. **Agenda y alcance (`lpf_schedule`):** la programación ya normalizada se combina con el fixture para decidir próximo partido/día, jornada operativa y postergados sin leer sesión.
+7. **Redacción y UI:** los renderizadores consumen los resultados estructurados.
 
 ## Frontera para futura API y proveedores externos
 
 La aplicación debe conservar una frontera simple y estable:
 
-`fuente (actual / Opta) → transporte → adaptador de proveedor → lpf_loading → estado LPF canónico → motores puros → API o Streamlit`
+`fuente (actual / Opta) → transporte → adaptador de proveedor → selección/reconciliación → estado LPF canónico → motores puros → API o Streamlit`
 
 Reglas de esa frontera:
 
 - Los motores de cálculo no importan Streamlit, `requests` ni SDKs de proveedores.
 - Streamlit es un consumidor del motor. En el caso de posiciones, sus adaptadores sólo
   inyectan `CRITERIOS()` y delegan en `lpf_standings`.
-- El transporte actual vive en `lpf_http` y los parsers/adaptadores de ESPN/FutbolArgentino.com en `lpf_provider_adapters`; ninguno conoce Streamlit. La caché de UI envuelve el transporte desde el archivo principal.
+- El transporte actual vive en `lpf_http` (incluidas la ventana de scoreboards ESPN y la secuencia de páginas de resultados de FutbolArgentino.com); los parsers/adaptadores de ESPN/FutbolArgentino.com viven en `lpf_provider_adapters` y las tablas HTML genéricas en `competition_html_adapters`; ninguno conoce Streamlit. La caché de UI envuelve el transporte desde el archivo principal.
+- La prioridad entre zonas/Anual de ESPN, FutbolArgentino.com, respaldo y candidatos locales vive en `lpf_table_selection`. El JSON del último respaldo y su lectura/escritura atómica viven en `lpf_table_backup`; Streamlit sólo conserva opcionalmente una copia de sesión y decide cuándo pedir la persistencia.
 - La preparación previa vive en `lpf_loading`: `normalize_results_for_zones`, `prepare_offline_load` y `prepare_automatic_update` reciben y devuelven estructuras simples. Los fetchers quedan fuera de esa capa.
 - El estado de cálculo se construye en `lpf_state.build_lpf_state`: Streamlit sólo aporta
   los valores de sesión y persiste la foto devuelta. Una API puede llamar a la misma función
   con datos ya normalizados, sin importar el archivo principal.
+- La revalidación defensiva de sesiones existentes vive en `lpf_state.refresh_lpf_quality_state`; recibe candidatos de Apertura/Anual, promedios, fixture, resultados y alertas por parámetro. Streamlit sólo persiste la migración devuelta.
+- La agenda real se normaliza en `lpf_schedule`: una fuente futura (incluido Opta) puede aportar fechas/horas y la misma capa decide orden, jornada y postergados sin escribir `session_state`.
 - Una futura API debe importar `lpf_standings`, `lpf_scenarios`, `lpf_exact` y
   `lpf_pisos` directamente; no debe importar `calculadora_futbol_argentino.py`.
 - Un futuro conector Opta debe resolver IDs/nombres, estados de partido y formatos del
@@ -116,6 +125,15 @@ La arquitectura objetivo queda:
 Streamlit puede seguir llamando motores directamente mientras se migra gradualmente;
 la existencia de `services` no obliga a reescribir la UI.
 
+## Compatibilidad de despliegue
+
+Los módulos cuyo contrato cruza capas publican `LPF_RUNTIME_API`; desde 3.8.15 también `lpf_http.py`, porque Streamlit importa sus orquestadores de transporte. En 3.8.16 el nivel subió a **2** al agregarse la secuencia requerida de resultados de FutbolArgentino.com, en 3.8.19 subió a **3** por `lpf_state.refresh_lpf_quality_state` y en 3.8.21 sube a **4** al incorporar `lpf_schedule.py` como dependencia activa de la Previa. `lpf_runtime.py`
+lee esos marcadores directamente desde los archivos, antes de que Streamlit importe
+el motor. Si un deploy manual mezcla módulos viejos y nuevos, la app se detiene con
+un diagnóstico de archivos desincronizados. El nivel de runtime no reemplaza
+`lpf_version.__version__`: la versión identifica la entrega; el nivel sólo cambia si
+se rompe compatibilidad entre módulos.
+
 ## Convenciones
 
 - En interfaz y narrativa no se usa “cota”. La palabra "garantía" se reserva para líneas que no dependen de terceros ni de
@@ -123,3 +141,12 @@ la existencia de `services` no obliga a reescribir la UI.
 - Las estimaciones (Monte Carlo, dificultad, corte probable) se publican siempre
   por separado y rotuladas como tales.
 - La Tabla Anual pegada por el usuario es un control, no una segunda fuente viva.
+
+
+## Contrato de snapshot y futura API
+
+Desde 3.8.13 la foto canónica declara `snapshot_schema_version` de manera independiente
+de `contract_version` y de `calculation_version`. `lpf_services` valida las invariantes
+estructurales antes de ejecutar consultas batch y publica `service_capabilities()` para
+que una futura capa HTTP u Opta pueda negociar el formato soportado sin acoplarse a
+Streamlit. El batch sigue siendo stateless y no persiste snapshots en servidor.

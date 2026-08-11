@@ -21,7 +21,7 @@ por fuerza bruta en ``lpf_scenarios`` y ``lpf_exact``.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 3
+LPF_RUNTIME_API = 4
 
 
 from dataclasses import dataclass

@@ -82,10 +82,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.20` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.21` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
-- Archivo principal: **~10.300 líneas** (arrancó en ~12.780).
-- **194 pruebas**, todas verdes en 3.8.20. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- Archivo principal: **~10.220 líneas** (arrancó en ~12.780).
+- **200 pruebas**, todas verdes en 3.8.21. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -136,6 +136,7 @@ ciclos); respétalo. De más básico a más compuesto:
 | `lpf_parsers.py` | Parsers de tablas pegadas (anual, promedios, fixture, lista de equipos). | lpf_text, lpf_clubs |
 | `lpf_standings.py` | Motor puro de tabla: estadísticas, desempates, orden, posiciones, tabla y clasificador in/out/pelea. Los criterios entran como parámetro. | — (pandas) |
 | `lpf_fixture_sources.py` | Fuentes de fixture y `expected_played_count` (ya existía). | — |
+| `lpf_schedule.py` | Agenda/calendario puros para Previa: hora argentina, jornada/postergados, orden real y ventanas temporales. | lpf_clubs |
 | `lpf_data_quality.py` | Reportes de calidad de datos (ya existía). | lpf_models |
 | `lpf_state.py` | Constructor y revalidador puros del estado LPF canónico: Apertura, Anual autoritativa, pendientes y auditoría. Todos los valores de sesión entran por parámetro. | lpf_clubs, lpf_data_quality, lpf_models |
 | `lpf_loading.py` | Preparación pura de carga: canonicaliza resultados, combina fuentes, avanza standings, reconstruye la Anual e infiere faltantes sin red ni Streamlit. | lpf_clubs, lpf_data_2026, lpf_data_quality, lpf_derive, lpf_fixture_sources, lpf_reconcile, lpf_state |
@@ -366,14 +367,17 @@ datos por parámetro y devuelve Apertura seleccionado, Anual autoritativa y repo
 wrapper sólo persiste esos valores. Se comparó contra 3.8.18 en siete escenarios con
 equivalencia exacta de reporte y efectos de sesión.
 
-El nivel interno fue **2** desde 3.8.16 y sube a **3** en 3.8.19 porque el archivo principal
-requiere la nueva función de `lpf_state`. Los paquetes de actualización deben reemplazar
-los módulos críticos juntos; no bajes ese nivel sólo para reducir el ZIP.
+El nivel interno fue **2** desde 3.8.16, subió a **3** en 3.8.19 por la nueva función de `lpf_state` y sube a **4** en 3.8.21 porque la Previa requiere el nuevo `lpf_schedule.py`. El archivo principal también comprueba explícitamente que `lpf_runtime.py` tenga el nivel requerido antes de importar módulos sensibles. Los paquetes de actualización deben reemplazar los módulos críticos juntos; no bajes ese nivel sólo para reducir el ZIP.
 
 Football-data y Apify siguen definidos por compatibilidad histórica, pero sus ramas
 de UI están actualmente deshabilitadas con `and False`. No los extraigas ni reactives
 sólo por uniformidad; recién separalos cuando vuelvan a tener un consumidor real y
 haya fixtures/requests simulados para ese camino.
+
+### 8d bis. Agenda real y ventana de Previa — resuelto en 3.8.21
+`lpf_schedule.py` concentra la interpretación de fecha/hora argentina, la mezcla de agendas, la jornada operativa con postergados, el orden de pendientes y el alcance de la Previa. El módulo recibe fixture y agenda por parámetro y no toca Streamlit ni red. Los wrappers del archivo principal sólo aportan `_ESPN_FECHA_HORA`, `LPF_SCHEDULE` y el respaldo legacy `_ESPN_DIA`.
+
+La extracción se comparó contra 3.8.20 en 120 fotos sintéticas y 720 consultas de alcance con equivalencia exacta. Un futuro proveedor debe aportar programación normalizada a esta capa en lugar de decidir el próximo partido dentro de la UI.
 
 ### 8e. Ambigüedad de promedios (deuda vieja, documentada)
 Hay una ambigüedad histórica en cómo se arma el diccionario de promedios (`prom`):
@@ -457,7 +461,7 @@ tener que leer 11.000 líneas. Cada extracción que hagas acerca ese objetivo.
 - Lo fácil ya se hizo; lo que queda pide inyección de dependencias o separar lógica
   de presentación. El motor de ordenamiento, el constructor del estado LPF y la preparación determinística
   de cargas ya están extraídos. Las URLs HTML genéricas también quedaron separadas en
-  3.8.14, la ventana ESPN quedó fuera de Streamlit en 3.8.15 y la secuencia de resultados de FutbolArgentino.com en 3.8.16. Football-data y Apify
+  3.8.14, la ventana ESPN quedó fuera de Streamlit en 3.8.15 y la secuencia de resultados de FutbolArgentino.com en 3.8.16 y la agenda/alcance de la Previa en 3.8.21. Football-data y Apify
   están confirmados como ramas deshabilitadas: no invertir trabajo ahí hasta que se
   reactiven. El próximo paso debe salir de una dependencia activa y comprobable; no
   crear una API ni un adaptador Opta hasta tener un consumidor real.

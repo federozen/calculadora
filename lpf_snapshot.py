@@ -6,7 +6,7 @@ serializable. No hace red, no conoce Streamlit y no calcula fórmulas nuevas: us
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 3
+LPF_RUNTIME_API = 4
 SNAPSHOT_SCHEMA_VERSION = "1"
 
 

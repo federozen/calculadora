@@ -1,3 +1,14 @@
+## 3.8.21 · 2026-08-11
+
+### Agenda real y alcance de la Previa fuera de Streamlit
+
+- Se agregó `lpf_schedule.py`, módulo puro que normaliza fecha/hora en Argentina, combina agendas, ordena pendientes por programación real, distingue jornada operativa de postergados y resuelve el alcance de la Previa.
+- `_lpf_schedule_map`, `lpf_jornada_actual`, `lpf_partidos_equipo_ordenados`, `lpf_proximo_partido_equipo` y `_lpf_scope_games` quedan como adaptadores finos: Streamlit sólo aporta la agenda de ESPN/sesión y el fixture oficial.
+- La lógica nueva se comparó contra 3.8.20 en **120 fotos sintéticas** con **720 comparaciones de alcance** (próximo partido, próximo día, postergados, ventana ampliada y fecha oficial), con equivalencia exacta.
+- Se agregaron pruebas permanentes de prioridad entre agendas, compatibilidad legacy, postergados, orden por calendario real, agrupación por día y conversión horaria argentina. La suite sube de 194 a **200 pruebas**.
+- `lpf_schedule.py` entra en el chequeo de compatibilidad y `LPF_RUNTIME_API` sube de 3 a **4**. El archivo principal también verifica explícitamente el nivel de `lpf_runtime.py` antes de importar el resto del motor para diagnosticar mejor un deploy parcial.
+- No cambia ninguna fórmula, resultado matemático ni regla de clasificación.
+
 ## 3.8.20 · 2026-08-11
 
 ### Escenarios: Puntos y puesto final más claro

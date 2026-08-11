@@ -9,9 +9,18 @@ El historial completo está en ``CHANGELOG.md``.
 from lpf_version import __version__
 
 import streamlit as st
-from lpf_runtime import runtime_compatibility, runtime_error_message
+from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
+_REQUIRED_RUNTIME_API = 4
 _RUNTIME_REPORT = runtime_compatibility()
+if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
+    st.error("⚠️ Archivos del motor desincronizados")
+    st.write(
+        f"lpf_runtime.py usa el contrato interno {LPF_RUNTIME_API}, "
+        f"pero esta app requiere {_REQUIRED_RUNTIME_API}. Actualizá el núcleo completo."
+    )
+    st.caption(f"Versión esperada de la app: {__version__}")
+    st.stop()
 if not _RUNTIME_REPORT["ok"]:
     st.error("⚠️ Archivos del motor desincronizados")
     st.write(runtime_error_message(_RUNTIME_REPORT))
@@ -42,6 +51,18 @@ from lpf_fixture_sources import (
     parse_futbolargentino_results_html,
     played_pending_from_records,
     validate_fixture_records,
+)
+from lpf_schedule import (
+    build_schedule_map as _schedule_build_map,
+    current_round as _schedule_current_round,
+    format_datetime as _schedule_format_datetime,
+    match_round as _schedule_match_round,
+    next_team_match as _schedule_next_team_match,
+    ordered_team_matches as _schedule_ordered_team_matches,
+    parse_datetime as _schedule_parse_datetime,
+    pending_round_map as _schedule_pending_round_map,
+    resolve_scope_games as _schedule_resolve_scope_games,
+    round_label as _schedule_round_label,
 )
 from lpf_standings import (
     DEFAULT_CRITERIOS, _stats, liga_tabla_df, _liga_in_out,
@@ -6183,111 +6204,33 @@ _LPF_TOP_OCTAVOS = 8   # clasifican los 8 primeros de cada zona
 
 def _lpf_fecha_de(pend, games=None):
     """Dict {(local, visita): fecha} para los pendientes, según el fixture."""
-    games = games or LPF_FIXTURE
-    fmap = {(g["l"], g["v"]): g["f"] for g in games}
-    return {(l, v): fmap.get((l, v)) for (l, v) in pend}
+    return _schedule_pending_round_map(pend, games or LPF_FIXTURE)
+
 
 def lpf_jornada_actual(pend, games=None, umbral=0.5, forzar=None):
-    """Distingue la JORNADA EN JUEGO de los PARTIDOS ATRASADOS.
+    """Distingue la jornada operativa de los partidos postergados."""
+    return _schedule_current_round(pend, games or LPF_FIXTURE, umbral=umbral, forzar=forzar)
 
-    Una fecha con pocos partidos pendientes (menos de `umbral` de su total) ya se
-    jugó casi entera: sus pendientes son POSTERGADOS y la jornada operativa pasa a
-    la fecha siguiente. Devuelve (jornada, juegos_de_la_jornada, atrasados) donde
-    `atrasados` son los pendientes de fechas anteriores a la jornada.
-    `forzar`: número de fecha para elegirla a mano (ignora la heurística)."""
-    games = games or LPF_FIXTURE
-    fmap = {(g["l"], g["v"]): g["f"] for g in games}
-    total_por_fecha = {}
-    for g in games:
-        total_por_fecha[g["f"]] = total_por_fecha.get(g["f"], 0) + 1
-    con = [((l, v), fmap[(l, v)]) for (l, v) in pend if (l, v) in fmap]
-    if not con:
-        return None, [], []
-    pend_por_fecha = {}
-    for lv, f in con:
-        pend_por_fecha.setdefault(f, []).append(lv)
-    fechas = sorted(pend_por_fecha)
-    if forzar is not None and forzar in pend_por_fecha:
-        jornada = forzar
-    else:
-        jornada = fechas[-1]
-        for f in fechas:
-            tot = total_por_fecha.get(f, 0)
-            # la fecha está "en juego" si le queda una porción relevante por jugar
-            if tot and len(pend_por_fecha[f]) >= umbral * tot:
-                jornada = f
-                break
-    juegos = pend_por_fecha.get(jornada, [])
-    atrasados = [(lv, f) for lv, f in con if f < jornada]
-    return jornada, juegos, atrasados
 
 def lpf_etiqueta_jornada(jornada, atrasados):
-    """Texto para titular la jornada, aclarando los postergados si los hay."""
-    if jornada is None:
-        return "sin partidos pendientes"
-    if not atrasados:
-        return f"Fecha {jornada}"
-    fs = sorted({f for _, f in atrasados})
-    n = len(atrasados)
-    det = ", ".join(str(f) for f in fs)
-    return (f"Fecha {jornada} (más {n} partido{'s' if n != 1 else ''} postergado"
-            f"{'s' if n != 1 else ''} de la fecha {det})")
-
+    return _schedule_round_label(jornada, atrasados)
 
 
 def _lpf_parse_datetime(value):
-    """Convierte una fecha ISO de la fuente a hora oficial argentina."""
-    import datetime as _dt
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    try:
-        if raw.endswith("Z"):
-            raw = raw[:-1] + "+00:00"
-        parsed = _dt.datetime.fromisoformat(raw)
-    except Exception:
-        try:
-            parsed = _dt.datetime.strptime(raw[:10], "%Y-%m-%d")
-        except Exception:
-            return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=_dt.timezone.utc)
-    argentina = _dt.timezone(_dt.timedelta(hours=-3))
-    return parsed.astimezone(argentina)
+    return _schedule_parse_datetime(value)
 
 
 def _lpf_schedule_map():
     """Agenda conocida por partido, con nombres canónicos y datetimes de Argentina."""
-    out = {}
-    sources = [globals().get("_ESPN_FECHA_HORA") or {}, st.session_state.get("LPF_SCHEDULE") or {}]
-    for source in sources:
-        for raw_key, raw_value in source.items():
-            if isinstance(raw_key, str) and "|||" in raw_key:
-                left, right = raw_key.split("|||", 1)
-                key = (canon_club(left), canon_club(right))
-            elif isinstance(raw_key, (tuple, list)) and len(raw_key) == 2:
-                key = (canon_club(raw_key[0]), canon_club(raw_key[1]))
-            else:
-                continue
-            parsed = _lpf_parse_datetime(raw_value)
-            if parsed:
-                out[key] = parsed
-    # Compatibilidad con sesiones anteriores que sólo guardaron YYYY-MM-DD.
-    for raw_key, raw_value in (globals().get("_ESPN_DIA") or {}).items():
-        if not isinstance(raw_key, (tuple, list)) or len(raw_key) != 2:
-            continue
-        key = (canon_club(raw_key[0]), canon_club(raw_key[1]))
-        if key not in out:
-            parsed = _lpf_parse_datetime(str(raw_value)[:10] + "T15:00:00-03:00")
-            if parsed:
-                out[key] = parsed
-    return out
+    return _schedule_build_map(
+        globals().get("_ESPN_FECHA_HORA") or {},
+        st.session_state.get("LPF_SCHEDULE") or {},
+        globals().get("_ESPN_DIA") or {},
+    )
 
 
 def _lpf_match_round(match, games=None):
-    games = games or LPF_FIXTURE
-    fmap = {(g["l"], g["v"]): g.get("f") for g in games}
-    return fmap.get(tuple(match))
+    return _schedule_match_round(match, games or LPF_FIXTURE)
 
 
 def _lpf_match_datetime(match):
@@ -6295,86 +6238,32 @@ def _lpf_match_datetime(match):
 
 
 def _lpf_format_datetime(value):
-    dt = value if hasattr(value, "strftime") else _lpf_parse_datetime(value)
-    if not dt:
-        return ""
-    weekdays = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
-    months = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre")
-    return f"{weekdays[dt.weekday()]} {dt.day} de {months[dt.month - 1]} a las {dt:%H.%M}"
+    return _schedule_format_datetime(value)
 
 
 def lpf_partidos_equipo_ordenados(equipo, pend, games=None):
     """Pendientes del equipo ordenados primero por fecha/hora real y luego por fecha oficial."""
-    games = games or LPF_FIXTURE
-    rows = []
-    for match in pend or []:
-        match = tuple(match)
-        if equipo not in match:
-            continue
-        scheduled = _lpf_match_datetime(match)
-        round_no = _lpf_match_round(match, games)
-        # Los partidos con programación real conocida tienen prioridad. Si la fuente
-        # no aporta fecha/hora, se conserva el orden oficial del fixture como respaldo.
-        key = (0, scheduled) if scheduled else (1, round_no if round_no is not None else 999)
-        rows.append({"match": match, "round": round_no, "scheduled_at": scheduled, "sort_key": key})
-    rows.sort(key=lambda row: (row["sort_key"], row["match"][0], row["match"][1]))
-    return rows
+    return _schedule_ordered_team_matches(
+        equipo, pend, games or LPF_FIXTURE, _lpf_schedule_map()
+    )
 
 
 def lpf_proximo_partido_equipo(equipo, pend, games=None):
-    ordered = lpf_partidos_equipo_ordenados(equipo, pend, games)
-    return ordered[0] if ordered else None
+    return _schedule_next_team_match(
+        equipo, pend, games or LPF_FIXTURE, _lpf_schedule_map()
+    )
 
 
 def _lpf_scope_games(equipo, pend, scope="next_team_match", fecha=None):
     """Resuelve la ventana de análisis sin confundir fecha oficial con calendario real."""
-    prox, official, postponed = lpf_jornada_actual(pend, forzar=fecha)
-    ordered_all = []
-    for match in pend or []:
-        match = tuple(match)
-        scheduled = _lpf_match_datetime(match)
-        round_no = _lpf_match_round(match)
-        key = (0, scheduled) if scheduled else (1, round_no if round_no is not None else 999)
-        ordered_all.append({"match": match, "round": round_no, "scheduled_at": scheduled, "sort_key": key})
-    ordered_all.sort(key=lambda row: (row["sort_key"], row["match"][0], row["match"][1]))
-    own = lpf_proximo_partido_equipo(equipo, pend)
-
-    if scope == "next_team_match":
-        games = [own["match"]] if own else []
-        label = "próximo partido real"
-    elif scope == "next_team_day":
-        if own and own.get("scheduled_at"):
-            day = own["scheduled_at"].date()
-            games = [row["match"] for row in ordered_all if row.get("scheduled_at") and row["scheduled_at"].date() == day]
-            label = f"partidos del {_lpf_format_datetime(own['scheduled_at']).split(' a las ')[0]}"
-        elif own:
-            # Sin agenda horaria confiable, la fecha oficial es el respaldo más honesto.
-            games = list(official) + [match for match, _round in postponed]
-            label = lpf_etiqueta_jornada(prox, postponed) if prox is not None else "próxima ventana"
-        else:
-            games = []
-            label = "próximo día de competencia"
-    elif scope == "postponed_only":
-        games = [match for match, _round in postponed]
-        label = f"postergados anteriores a la Fecha {prox}" if prox is not None else "postergados"
-    elif scope == "extended_window":
-        games = list(official) + [match for match, _round in postponed]
-        label = lpf_etiqueta_jornada(prox, postponed)
-    else:
-        games = list(official)
-        label = f"Fecha {prox} oficial" if prox is not None else "fecha oficial"
-
-    own_match = next((match for match in games if equipo in match), None)
-    if scope in ("next_team_match", "next_team_day") and own:
-        own_match = own["match"]
-    return {
-        "round": prox,
-        "games": games,
-        "label": label,
-        "own_match": own_match,
-        "own_meta": own,
-        "postponed": postponed,
-    }
+    return _schedule_resolve_scope_games(
+        equipo,
+        pend,
+        LPF_FIXTURE,
+        _lpf_schedule_map(),
+        scope=scope,
+        fecha=fecha,
+    )
 
 
 def _lpf_normalize_match_identity(match):

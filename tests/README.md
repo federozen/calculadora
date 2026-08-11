@@ -5,7 +5,7 @@ enumeran todos los desenlaces posibles y se comparan, resultado por resultado,
 contra lo que dicen los solucionadores. Es la evidencia de que "los números
 siempre salen de Python y están validados".
 
-La suite actual contiene **194 pruebas**.
+La suite actual contiene **200 pruebas**.
 
 | Archivo | Qué cubre |
 | --- | --- |
@@ -27,7 +27,8 @@ La suite actual contiene **194 pruebas**.
 | `test_data_pipeline.py` | Integridad del flujo: fixture ↔ nóminas, 16 partidos por equipo, datos → tabla y pisos. |
 | `test_lpf_pisos.py` | Puntos por objetivo: mínimo posible y garantía por objetivo, invariantes y combinación de tablas en el descenso. |
 | `test_lpf_table_backup.py` | Respaldo de tablas: payload JSON, escritura atómica, prioridad sesión→disco, vencimiento, formato legacy y recuperación sin Streamlit. |
-| `test_lpf_runtime.py` | Compatibilidad de deploy: módulos sincronizados, detección de un archivo viejo y chequeo antes de los imports sensibles. |
+| `test_lpf_runtime.py` | Compatibilidad de deploy: nivel requerido por el archivo principal, módulos sincronizados, detección de un archivo viejo y chequeo antes de los imports sensibles. |
+| `test_lpf_schedule.py` | Agenda/Previa: prioridad de fuentes horarias, compatibilidad legacy, jornada vs. postergados, orden por calendario real, agrupación por día y hora argentina. |
 
 Convenio de desempates (verificado en las pruebas):
 
