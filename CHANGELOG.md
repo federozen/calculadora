@@ -1,3 +1,13 @@
+## 3.8.26 · 2026-08-11
+
+### Forma y fuerza de simulación fuera de Streamlit
+
+- Se agrega `lpf_form.py`, módulo puro para resultado G/E/P, forma reciente, rachas y la fuerza regularizada que alimenta las simulaciones LPF.
+- `_res_letra`, `forma_equipo`, `racha_equipo` y `_fuerza_lpf` quedan como wrappers de compatibilidad; sólo `_fuerza_lpf` lee la foto de Apertura desde sesión y la pasa explícitamente al modelo puro.
+- No cambian los pesos históricos del modelo: seis partidos equivalentes de antecedente, peso creciente del Clausura, hasta 25% de forma reciente, normalización por mediana y límites 0.55–1.75.
+- La equivalencia directa contra 3.8.25 se verificó en **1.000 casos** de forma/racha, **800 fotos** de fuerza y **400 ejecuciones** del wrapper con fallbacks de sesión.
+- La suite sube de 224 a **229 pruebas**. `LPF_RUNTIME_API` sube de 8 a **9** y `lpf_form.py` entra en el conjunto crítico para impedir despliegues parciales.
+
 ## 3.8.25 · 2026-08-11
 
 ### Escenarios: el puesto específico deja de tratar extremos como si fueran típicos

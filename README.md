@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.25
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.26
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -10,6 +10,14 @@ La versión 3 prioriza tres objetivos:
 2. **Explicación honesta:** distingue hechos exactos, mínimo posible, total seguro, mínimo que asegura y estimaciones.
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
+
+
+## Novedad 3.8.26 · Forma y fuerza de simulación desacopladas
+
+- `lpf_form.py` concentra la forma reciente, las rachas y la fuerza regularizada usada por chances, previa, “qué le conviene” y la distribución de puntos por puesto.
+- El modelo recibe la foto del Apertura por parámetro; ya no necesita leer `session_state` para calcular una fuerza. Streamlit conserva sólo un wrapper que aporta ese antecedente.
+- No cambian pesos ni probabilidades: se mantiene exactamente el modelo 3.8.25. La equivalencia se comprobó con **1.000 + 800 + 400 casos** contra la implementación anterior.
+- `LPF_RUNTIME_API` sube a **9** y `lpf_form.py` entra en el núcleo crítico. Suite: **229 pruebas**.
 
 
 ## Novedad 3.8.25 · Puesto específico: estimación útil y extremos separados
@@ -118,7 +126,7 @@ La versión 3 prioriza tres objetivos:
 
 - Streamlit comprueba al arrancar que los módulos críticos pertenecen al mismo nivel de compatibilidad antes de importarlos.
 - Si detecta un archivo viejo o faltante, se detiene con un mensaje claro que enumera qué módulos hay que actualizar, en vez de terminar más adelante con un `NameError` o `AttributeError`.
-- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.25`) para verificar rápidamente qué commit tomó Streamlit Cloud.
+- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.26`) para verificar rápidamente qué commit tomó Streamlit Cloud.
 - Este cambio no toca ninguna fórmula ni resultado. Suite: **154 pruebas**.
 
 ## Novedad 3.8.11 · Total seguro vs. mínimo que asegura

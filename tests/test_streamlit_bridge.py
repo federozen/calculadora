@@ -220,3 +220,27 @@ def test_contexto_de_copas_delega_normalizacion_fuera_de_streamlit():
             for child in ast.walk(node)
             if isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
         }
+
+
+def test_forma_y_fuerza_delegan_modelo_fuera_de_streamlit():
+    tree = _module_tree()
+    funcs = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in {"_res_letra", "forma_equipo", "racha_equipo", "_fuerza_lpf"}
+    }
+    assert set(funcs) == {"_res_letra", "forma_equipo", "racha_equipo", "_fuerza_lpf"}
+    calls = {
+        name: {
+            child.func.id
+            for child in ast.walk(node)
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+        }
+        for name, node in funcs.items()
+    }
+    assert "_form_result_letter" in calls["_res_letra"]
+    assert "_team_form" in calls["forma_equipo"]
+    assert "_team_streak" in calls["racha_equipo"]
+    assert "_estimate_team_strength" in calls["_fuerza_lpf"]
+    assert "np.median" not in ast.unparse(funcs["_fuerza_lpf"])

@@ -1,3 +1,3 @@
 """Versión única del motor LPF."""
 
-__version__ = "3.8.25"
+__version__ = "3.8.26"

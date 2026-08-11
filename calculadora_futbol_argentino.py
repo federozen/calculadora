@@ -11,7 +11,7 @@ from lpf_version import __version__
 import streamlit as st
 from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
-_REQUIRED_RUNTIME_API = 8
+_REQUIRED_RUNTIME_API = 9
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -68,6 +68,12 @@ from lpf_standings import (
     posiciones as _standings_posiciones, tabla as _standings_tabla,
 )
 from lpf_result_updates import apply_completed_results, table_position_changes
+from lpf_form import (
+    estimate_team_strength as _estimate_team_strength,
+    result_letter as _form_result_letter,
+    team_form as _team_form,
+    team_streak as _team_streak,
+)
 from lpf_qualification import (
     allocate_cup_slots, annual_base as _qualification_annual_base,
     copa_argentina_alive as _qualification_copa_argentina_alive,
@@ -1845,38 +1851,13 @@ def _porque_pasar(equipo, eqs, jug, esc, pend, n):
 # ── Métricas periodísticas: forma, rachas, local/visitante, dificultad de fixture ──
 
 def _res_letra(e, l, v, gl, gv):
-    if gl == gv: return "E"
-    return "G" if (l if gl > gv else v) == e else "P"
+    return _form_result_letter(e, l, v, gl, gv)
 
 def forma_equipo(e, jug, n=5):
-    letras = [_res_letra(e, l, v, gl, gv) for (l, v, gl, gv) in jug if e in (l, v)]
-    ult = letras[-n:]
-    pts = sum(3 if x == "G" else (1 if x == "E" else 0) for x in ult)
-    return ult, pts
+    return _team_form(e, jug, n)
 
 def racha_equipo(e, jug):
-    letras = [_res_letra(e, l, v, gl, gv) for (l, v, gl, gv) in jug if e in (l, v)]
-    if not letras:
-        return "sin partidos"
-    last = letras[-1]; k = 0
-    for x in reversed(letras):
-        if x == last: k += 1
-        else: break
-    inv = 0
-    for x in reversed(letras):
-        if x in ("G", "E"): inv += 1
-        else: break
-    sinv = 0
-    for x in reversed(letras):
-        if x in ("P", "E"): sinv += 1
-        else: break
-    if last == "G":
-        return f"{k} victoria{'s' if k>1 else ''} al hilo" + (f" ({inv} invicto)" if inv > k else "")
-    if last == "E":
-        if inv > k: return f"{inv} partidos invicto"
-        if sinv > k: return f"{sinv} sin ganar"
-        return f"{k} empate{'s' if k>1 else ''} seguido{'s' if k>1 else ''}"
-    return f"{k} derrota{'s' if k>1 else ''} al hilo" + (f" ({sinv} sin ganar)" if sinv > k else "")
+    return _team_streak(e, jug)
 
 def tabla_forma_df(eqs, jug, n=5):
     ov = _stats(eqs, jug)
@@ -4914,43 +4895,10 @@ def _lpf_forma_zona_df(base, jugados, n=5):
     return pd.DataFrame(rows).sort_values(["Pts últ. 5", "PTS"], ascending=False).reset_index(drop=True)
 
 def _fuerza_lpf(base, jugados=None):
-    """Fuerza regularizada para no convertir dos resultados en una sentencia.
-
-    Mezcla el Clausura actual, la forma reciente y una fortaleza previa tomada del
-    Apertura fijo. En las primeras fechas el antecedente pesa más; desde la sexta,
-    el torneo actual gana protagonismo. Si no existe antecedente, usa una base
-    neutral en lugar de proyectar cero puntos hasta el final.
-    """
-    eqs = list(base.keys())
+    """Wrapper Streamlit del modelo puro de fuerza regularizada."""
     opening = ((st.session_state.get("ESTADO") or {}).get("apertura") or
                st.session_state.get("LPF_APERTURA") or {})
-    current = {}
-    for team in eqs:
-        pj = int(base[team].get("pj", 0))
-        current[team] = (float(base[team].get("pts", 0)) / pj) if pj else 1.35
-    recent = {}
-    for team in eqs:
-        ult, pts = forma_equipo(team, jugados or [], 5)
-        recent[team] = (pts / len(ult)) if ult else current[team]
-    prior = {}
-    for team in eqs:
-        row = opening.get(team, {})
-        pj = int(row.get("pj", 0))
-        prior[team] = (float(row.get("pts", 0)) / pj) if pj else 1.35
-
-    mixed = {}
-    for team in eqs:
-        pj = int(base[team].get("pj", 0))
-        # Equivale a seis partidos previos: con 2 PJ el Apertura todavía pesa 75%.
-        prior_weight = 6.0
-        regularized = (prior[team] * prior_weight + current[team] * pj) / (prior_weight + pj)
-        form_weight = min(0.25, pj / 24.0)
-        mixed[team] = (1 - form_weight) * regularized + form_weight * recent[team]
-    median = float(np.median(list(mixed.values()))) if mixed else 1.0
-    if median <= 0:
-        median = 1.0
-    return {team: min(1.75, max(0.55, mixed[team] / median)) for team in eqs}
-
+    return _estimate_team_strength(base, jugados or [], opening)
 
 
 def lpf_apertura_desde_anual(anual, zonas, jugados=None, games=None):

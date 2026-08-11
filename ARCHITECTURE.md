@@ -26,6 +26,7 @@ el modelo de lenguaje, cuando está activo, sólo interpreta la consulta y redac
 | `lpf_fixture_sources.py` | Parsers y validación de fuentes (FutbolArgentino.com, ESPN) sin inferir partidos por PJ. |
 | `lpf_schedule.py` | Agenda y calendario puros: normaliza horarios de proveedor a Argentina, resuelve jornada/postergados, ordena pendientes y define la ventana temporal de la Previa sin Streamlit. |
 | `lpf_result_updates.py` | Aplicación pura de marcadores pendientes y cálculo de cambios de posiciones; no conoce Streamlit ni persistencia. |
+| `lpf_form.py` | Forma reciente, rachas y fuerza regularizada para simulaciones; recibe el Apertura por parámetro y no conoce Streamlit. |
 | `lpf_qualification.py` | Tabla Anual autoritativa, reparto de plazas y contexto puro de copas (clasificados fijos, vivos de Copa Argentina y etiqueta de actualización); no conoce Streamlit. |
 | `lpf_display.py` | Nombres periodísticos y edición de texto/tablas para la interfaz. |
 | `lpf_text.py` | Utilidades de texto puras y sin dependencias (`_zlow`, `_norm_txt`, `detectar_equipo`, `detectar_equipos`), extraídas del archivo principal para poder probarlas aisladas. |
@@ -58,7 +59,8 @@ el modelo de lenguaje, cuando está activo, sólo interpreta la consulta y redac
 6. **Agenda y alcance (`lpf_schedule`):** la programación ya normalizada se combina con el fixture para decidir próximo partido/día, jornada operativa y postergados sin leer sesión.
 7. **Actualización manual (`lpf_result_updates`):** un marcador confirmado actualiza una copia de las zonas y produce los cambios de puestos; Streamlit sólo reconstruye/persiste el estado.
 8. **Anual y cupos (`lpf_qualification`):** resuelve la Anual autoritativa y el reparto de plazas internacionales desde datos explícitos, sin leer sesión.
-9. **Redacción y UI:** los renderizadores consumen los resultados estructurados.
+9. **Forma y fuerza (`lpf_form`):** calcula forma, rachas y fuerza regularizada desde tablas/resultados/Apertura explícitos; las simulaciones no necesitan leer sesión para estimar fuerzas.
+10. **Redacción y UI:** los renderizadores consumen los resultados estructurados.
 
 ## Frontera para futura API y proveedores externos
 
@@ -81,6 +83,7 @@ Reglas de esa frontera:
 - La agenda real se normaliza en `lpf_schedule`: una fuente futura (incluido Opta) puede aportar fechas/horas y la misma capa decide orden, jornada y postergados sin escribir `session_state`.
 - La carga manual de marcadores usa `lpf_result_updates`: la misma regla de actualización PJ/GF/GA/DG/PTS puede reutilizarse desde otra interfaz antes de reconstruir el estado canónico.
 - La Tabla Anual, el reparto de plazas y el contexto de copas viven en `lpf_qualification`: una API puede aportar Apertura/Anual/campeones, clasificados fijos, vivos de Copa Argentina y metadatos de actualización explícitos sin leer `session_state`.
+- La forma, racha y fuerza regularizada viven en `lpf_form`: una API o simulador puede aportar tabla vigente, resultados y Apertura explícitos sin depender de `session_state`.
 - Una futura API debe importar `lpf_standings`, `lpf_scenarios`, `lpf_exact` y
   `lpf_pisos` directamente; no debe importar `calculadora_futbol_argentino.py`.
 - Un futuro conector Opta debe resolver IDs/nombres, estados de partido y formatos del
@@ -133,7 +136,7 @@ la existencia de `services` no obliga a reescribir la UI.
 
 ## Compatibilidad de despliegue
 
-Los módulos cuyo contrato cruza capas publican `LPF_RUNTIME_API`; desde 3.8.15 también `lpf_http.py`, porque Streamlit importa sus orquestadores de transporte. En 3.8.16 el nivel subió a **2** al agregarse la secuencia requerida de resultados de FutbolArgentino.com, en 3.8.19 subió a **3** por `lpf_state.refresh_lpf_quality_state` y en 3.8.21 subió a **4** al incorporar `lpf_schedule.py` como dependencia activa de la Previa, en 3.8.22 subió a **5** al incorporar `lpf_result_updates.py` para la carga manual de resultados y en 3.8.23 subió a **6** al incorporar `lpf_qualification.py` para Anual/cupos, en 3.8.24 subió a **7** porque Streamlit importa también sus helpers de contexto de copas y en 3.8.25 sube a **8** porque la UI requiere `lpf_scenarios.can_finish_exact_rank_by_points`. `lpf_runtime.py`
+Los módulos cuyo contrato cruza capas publican `LPF_RUNTIME_API`; desde 3.8.15 también `lpf_http.py`, porque Streamlit importa sus orquestadores de transporte. En 3.8.16 el nivel subió a **2** al agregarse la secuencia requerida de resultados de FutbolArgentino.com, en 3.8.19 subió a **3** por `lpf_state.refresh_lpf_quality_state` y en 3.8.21 subió a **4** al incorporar `lpf_schedule.py` como dependencia activa de la Previa, en 3.8.22 subió a **5** al incorporar `lpf_result_updates.py` para la carga manual de resultados y en 3.8.23 subió a **6** al incorporar `lpf_qualification.py` para Anual/cupos, en 3.8.24 subió a **7** porque Streamlit importa también sus helpers de contexto de copas y en 3.8.25 subió a **8** porque la UI requiere `lpf_scenarios.can_finish_exact_rank_by_points` y en 3.8.26 sube a **9** al incorporar `lpf_form.py` como dependencia activa del modelo de simulación. `lpf_runtime.py`
 lee esos marcadores directamente desde los archivos, antes de que Streamlit importe
 el motor. Si un deploy manual mezcla módulos viejos y nuevos, la app se detiene con
 un diagnóstico de archivos desincronizados. El nivel de runtime no reemplaza
