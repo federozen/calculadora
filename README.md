@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.21
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.23
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -10,6 +10,22 @@ La versión 3 prioriza tres objetivos:
 2. **Explicación honesta:** distingue hechos exactos, mínimo posible, total seguro, mínimo que asegura y estimaciones.
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
+
+
+## Novedad 3.8.23 · Anual y plazas de copas desacopladas
+
+- `lpf_qualification.py` concentra la construcción autoritativa de la Tabla Anual y el reparto reglamentario de plazas de Libertadores/Sudamericana sin Streamlit ni red.
+- `lpf_anual_base` y `lpf_plazas_copas` quedan como wrappers de UI: sólo aportan candidatos de sesión y delegan la lógica.
+- La implementación se comparó contra 3.8.22 en **300 casos de Anual + 600 combinaciones de cupos** con equivalencia exacta.
+- `LPF_RUNTIME_API` sube a **6** y el nuevo módulo entra en el chequeo previo de despliegue. Suite: **213 pruebas**.
+
+
+## Novedad 3.8.22 · Carga de resultados desacoplada
+
+- `lpf_result_updates.py` aplica resultados pendientes sobre copias de las zonas y calcula qué equipos cambiaron de puesto, sin Streamlit ni red.
+- La Mesa de redacción conserva el formulario y la persistencia de sesión, pero ya no contiene las reglas de actualización de PJ/GF/GA/DG/PTS ni el cálculo de cambios de posiciones.
+- La lógica nueva se comparó contra 3.8.21 en **500 + 300 casos** y el wrapper completo en **250 ejecuciones** con equivalencia exacta.
+- `LPF_RUNTIME_API` sube a **5** y el módulo entra en el chequeo de despliegue. Suite: **206 pruebas**.
 
 
 ## Novedad 3.8.21 · Agenda real de la Previa desacoplada
@@ -85,7 +101,7 @@ La versión 3 prioriza tres objetivos:
 
 - Streamlit comprueba al arrancar que los módulos críticos pertenecen al mismo nivel de compatibilidad antes de importarlos.
 - Si detecta un archivo viejo o faltante, se detiene con un mensaje claro que enumera qué módulos hay que actualizar, en vez de terminar más adelante con un `NameError` o `AttributeError`.
-- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.21`) para verificar rápidamente qué commit tomó Streamlit Cloud.
+- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.23`) para verificar rápidamente qué commit tomó Streamlit Cloud.
 - Este cambio no toca ninguna fórmula ni resultado. Suite: **154 pruebas**.
 
 ## Novedad 3.8.11 · Total seguro vs. mínimo que asegura

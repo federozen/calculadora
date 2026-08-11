@@ -5,7 +5,7 @@ enumeran todos los desenlaces posibles y se comparan, resultado por resultado,
 contra lo que dicen los solucionadores. Es la evidencia de que "los números
 siempre salen de Python y están validados".
 
-La suite actual contiene **200 pruebas**.
+La suite actual contiene **213 pruebas**.
 
 | Archivo | Qué cubre |
 | --- | --- |
@@ -29,6 +29,8 @@ La suite actual contiene **200 pruebas**.
 | `test_lpf_table_backup.py` | Respaldo de tablas: payload JSON, escritura atómica, prioridad sesión→disco, vencimiento, formato legacy y recuperación sin Streamlit. |
 | `test_lpf_runtime.py` | Compatibilidad de deploy: nivel requerido por el archivo principal, módulos sincronizados, detección de un archivo viejo y chequeo antes de los imports sensibles. |
 | `test_lpf_schedule.py` | Agenda/Previa: prioridad de fuentes horarias, compatibilidad legacy, jornada vs. postergados, orden por calendario real, agrupación por día y hora argentina. |
+| `test_lpf_result_updates.py` | Aplicación manual de resultados: no muta la entrada, ignora duplicados/no pendientes, calcula cambios de posiciones y conserva equivalencia con 3.8.21. |
+| `test_lpf_qualification.py` | Tabla Anual y plazas internacionales: prioridad Apertura/Anual directa, validación, reordenamientos de Libertadores/Copa Argentina y equivalencia con 3.8.22. |
 
 Convenio de desempates (verificado en las pruebas):
 

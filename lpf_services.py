@@ -7,7 +7,7 @@ la matemática en los motores existentes.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 4
+LPF_RUNTIME_API = 6
 
 
 from collections.abc import Mapping, Sequence

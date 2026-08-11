@@ -1,3 +1,23 @@
+## 3.8.23 · 2026-08-11
+
+### Tabla Anual y reparto de plazas fuera de Streamlit
+
+- Se agregó `lpf_qualification.py`, módulo puro que resuelve la Tabla Anual autoritativa (Apertura + zonas actuales, con fallback validado a Anual directa) y reparte las plazas de Libertadores/Sudamericana con los mismos reordenamientos históricos.
+- `lpf_anual_base` queda como adaptador de sesión: sólo reúne candidatos de Apertura/Anual y delega en `lpf_qualification.annual_base`. `lpf_plazas_copas` sólo aporta el reemplazo de Copa Argentina guardado en sesión y delega en `allocate_cup_slots`.
+- La equivalencia se verificó contra 3.8.22 en **300 casos** de construcción de Anual y **600 combinaciones** de campeones/extras/reemplazos de Copa Argentina, sin diferencias.
+- La suite sube de 206 a **213 pruebas**. No cambia ninguna fórmula, prioridad reglamentaria ni resultado de clasificación a copas.
+- `lpf_qualification.py` entra en el chequeo de compatibilidad y `LPF_RUNTIME_API` sube de 5 a **6** para detectar un núcleo incompleto antes de importar el módulo nuevo.
+
+## 3.8.22 · 2026-08-11
+
+### Aplicación manual de resultados fuera de Streamlit
+
+- Se agregó `lpf_result_updates.py`, módulo puro que aplica marcadores pendientes sobre una copia de las zonas y calcula los cambios de posiciones en zonas y Tabla Anual.
+- `_rd_apply_results` queda como adaptador: aporta el estado actual, delega la mutación estadística, reconstruye la foto LPF con el constructor existente y sólo persiste `ESTADO`, `RD_LAST_CHANGES` y `RD_LAST_RESULTS`.
+- La extracción se comparó contra 3.8.21 en **500 casos** de aplicación de marcadores, **300 casos** de cambios de puestos y **250 ejecuciones** del wrapper completo con estado de sesión simulado; todas fueron equivalentes.
+- La suite sube de 200 a **206 pruebas**. No cambia ninguna fórmula, criterio de desempate ni resultado matemático.
+- `lpf_result_updates.py` entra en el chequeo de compatibilidad y `LPF_RUNTIME_API` sube de 4 a **5** para detectar despliegues parciales antes del import.
+
 ## 3.8.21 · 2026-08-11
 
 ### Agenda real y alcance de la Previa fuera de Streamlit

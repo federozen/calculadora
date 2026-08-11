@@ -11,7 +11,7 @@ from lpf_version import __version__
 import streamlit as st
 from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
-_REQUIRED_RUNTIME_API = 4
+_REQUIRED_RUNTIME_API = 6
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -33,8 +33,7 @@ import numpy as np
 import re
 import requests
 from lpf_data_quality import (
-    build_quality_report, derive_opening_from_results,
-    pending_pairs, sum_opening_and_zones, validate_annual,
+    build_quality_report, derive_opening_from_results, pending_pairs,
 )
 from lpf_models import DataQualityReport
 from lpf_competition_narratives import (
@@ -68,6 +67,8 @@ from lpf_standings import (
     DEFAULT_CRITERIOS, _stats, liga_tabla_df, _liga_in_out,
     posiciones as _standings_posiciones, tabla as _standings_tabla,
 )
+from lpf_result_updates import apply_completed_results, table_position_changes
+from lpf_qualification import allocate_cup_slots, annual_base as _qualification_annual_base
 from lpf_state import (
     LPF_APERTURA_PJ, build_lpf_state, opening_is_valid, refresh_lpf_quality_state,
 )
@@ -2809,19 +2810,15 @@ def lpf_cruces_texto(Z):
 def lpf_anual_base(Z, apertura=None):
     """Tabla General autoritativa: Apertura fijo + zonas actuales.
 
-    La anual directa se usa sólo como foto de importación. Una vez reconstruido el
-    Apertura, cada resultado del Clausura actualiza automáticamente la Anual.
+    Streamlit sólo resuelve los candidatos de sesión; la prioridad y validación
+    viven en ``lpf_qualification.annual_base``.
     """
-    teams = {team for base in (Z or {}).values() for team in base}
-    opening = canon_base(apertura or (st.session_state.get("ESTADO") or {}).get("apertura") or
-                         st.session_state.get("LPF_APERTURA") or {})
-    if teams and set(opening) == teams:
-        return sum_opening_and_zones(opening, Z)
-    direct = canon_base((st.session_state.get("ESTADO") or {}).get("anual_directo") or
-                        st.session_state.get("LPF_ANUAL") or {})
-    if direct and not any(issue.level == "blocked" for issue in validate_annual(Z, direct, opening_rounds=LPF_APERTURA_PJ)):
-        return direct
-    return {}
+    estado = st.session_state.get("ESTADO") or {}
+    opening = apertura or estado.get("apertura") or st.session_state.get("LPF_APERTURA") or {}
+    direct = estado.get("anual_directo") or st.session_state.get("LPF_ANUAL") or {}
+    return _qualification_annual_base(
+        Z, opening=opening, direct_annual=direct, opening_rounds=LPF_APERTURA_PJ
+    )
 
 
 def lpf_anual_df(Z, apertura=None):
@@ -2894,65 +2891,13 @@ def lpf_descenso_texto(Z, rest, apertura=None, prev=None, n_anual=1, n_prom=1, e
     return "\n\n".join(L)
 
 def lpf_plazas_copas(Z, apertura=None, camps=("", "", ""), extras=("", ""), copa_reemplazo=""):
-    """Reparte las plazas 2027 según arts. 27 y 28, contemplando el REORDENAMIENTO.
-    camps = (campeón Apertura, campeón Clausura, campeón Copa Argentina)
-    extras = (campeón Libertadores 2026 argentino, campeón Sudamericana 2026 argentino)
-    Devuelve dict con lib=[(equipo, motivo)], n_tabla_lib, reducida, avisos."""
+    """Wrapper Streamlit del reparto puro de plazas internacionales."""
     anual = lpf_anual_base(Z, apertura)
-    orden = list(liga_tabla_df(anual)["Equipo"])
-    def norm(x):
-        x = (x or "").strip()
-        return (_match_eq(x, orden) or "") if x else ""
-    ca, cc, cq = [norm(x) for x in camps]
-    xl, xs = [norm(x) for x in extras]
-    cr = norm(copa_reemplazo or st.session_state.get("LPF_COPA_ARG_REEMPLAZO", ""))
-    lib, avisos = [], []
-    def ya(e):
-        return any(e == x for x, _ in lib)
-    def poner(e, motivo):
-        if e and not ya(e):
-            lib.append((e, motivo)); return True
-        return False
-    # Plazas adicionales por título internacional (arts. 27.9 y 27.10)
-    if xl:
-        poner(xl, "Campeón de la Libertadores 2026 — plaza adicional (art. 27.9)")
-    if xs:
-        poner(xs, "Campeón de la Sudamericana 2026 — plaza adicional (art. 27.10)")
-    n_base = 6  # plazas ARGENTINA 1 a 6 (arts. 27.1 a 27.6)
-    # Plazas por título nacional
-    for e, motivo, art in ((ca, "Campeón del Apertura", "27.1"), (cc, "Campeón del Clausura", "27.2")):
-        if e:
-            if ya(e):
-                avisos.append(f"{e} ya tenía plaza, así que su lugar como {motivo} lo toma el siguiente mejor de la anual (art. 27.7/27.9).")
-            else:
-                poner(e, f"{motivo} (art. {art})")
-                n_base -= 1
-    if cq:
-        if ya(cq):
-            if cr and not ya(cr):
-                poner(cr, "Mejor equipo de Primera de la Copa Argentina — hereda ARGENTINA 3 (arts. 27.8 y 27.8.1)")
-                avisos.append(f"{cq} ya tenía plaza: ARGENTINA 3 fue asignada a {cr}, mejor equipo de Primera cargado de la Copa Argentina.")
-            else:
-                avisos.append(f"{cq} (Copa Argentina) ya tenía plaza: **ARGENTINA 3 la hereda el mejor equipo de Primera de la Copa Argentina 2026**, "
-                              f"no el siguiente de la anual (art. 27.8). Cargá ese reemplazo cuando quede definido.")
-            n_base -= 1
-        else:
-            poner(cq, "Campeón de la Copa Argentina (art. 27.3, plaza inalterable)")
-            n_base -= 1
-    else:
-        avisos.append("Falta definirse el campeón de la **Copa Argentina 2026**. Su plaza **ARGENTINA 3** permanece dentro de esa competencia y, cuando se conozca al campeón, ese club ya no consumirá otro cupo por la Tabla Anual.")
-        n_base -= 1
-    if not ca:
-        avisos.append("Falta el campeón del **Apertura**."); n_base -= 1
-    if not cc:
-        avisos.append("Falta el campeón del **Clausura** (se define en los playoffs)."); n_base -= 1
-    n_tabla_lib = max(0, n_base)
-    tomados = [e for e, _ in lib]
-    reducida = [e for e in orden if e not in tomados]
-    for k, e in enumerate(reducida[:n_tabla_lib]):
-        lib.append((e, f"por Tabla Anual ({orden.index(e)+1}º) — arts. 27.4 a 27.6"))
-    return {"lib": lib, "n_tabla_lib": n_tabla_lib, "orden": orden, "reducida": reducida,
-            "avisos": avisos, "anual": anual, "tomados": [e for e, _ in lib]}
+    replacement = copa_reemplazo or st.session_state.get("LPF_COPA_ARG_REEMPLAZO", "")
+    return allocate_cup_slots(
+        anual, camps=camps, extras=extras, copa_replacement=replacement
+    )
+
 
 def lpf_copas_texto(Z, apertura=None, camp_apertura="", camp_clausura="", camp_copa_arg="",
                     camp_lib26="", camp_sud26=""):
@@ -8605,45 +8550,24 @@ def _rd_next_round(pend, fecha=None):
     return jornada, list(juegos) + [lv for lv, _f in atrasados]
 
 
-def _rd_update_stats(stats, gf, ga):
-    stats["pj"] = int(stats.get("pj", 0)) + 1
-    stats["gf"] = int(stats.get("gf", 0)) + int(gf)
-    stats["ga"] = int(stats.get("ga", 0)) + int(ga)
-    stats["dg"] = stats["gf"] - stats["ga"]
-    stats["pts"] = int(stats.get("pts", 0)) + (3 if gf > ga else 1 if gf == ga else 0)
-
-
 def _rd_apply_results(E, results):
     """Aplica marcadores y reconstruye Zonas, Anual, Promedios y pendientes.
 
-    La Tabla Anual nunca se incrementa como una copia independiente: se vuelve a
-    calcular desde el Apertura fijo y las zonas actualizadas.
+    La mutación estadística y el cálculo de cambios de puestos viven en
+    ``lpf_result_updates``. Streamlit conserva sólo el rebuild y la persistencia.
     """
-    import copy
-    zones = copy.deepcopy(E.get("zonas_lpf") or {})
-    played = list(E.get("jugados") or [])
-    pending = set(E.get("pendientes") or [])
-    before_zone = {lab: liga_tabla_df(base) for lab, base in zones.items()}
-    before_annual = liga_tabla_df(lpf_anual_base(zones, E.get("apertura") or {}))
-    applied = []
-    known = {(l, v) for l, v, _gl, _gv in played}
-
-    for local, visitor, gl, gv in results:
-        if (local, visitor) not in pending or (local, visitor) in known:
-            continue
-        for team, gf, ga in ((local, gl, gv), (visitor, gv, gl)):
-            for base in zones.values():
-                if team in base:
-                    _rd_update_stats(base[team], gf, ga)
-                    break
-        played.append((local, visitor, int(gl), int(gv)))
-        known.add((local, visitor))
-        applied.append((local, visitor, int(gl), int(gv)))
-
+    before_zones = E.get("zonas_lpf") or {}
+    before_annual = lpf_anual_base(before_zones, E.get("apertura") or {})
+    zones, played, applied = apply_completed_results(
+        before_zones,
+        E.get("jugados") or [],
+        E.get("pendientes") or [],
+        results,
+    )
     if not applied:
         return 0
 
-    updated, report = _lpf_rebuild_state(
+    updated, _report = _lpf_rebuild_state(
         zones,
         played=played,
         annual_direct=E.get("anual_directo") or {},
@@ -8653,29 +8577,10 @@ def _rd_apply_results(E, results):
     )
     st.session_state.ESTADO = updated
     annual = updated.get("anual_directo") or {}
-
-    changes = []
-    for lab, base in zones.items():
-        old = {r["Equipo"]: int(r["Pos"]) for _, r in before_zone[lab].iterrows()}
-        new_df = liga_tabla_df(base)
-        for _, row in new_df.iterrows():
-            team = row["Equipo"]
-            if old.get(team) != int(row["Pos"]):
-                changes.append({"Tabla": f"Zona {lab}", "Equipo": team,
-                                "Antes": old.get(team), "Ahora": int(row["Pos"]),
-                                "Cambio": int(old.get(team, row["Pos"])) - int(row["Pos"])})
-    if not before_annual.empty and annual:
-        old = {r["Equipo"]: int(r["Pos"]) for _, r in before_annual.iterrows()}
-        for _, row in liga_tabla_df(annual).iterrows():
-            team = row["Equipo"]
-            if old.get(team) != int(row["Pos"]):
-                changes.append({"Tabla": "Anual", "Equipo": team,
-                                "Antes": old.get(team), "Ahora": int(row["Pos"]),
-                                "Cambio": int(old.get(team, row["Pos"])) - int(row["Pos"])})
+    changes = table_position_changes(before_zones, before_annual, zones, annual)
     st.session_state.RD_LAST_CHANGES = pd.DataFrame(changes)
     st.session_state.RD_LAST_RESULTS = applied
     return len(applied)
-
 
 def _rd_tree_dot(team, objective, base, pending):
     next_info = lpf_proximo_partido_equipo(team, pending)
