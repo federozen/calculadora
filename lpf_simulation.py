@@ -8,10 +8,75 @@ from __future__ import annotations
 
 import numpy as np
 
-LPF_RUNTIME_API = 10
+from lpf_qualification import allocate_cup_slots, annual_base
+
+LPF_RUNTIME_API = 11
 
 DEFAULT_DRAW_PROBABILITY = 0.26
 DEFAULT_HOME_ADVANTAGE = 1.22
+
+
+def build_simulation_context(
+    zones,
+    remaining,
+    opening,
+    camps,
+    extras,
+    averages,
+    *,
+    direct_annual=None,
+    opening_rounds,
+    copa_replacement="",
+    n_annual=1,
+    n_average=1,
+):
+    """Arma el contexto estable compartido por las simulaciones de objetivos.
+
+    Todas las fotos que antes podían llegar implícitamente desde la capa de UI
+    entran de forma explícita. El resultado conserva la estructura histórica de
+    ``_lpf_ctx`` para que los consumidores Monte Carlo no cambien.
+    """
+    zones = zones or {}
+    annual = annual_base(
+        zones,
+        opening=opening or {},
+        direct_annual=direct_annual or {},
+        opening_rounds=opening_rounds,
+    )
+    allocation = allocate_cup_slots(
+        annual,
+        camps=camps or ("", "", ""),
+        extras=extras or ("", ""),
+        copa_replacement=copa_replacement or "",
+    )
+    teams = [team for base in zones.values() for team in base]
+    zone_of = {team: label for label, base in zones.items() for team in base}
+    zone_points = {team: zones[zone_of[team]][team]["pts"] for team in teams}
+    zone_goal_difference = {
+        team: zones[zone_of[team]][team].get("dg", 0) for team in teams
+    }
+    annual_points = {team: annual[team]["pts"] for team in teams if team in annual}
+    annual_goal_difference = {
+        team: annual[team].get("dg", 0) for team in teams if team in annual
+    }
+    return {
+        "Z": zones,
+        "anual": annual,
+        "reducida": allocation["reducida"],
+        "n_lib": allocation["n_tabla_lib"],
+        "tomados": allocation["tomados"],
+        "orden": allocation["orden"],
+        "equipos": teams,
+        "zona_de": zone_of,
+        "zpts": zone_points,
+        "zdg": zone_goal_difference,
+        "apts": annual_points,
+        "adg": annual_goal_difference,
+        "prom": averages or {},
+        "rest": remaining,
+        "n_anual": n_annual,
+        "n_prom": n_average,
+    }
 
 
 def simulate_zone_rank_points(

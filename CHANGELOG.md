@@ -1,3 +1,13 @@
+## 3.8.28 · 2026-08-11
+
+### Contexto de simulación sin dependencias ocultas de sesión
+
+- `lpf_simulation.build_simulation_context` arma ahora el contexto estable de Monte Carlo (Anual, tabla reducida, cupos, puntos base, zonas y promedios) a partir de datos explícitos.
+- `_lpf_ctx` queda como wrapper de UI: resuelve desde sesión únicamente los fallbacks históricos de Apertura, Anual directa y reemplazo de Copa Argentina, y los pasa al módulo puro.
+- Se elimina así una dependencia implícita importante para una futura API/snapshot: el motor ya no necesita que `lpf_anual_base`/`lpf_plazas_copas` consulten sesión mientras se arma el contexto de objetivos.
+- Equivalencia exacta contra 3.8.27: **500/500** ejecuciones del wrapper con Apertura explícito/parcial, fallbacks de `ESTADO`/sesión, Anual directa y reemplazo de Copa Argentina.
+- La suite sube de 234 a **237 pruebas**. `LPF_RUNTIME_API` sube de 10 a **11** porque el archivo principal requiere la nueva función de `lpf_simulation`.
+
 ## 3.8.27 · 2026-08-11
 
 - Nuevo `lpf_simulation.py` con las primitivas Monte Carlo puras usadas por la LPF: simulación de posición/puntos por zona, suma de puntos sobre pendientes y máscara de cumplimiento de objetivos.

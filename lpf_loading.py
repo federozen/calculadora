@@ -15,7 +15,7 @@ entregar las mismas filas normalizadas de tablas y resultados.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 10
+LPF_RUNTIME_API = 11
 
 
 from collections.abc import Mapping, Sequence

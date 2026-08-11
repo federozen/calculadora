@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.27
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.28
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -11,6 +11,13 @@ La versión 3 prioriza tres objetivos:
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
 
+
+## Novedad 3.8.28 · Contexto Monte Carlo explícito
+
+- `lpf_simulation.build_simulation_context` arma la Anual, la tabla reducida, cupos y bases de simulación sin leer estado de interfaz.
+- `_lpf_ctx` conserva la firma histórica, pero sólo aporta los fallbacks de Apertura, Anual directa y reemplazo de Copa Argentina que estaban guardados en sesión.
+- La extracción se comparó contra 3.8.27 en **500/500** estados con equivalencia exacta.
+- `LPF_RUNTIME_API` sube a **11**. Suite: **237 pruebas**.
 
 ## Novedad 3.8.27 · Primitivas Monte Carlo fuera de Streamlit
 
@@ -133,7 +140,7 @@ La versión 3 prioriza tres objetivos:
 
 - Streamlit comprueba al arrancar que los módulos críticos pertenecen al mismo nivel de compatibilidad antes de importarlos.
 - Si detecta un archivo viejo o faltante, se detiene con un mensaje claro que enumera qué módulos hay que actualizar, en vez de terminar más adelante con un `NameError` o `AttributeError`.
-- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.27`) para verificar rápidamente qué commit tomó Streamlit Cloud.
+- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.28`) para verificar rápidamente qué commit tomó Streamlit Cloud.
 - Este cambio no toca ninguna fórmula ni resultado. Suite: **154 pruebas**.
 
 ## Novedad 3.8.11 · Total seguro vs. mínimo que asegura

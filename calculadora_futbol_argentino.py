@@ -11,7 +11,7 @@ from lpf_version import __version__
 import streamlit as st
 from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
-_REQUIRED_RUNTIME_API = 10
+_REQUIRED_RUNTIME_API = 11
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -75,6 +75,7 @@ from lpf_form import (
     team_streak as _team_streak,
 )
 from lpf_simulation import (
+    build_simulation_context as _build_simulation_context_core,
     objective_mask as _obj_bool,
     simulate_point_additions as _sim_lpf_add,
     simulate_zone_rank_points as _simulate_zone_rank_points_core,
@@ -7137,19 +7138,16 @@ def lpf_previa_equipo_texto(equipo, Z, rest, pend, anual, prom, fecha=None,
     return "\n\n".join(lines), frame
 
 def _lpf_ctx(Z, rest, apertura, camps, extras, prom, n_anual=1, n_prom=1):
-    """Precalcula todo lo estable para simular objetivos de la anual/promedios."""
-    anual = lpf_anual_base(Z, apertura or {})
-    P = lpf_plazas_copas(Z, apertura, camps or ("", "", ""), extras or ("", ""))
-    equipos = [e for b in Z.values() for e in b]
-    zona_de = {e: lab for lab, b in Z.items() for e in b}
-    zpts = {e: Z[zona_de[e]][e]["pts"] for e in equipos}
-    zdg = {e: Z[zona_de[e]][e].get("dg", 0) for e in equipos}
-    apts = {e: anual[e]["pts"] for e in equipos if e in anual}
-    adg = {e: anual[e].get("dg", 0) for e in equipos if e in anual}
-    return dict(Z=Z, anual=anual, reducida=P["reducida"], n_lib=P["n_tabla_lib"],
-                tomados=P["tomados"], orden=P["orden"], equipos=equipos, zona_de=zona_de,
-                zpts=zpts, zdg=zdg, apts=apts, adg=adg, prom=prom or {}, rest=rest,
-                n_anual=n_anual, n_prom=n_prom)
+    """Wrapper de sesión del contexto puro compartido por las simulaciones."""
+    estado = st.session_state.get("ESTADO") or {}
+    opening = apertura or estado.get("apertura") or st.session_state.get("LPF_APERTURA") or {}
+    direct = estado.get("anual_directo") or st.session_state.get("LPF_ANUAL") or {}
+    replacement = st.session_state.get("LPF_COPA_ARG_REEMPLAZO", "")
+    return _build_simulation_context_core(
+        Z, rest, opening, camps, extras, prom,
+        direct_annual=direct, opening_rounds=LPF_APERTURA_PJ,
+        copa_replacement=replacement, n_annual=n_anual, n_average=n_prom,
+    )
 
 def _objetivo_lpf(q):
     z = _zlow(q)

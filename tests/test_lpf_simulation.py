@@ -83,3 +83,91 @@ def test_main_delega_primitivas_generales_al_modulo_puro():
     assert "simulate_zone_rank_points as _simulate_zone_rank_points_core" in text
     assert "def _sim_lpf_add(" not in text
     assert "def _obj_bool(" not in text
+
+
+def _row(pts=0, pj=0, gf=0, ga=0):
+    return {
+        "pts": int(pts),
+        "pj": int(pj),
+        "gf": int(gf),
+        "ga": int(ga),
+        "dg": int(gf) - int(ga),
+    }
+
+
+def test_contexto_de_simulacion_recibe_anual_y_reemplazo_explicitamente():
+    from lpf_simulation import build_simulation_context
+
+    teams = ["River Plate", "Boca Juniors", "Racing", "Independiente"]
+    zones = {
+        "A": {
+            "River Plate": _row(8, 4, 7, 3),
+            "Boca Juniors": _row(7, 4, 6, 4),
+        },
+        "B": {
+            "Racing": _row(6, 4, 5, 4),
+            "Independiente": _row(5, 4, 4, 5),
+        },
+    }
+    opening = {team: _row(20 + i, 16, 15 + i, 10) for i, team in enumerate(teams)}
+    context = build_simulation_context(
+        zones,
+        {team: 12 for team in teams},
+        opening,
+        ("River Plate", "River Plate", "River Plate"),
+        ("", ""),
+        {team: (80 + i, 60) for i, team in enumerate(teams)},
+        direct_annual={},
+        opening_rounds=16,
+        copa_replacement="Boca Juniors",
+        n_annual=1,
+        n_average=1,
+    )
+    assert context["equipos"] == teams
+    assert context["zona_de"] == {"River Plate": "A", "Boca Juniors": "A", "Racing": "B", "Independiente": "B"}
+    assert context["anual"]["River Plate"]["pts"] == 28
+    assert context["n_lib"] == 4
+    assert "Boca Juniors" in context["tomados"]
+    assert context["prom"]["River Plate"] == (80, 60)
+
+
+def test_contexto_de_simulacion_puede_usar_anual_directa_sin_apertura():
+    from lpf_simulation import build_simulation_context
+
+    teams = ["River Plate", "Boca Juniors", "Racing", "Independiente"]
+    zones = {
+        "A": {"River Plate": _row(4, 2, 3, 2), "Boca Juniors": _row(3, 2, 2, 2)},
+        "B": {"Racing": _row(2, 2, 2, 3), "Independiente": _row(1, 2, 1, 3)},
+    }
+    direct = {
+        team: _row(25 - i, 18, 20 - i, 10)
+        for i, team in enumerate(teams)
+    }
+    context = build_simulation_context(
+        zones,
+        {team: 14 for team in teams},
+        {},
+        ("", "", ""),
+        ("", ""),
+        {},
+        direct_annual=direct,
+        opening_rounds=16,
+    )
+    assert context["anual"]
+    assert context["anual"]["River Plate"]["pj"] == 18
+    assert context["apts"]["River Plate"] == 25
+
+
+def test_main_delega_el_armado_del_contexto_al_modulo_puro():
+    text = MAIN.read_text(encoding="utf-8")
+    assert "build_simulation_context as _build_simulation_context_core" in text
+    tree = ast.parse(text)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_lpf_ctx")
+    calls = {
+        node.func.id
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "_build_simulation_context_core" in calls
+    assert "lpf_anual_base" not in calls
+    assert "lpf_plazas_copas" not in calls
