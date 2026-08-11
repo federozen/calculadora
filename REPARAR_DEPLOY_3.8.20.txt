@@ -1,0 +1,6 @@
+Sincronizacion del nucleo 3.8.20
+
+Copiar/reemplazar TODOS los archivos de este ZIP en la raiz del repositorio.
+Incluye lpf_runtime.py, calculadora_futbol_argentino.py y todos los modulos lpf_*.py de la version 3.8.20 para evitar mezclas de versiones.
+
+No borra datos ni archivos de configuracion.

@@ -5,6 +5,9 @@ los empates en puntos se tratan de forma favorable o desfavorable según la preg
 """
 from __future__ import annotations
 
+LPF_RUNTIME_API = 3
+
+
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
 
@@ -220,7 +223,7 @@ def point_ladder(
     if not SCIPY_MILP or len(matches) > max_matches:
         return {
             "available": False,
-            "reason": "El motor exacto se reserva para ventanas de hasta 100 partidos; mientras no pueda resolver el mínimo exacto, no se publica una garantía aproximada.",
+            "reason": "El motor exacto se reserva para ventanas de hasta 100 partidos; mientras no pueda resolver el mínimo exacto, no se publica un mínimo que asegura aproximado.",
             "minimum_possible": None,
             "guarantee": None,
             "rows": [],
@@ -237,7 +240,7 @@ def point_ladder(
         guaranteed = not fail.feasible
         if guaranteed and guarantee is None:
             guarantee = pts
-        status = "Garantía exacta" if guaranteed else "Clasificación condicionada"
+        status = "Mínimo que asegura" if guaranteed else "Clasificación condicionada"
         statuses.append(PointLadderRow(
             final_points=pts,
             status=status,

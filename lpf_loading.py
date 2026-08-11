@@ -7,13 +7,16 @@ estructuras simples aptas para una futura API.
 
 La frontera queda así::
 
-    proveedor -> fetch/adaptador -> lpf_loading -> lpf_state -> motores
+    proveedor -> transporte -> adaptador -> lpf_loading -> lpf_state -> motores
 
-Los fetchers actuales (ESPN/FutbolArgentino.com) siguen en la aplicación hasta que
-puedan aislarse con fixtures de HTML. Un futuro adaptador Opta sólo deberá entregar
-las mismas filas normalizadas de tablas y resultados.
+El transporte y los adaptadores actuales de ESPN/FutbolArgentino.com viven en
+``lpf_http`` y ``lpf_provider_adapters``. Un futuro adaptador Opta sólo deberá
+entregar las mismas filas normalizadas de tablas y resultados.
 """
 from __future__ import annotations
+
+LPF_RUNTIME_API = 3
+
 
 from collections.abc import Mapping, Sequence
 from typing import Any

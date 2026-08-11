@@ -7,6 +7,9 @@ reporte de calidad.
 """
 from __future__ import annotations
 
+LPF_RUNTIME_API = 3
+
+
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -17,6 +20,7 @@ from lpf_data_quality import (
     derive_opening_snapshot,
     flatten_zones,
     pending_pairs,
+    sum_opening_and_zones,
 )
 from lpf_models import AuditIssue, DataQualityReport
 
@@ -76,6 +80,56 @@ def add_source_issues(
     )
     return report
 
+
+
+def refresh_lpf_quality_state(
+    zones: Mapping[str, Mapping[str, Mapping[str, object]]],
+    *,
+    annual_imported: Mapping[str, Mapping[str, object]] | None = None,
+    annual_direct: Mapping[str, Mapping[str, object]] | None = None,
+    opening_candidates: Sequence[Mapping[str, Mapping[str, object]] | None] = (),
+    promedios: Mapping[str, object] | None = None,
+    fixture: Sequence[Mapping[str, object]] = (),
+    played: Sequence[tuple[str, str, int, int]] | None = None,
+    source_issues: Sequence[object] | None = None,
+    opening_rounds: int = LPF_APERTURA_PJ,
+) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]], DataQualityReport]:
+    """Revalida una foto LPF existente sin leer ni escribir estado de interfaz.
+
+    Reproduce la migración defensiva usada por Streamlit para sesiones guardadas por
+    versiones anteriores: elige el primer Apertura válido, reconstruye la Anual viva
+    cuando ese Apertura existe y vuelve a emitir la auditoría completa. No intenta
+    derivar un Apertura nuevo; esa responsabilidad sigue en ``build_lpf_state``.
+    """
+    candidates = [canon_base(candidate or {}) for candidate in opening_candidates]
+    selected_opening = next(
+        (
+            candidate
+            for candidate in candidates
+            if opening_is_valid(
+                candidate,
+                zones,
+                opening_rounds=opening_rounds,
+            )
+        ),
+        {},
+    )
+
+    if selected_opening:
+        authoritative = sum_opening_and_zones(selected_opening, zones)
+    else:
+        authoritative = dict(annual_direct or {})
+
+    report = build_quality_report(
+        zones or {},
+        annual_imported or authoritative,
+        promedios or {},
+        fixture,
+        list(played or []),
+        opening_snapshot=selected_opening,
+    )
+    report = add_source_issues(report, source_issues)
+    return selected_opening, authoritative, report
 
 def build_lpf_state(
     zones: Mapping[str, Mapping[str, Mapping[str, object]]],
@@ -197,6 +251,7 @@ def build_lpf_state(
         copa_arg_updated=str(copa_arg_updated or ""),
         copa_arg_source=str(copa_arg_source or ""),
         copa_arg_reemplazo=str(copa_arg_reemplazo or ""),
+        promedios=dict(promedios or {}),
         base={},
         jugados=normalized_played,
         esc=None,

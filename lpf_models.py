@@ -5,9 +5,14 @@ Todos los renderizadores deberían consumir estos objetos o sus ``to_dict``.
 """
 from __future__ import annotations
 
+LPF_RUNTIME_API = 3
+
+
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
+
+from lpf_version import __version__
 
 ResultKind = Literal["exact", "safe_guarantee", "estimate", "partial"]
 DataLevel = Literal["ok", "warning", "blocked"]
@@ -30,7 +35,7 @@ class AuditMetadata:
     )
     data_updated_at: str | None = None
     competition: str = "LPF 2026"
-    calculation_version: str = "3.8.2"
+    calculation_version: str = field(default_factory=lambda: __version__)
     rules_version: str = "LPF-2026"
     seed: int | None = None
     simulations: int | None = None

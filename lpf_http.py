@@ -7,7 +7,12 @@ ni los motores.
 """
 from __future__ import annotations
 
+LPF_RUNTIME_API = 3
+
+
+import datetime as _dt
 import time
+from collections.abc import Callable
 from typing import Any
 
 import requests
@@ -29,6 +34,20 @@ def source_headers(referer: str = "") -> dict[str, str]:
     if referer:
         headers["Referer"] = referer
     return headers
+
+
+def fetch_url_text(url: str, *, timeout: int = 30) -> str:
+    """Descarga texto con el comportamiento historico de las URLs genericas.
+
+    No valida status HTTP ni interpreta el contenido: los wrappers de UI conservan
+    sus mensajes de error y delegan el parsing en un adaptador puro.
+    """
+    response = requests.get(
+        url,
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=timeout,
+    )
+    return response.text
 
 
 def fetch_html(url: str, *, referer: str = "", timeout: int = 30, retries: int = 1) -> tuple[str, str]:
@@ -57,6 +76,63 @@ def fetch_html(url: str, *, referer: str = "", timeout: int = 30, retries: int =
             if attempt < int(retries):
                 time.sleep(1.25 * (attempt + 1))
     raise RuntimeError(str(last_error or "no se pudo descargar la página"))
+
+
+def fetch_futbolargentino_results_pages(
+    source_urls: list[str] | tuple[str, ...],
+    *,
+    referer: str = "",
+    timeout: int = 30,
+    get_html: Callable[..., tuple[str, str]] | None = None,
+    timestamp: int | None = None,
+) -> dict[str, Any]:
+    """Descarga las paginas de resultados usadas por FutbolArgentino.com.
+
+    Replica la orquestacion historica del wrapper Streamlit: agrega un cache-buster
+    distinto por URL y conserva cada fallo junto a la fuente correspondiente. No
+    interpreta HTML ni decide si la cobertura de partidos es suficiente.
+
+    ``get_html`` permite que la UI mantenga su cache (`_standings_html_get`) y que
+    una futura API use :func:`fetch_html` directamente.
+    """
+    getter = get_html or fetch_html
+    stamp = int(time.time()) if timestamp is None else int(timestamp)
+    attempts: list[dict[str, Any]] = []
+
+    for index, raw_url in enumerate(source_urls or ()):
+        source_url = str(raw_url or "").strip()
+        if not source_url:
+            continue
+        separator = "&" if "?" in source_url else "?"
+        request_url = f"{source_url}{separator}_lpf_refresh={stamp + index}"
+        try:
+            html, final_url = getter(
+                request_url,
+                referer=referer,
+                timeout=timeout,
+            )
+        except Exception as exc:
+            attempts.append(
+                {
+                    "source_url": source_url,
+                    "request_url": request_url,
+                    "html": "",
+                    "final_url": "",
+                    "error": str(exc),
+                }
+            )
+            continue
+        attempts.append(
+            {
+                "source_url": source_url,
+                "request_url": request_url,
+                "html": html,
+                "final_url": final_url,
+                "error": "",
+            }
+        )
+
+    return {"attempts": attempts, "timestamp": stamp}
 
 
 def fetch_espn_json(url: str, *, timeout: int = 30, retries: int = 2) -> dict[str, Any]:
@@ -124,3 +200,82 @@ def fetch_espn_json(url: str, *, timeout: int = 30, retries: int = 2) -> dict[st
             time.sleep(1.5 * (attempt + 1))
 
     raise RuntimeError(last_error or f"No se pudo consultar ESPN en {url}")
+
+def _scoreboard_date(value: object) -> _dt.date | None:
+    """Normaliza una fecha aceptada por el wrapper historico de ESPN."""
+    if isinstance(value, _dt.datetime):
+        return value.date()
+    if isinstance(value, _dt.date):
+        return value
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            return _dt.datetime.strptime(raw[:10], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def fetch_espn_scoreboard_window(
+    liga: str,
+    *,
+    dias: int = 120,
+    timeout: int = 30,
+    max_req: int = 30,
+    desde: object = None,
+    get_json: Callable[..., dict[str, Any]] | None = None,
+    today: _dt.date | None = None,
+) -> dict[str, Any]:
+    """Descarga la ventana de scoreboards que historicamente armaba Streamlit.
+
+    La funcion hace solo orquestacion de transporte: no interpreta eventos ni
+    persiste estado. ``get_json`` permite que Streamlit conserve su cache
+    (`_espn_get`) y que una futura API use ``fetch_espn_json`` directamente.
+    """
+    lg = str(liga or "").strip()
+    if not lg:
+        raise ValueError("Indicá el código de liga.")
+
+    getter = get_json or fetch_espn_json
+    current = today or _dt.date.today()
+    end_date = current + _dt.timedelta(days=max(0, int(dias)))
+
+    start_date = _scoreboard_date(desde)
+    if start_date is None:
+        start_date = _dt.date(2026, 7, 1) if lg == "arg.1" else current - _dt.timedelta(days=30)
+    if start_date > end_date:
+        start_date = current
+
+    head_url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{lg}/scoreboard"
+    head_payload = getter(head_url, timeout=timeout)
+    payloads = [head_payload]
+
+    chunk_days = 21
+    cursor = start_date
+    requests_used = 0
+    failed_chunks = 0
+    request_limit = max(1, int(max_req))
+    while cursor <= end_date and requests_used < request_limit:
+        chunk_end = min(cursor + _dt.timedelta(days=chunk_days - 1), end_date)
+        url = (
+            f"https://site.api.espn.com/apis/site/v2/sports/soccer/{lg}/scoreboard"
+            f"?dates={cursor:%Y%m%d}-{chunk_end:%Y%m%d}"
+        )
+        try:
+            payloads.append(getter(url, timeout=timeout))
+        except Exception:
+            failed_chunks += 1
+        requests_used += 1
+        cursor = chunk_end + _dt.timedelta(days=1)
+
+    return {
+        "payloads": payloads,
+        "start_date": start_date,
+        "end_date": end_date,
+        "requests": requests_used,
+        "failed_chunks": failed_chunks,
+        "limited": cursor <= end_date,
+    }
+

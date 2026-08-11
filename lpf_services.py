@@ -7,16 +7,25 @@ la matemática en los motores existentes.
 """
 from __future__ import annotations
 
+LPF_RUNTIME_API = 3
+
+
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 
-from lpf_pisos import piso_no_descenso, piso_por_corte
+from lpf_pisos import VENTANA_EXACTA, piso_no_descenso, piso_por_corte
 from lpf_scenarios import point_ladder, scenario_rank_bounds
-from lpf_snapshot import build_competition_snapshot, snapshot_average_totals, snapshot_scope
+from lpf_snapshot import (
+    SNAPSHOT_SCHEMA_VERSION,
+    build_competition_snapshot,
+    snapshot_average_totals,
+    snapshot_scope,
+)
 from lpf_standings import DEFAULT_CRITERIOS, _orden
 from lpf_version import __version__
 
 CONTRACT_VERSION = "1"
+SUPPORTED_QUERY_TYPES = ("objective_points", "point_ladder", "rank_window", "descent_points")
 
 
 class ContractError(ValueError):
@@ -306,6 +315,218 @@ def calculate_objective_floor(payload: Mapping[str, object]) -> dict[str, object
 
 
 
+def service_capabilities() -> dict[str, object]:
+    """Describe el contrato disponible sin depender de Streamlit ni de HTTP."""
+    return _envelope(
+        "capabilities",
+        {
+            "snapshot_schema_version": SNAPSHOT_SCHEMA_VERSION,
+            "batch_query_types": list(SUPPORTED_QUERY_TYPES),
+            "operations": [
+                "standings",
+                "point_ladder",
+                "rank_window",
+                "objective_floor",
+                "competition_snapshot",
+                "validate_snapshot",
+                "competition_batch",
+            ],
+            "exact_window_remaining_matches": VENTANA_EXACTA,
+        },
+    )
+
+
+def _unwrap_snapshot(raw: object) -> Mapping[str, object]:
+    """Acepta una foto cruda o el sobre completo devuelto por el servicio."""
+    if not isinstance(raw, Mapping):
+        raise ContractError("invalid_snapshot", "'snapshot' debe ser un objeto.", field="snapshot")
+    if {"contract_version", "calculation", "result"}.issubset(raw):
+        if str(raw.get("calculation", "")) != "competition_snapshot":
+            raise ContractError(
+                "invalid_snapshot_envelope",
+                "El sobre informado no corresponde a 'competition_snapshot'.",
+                field="snapshot.calculation",
+            )
+        result = raw.get("result")
+        if not isinstance(result, Mapping):
+            raise ContractError(
+                "invalid_snapshot_envelope",
+                "El resultado del snapshot debe ser un objeto.",
+                field="snapshot.result",
+            )
+        return result
+    return raw
+
+
+def _snapshot_int_mapping(raw: object, field: str) -> dict[str, int]:
+    if not isinstance(raw, Mapping):
+        raise ContractError("invalid_snapshot", f"'{field}' debe ser un objeto.", field=field)
+    out: dict[str, int] = {}
+    for team, value in raw.items():
+        try:
+            number = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ContractError(
+                "invalid_snapshot", f"'{field}.{team}' debe ser un entero.", field=f"{field}.{team}"
+            ) from exc
+        if number < 0:
+            raise ContractError(
+                "invalid_snapshot", f"'{field}.{team}' no puede ser negativo.", field=f"{field}.{team}"
+            )
+        out[str(team)] = number
+    return out
+
+
+def _validate_snapshot(snapshot: Mapping[str, object], *, require_canonical: bool) -> dict[str, object]:
+    """Valida forma e invariantes simples; no ejecuta matemática de competencia."""
+    schema = snapshot.get("snapshot_schema_version")
+    if schema is not None and str(schema) != SNAPSHOT_SCHEMA_VERSION:
+        raise ContractError(
+            "unsupported_snapshot_schema",
+            f"Snapshot schema no soportado: '{schema}'. Se espera '{SNAPSHOT_SCHEMA_VERSION}'.",
+            field="snapshot.snapshot_schema_version",
+        )
+
+    teams_raw = snapshot.get("teams")
+    if require_canonical and teams_raw is None:
+        raise ContractError(
+            "invalid_snapshot", "Falta 'teams' en la foto canónica.", field="snapshot.teams"
+        )
+    teams: list[str] = []
+    if teams_raw is not None:
+        if not isinstance(teams_raw, Sequence) or isinstance(teams_raw, (str, bytes)):
+            raise ContractError("invalid_snapshot", "'snapshot.teams' debe ser una lista.", field="snapshot.teams")
+        teams = [str(team).strip() for team in teams_raw]
+        if not teams or any(not team for team in teams) or len(set(teams)) != len(teams):
+            raise ContractError(
+                "invalid_snapshot",
+                "'snapshot.teams' debe contener equipos únicos y no vacíos.",
+                field="snapshot.teams",
+            )
+
+    zones = snapshot.get("zones")
+    if require_canonical and (not isinstance(zones, Mapping) or not zones):
+        raise ContractError("invalid_snapshot", "Falta 'zones' en la foto canónica.", field="snapshot.zones")
+    zone_teams: set[str] = set()
+    if zones is not None:
+        if not isinstance(zones, Mapping):
+            raise ContractError("invalid_snapshot", "'snapshot.zones' debe ser un objeto.", field="snapshot.zones")
+        for label, base in zones.items():
+            if not isinstance(base, Mapping):
+                raise ContractError(
+                    "invalid_snapshot", f"La zona '{label}' debe ser un objeto.", field=f"snapshot.zones.{label}"
+                )
+            for team, row in base.items():
+                if not isinstance(row, Mapping):
+                    raise ContractError(
+                        "invalid_snapshot",
+                        f"La fila de '{team}' en la zona '{label}' debe ser un objeto.",
+                        field=f"snapshot.zones.{label}.{team}",
+                    )
+                if str(team) in zone_teams:
+                    raise ContractError(
+                        "invalid_snapshot",
+                        f"'{team}' aparece en más de una zona.",
+                        field="snapshot.zones",
+                    )
+                zone_teams.add(str(team))
+
+    if teams and zone_teams and set(teams) != zone_teams:
+        missing = sorted(set(teams) - zone_teams)
+        extra = sorted(zone_teams - set(teams))
+        detail = []
+        if missing:
+            detail.append("sin zona: " + ", ".join(missing))
+        if extra:
+            detail.append("fuera de teams: " + ", ".join(extra))
+        raise ContractError(
+            "inconsistent_snapshot",
+            "La nómina de equipos y las zonas no coinciden (" + "; ".join(detail) + ").",
+            field="snapshot.zones",
+        )
+
+    remaining = _snapshot_int_mapping(snapshot.get("remaining"), "snapshot.remaining")
+    if teams and set(remaining) != set(teams):
+        raise ContractError(
+            "inconsistent_snapshot",
+            "'snapshot.remaining' debe contener exactamente los equipos de 'snapshot.teams'.",
+            field="snapshot.remaining",
+        )
+
+    pending_raw = snapshot.get("pending")
+    if not isinstance(pending_raw, Sequence) or isinstance(pending_raw, (str, bytes)):
+        raise ContractError("invalid_snapshot", "'snapshot.pending' debe ser una lista.", field="snapshot.pending")
+    pending_counts = {team: 0 for team in teams}
+    pending_count = 0
+    known = set(teams) if teams else (set(remaining) | zone_teams)
+    for index, row in enumerate(pending_raw):
+        if not isinstance(row, Mapping):
+            raise ContractError(
+                "invalid_snapshot", f"Partido inválido en pending[{index}].", field=f"snapshot.pending[{index}]"
+            )
+        home = str(row.get("home", "") or "").strip()
+        away = str(row.get("away", "") or "").strip()
+        if not home or not away or home == away:
+            raise ContractError(
+                "invalid_snapshot", f"Partido inválido en pending[{index}].", field=f"snapshot.pending[{index}]"
+            )
+        if known and (home not in known or away not in known):
+            raise ContractError(
+                "inconsistent_snapshot",
+                f"pending[{index}] contiene un equipo fuera de la foto.",
+                field=f"snapshot.pending[{index}]",
+            )
+        if teams:
+            pending_counts[home] += 1
+            pending_counts[away] += 1
+        pending_count += 1
+
+    if teams and pending_counts != remaining:
+        different = [team for team in teams if pending_counts.get(team, 0) != remaining.get(team, 0)]
+        sample = ", ".join(different[:5])
+        suffix = "…" if len(different) > 5 else ""
+        raise ContractError(
+            "inconsistent_snapshot",
+            "Los partidos pendientes no coinciden con 'remaining' para: " + sample + suffix + ".",
+            field="snapshot.remaining",
+        )
+
+    rules = snapshot.get("rules")
+    if rules is not None:
+        if not isinstance(rules, Mapping):
+            raise ContractError("invalid_snapshot", "'snapshot.rules' debe ser un objeto.", field="snapshot.rules")
+        for key in ("annual_relegations", "average_relegations"):
+            if key in rules:
+                try:
+                    value = int(rules[key])
+                except (TypeError, ValueError) as exc:
+                    raise ContractError(
+                        "invalid_snapshot", f"'snapshot.rules.{key}' debe ser entero.", field=f"snapshot.rules.{key}"
+                    ) from exc
+                if value < 0:
+                    raise ContractError(
+                        "invalid_snapshot", f"'snapshot.rules.{key}' no puede ser negativo.", field=f"snapshot.rules.{key}"
+                    )
+
+    return {
+        "snapshot_schema_version": str(schema or SNAPSHOT_SCHEMA_VERSION),
+        "canonical": bool(teams and zone_teams),
+        "team_count": len(teams) if teams else len(known),
+        "zone_count": len(zones) if isinstance(zones, Mapping) else 0,
+        "pending_match_count": pending_count,
+        "has_annual": isinstance(snapshot.get("annual"), Mapping) and bool(snapshot.get("annual")),
+        "has_average_history": isinstance(snapshot.get("previous_averages"), Mapping) and bool(snapshot.get("previous_averages")),
+    }
+
+
+def validate_competition_snapshot(payload: Mapping[str, object]) -> dict[str, object]:
+    """Valida una foto canónica antes de enviarla a cálculos batch."""
+    payload = _mapping(payload)
+    snapshot = _unwrap_snapshot(payload.get("snapshot"))
+    summary = _validate_snapshot(snapshot, require_canonical=True)
+    return _envelope("validate_snapshot", summary)
+
+
 def _optional_mapping(payload: Mapping[str, object], field: str) -> Mapping[str, object] | None:
     raw = payload.get(field)
     if raw is None:
@@ -416,10 +637,9 @@ def _objective_result(floor: object) -> dict[str, object]:
 def calculate_competition_batch(payload: Mapping[str, object]) -> dict[str, object]:
     """Ejecuta varias consultas sobre una misma foto canónica sin recalcular la carga."""
     payload = _mapping(payload)
-    snapshot = payload.get("snapshot")
+    snapshot = _unwrap_snapshot(payload.get("snapshot"))
+    _validate_snapshot(snapshot, require_canonical=False)
     queries = payload.get("queries")
-    if not isinstance(snapshot, Mapping):
-        raise ContractError("invalid_snapshot", "'snapshot' debe ser un objeto.", field="snapshot")
     if not isinstance(queries, Sequence) or isinstance(queries, (str, bytes)) or not queries:
         raise ContractError("invalid_queries", "'queries' debe ser una lista no vacía.", field="queries")
 
@@ -494,4 +714,11 @@ def calculate_competition_batch(payload: Mapping[str, object]) -> dict[str, obje
 
         outputs.append({"id": query_id, "type": qtype, "result": result})
 
-    return _envelope("competition_batch", {"queries": outputs})
+    return _envelope(
+        "competition_batch",
+        {
+            "snapshot_schema_version": str(snapshot.get("snapshot_schema_version") or SNAPSHOT_SCHEMA_VERSION),
+            "query_count": len(outputs),
+            "queries": outputs,
+        },
+    )
