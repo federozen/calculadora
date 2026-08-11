@@ -1,3 +1,14 @@
+## 3.8.25 · 2026-08-11
+
+### Escenarios: el puesto específico deja de tratar extremos como si fueran típicos
+
+- Se corrige la lectura de **“Puntos y puesto final”**: la vista principal ya no enumera todos los puntajes matemáticamente compatibles con un puesto como si pesaran igual.
+- Para un puesto elegido (por ejemplo, 8º), la app corre **6.000 simulaciones** y calcula la distribución de puntos **sólo entre las corridas en las que el equipo termina en ese puesto**. Muestra mediana estimada, 50% central, frecuencia por puntaje y la chance estimada de terminar allí.
+- La mediana queda correctamente ponderada por la frecuencia del modelo; no se calcula sobre la lista de puntajes alcanzables. Los extremos poco frecuentes quedan fuera del resumen central.
+- Los extremos matemáticos siguen disponibles en una vista separada y explícitamente rotulada **“sin probabilidad”**. Se agregó `lpf_scenarios.can_finish_exact_rank_by_points`, que exige un escenario con el puesto exacto por puntos y no publica como exacto un caso que dependa de un desempate futuro no modelado.
+- El nuevo solver se validó por fuerza bruta en ligas chicas y la simulación refactorizada conserva exactamente las posiciones del algoritmo histórico con la misma semilla. Suite: **224 pruebas**.
+- El archivo principal importa una función nueva de `lpf_scenarios`; `LPF_RUNTIME_API` sube de 7 a **8** para detectar deploys parciales antes del import.
+
 ## 3.8.24 · 2026-08-11
 
 ### Contexto de copas fuera de Streamlit

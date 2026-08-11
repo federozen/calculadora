@@ -5,7 +5,7 @@ los empates en puntos se tratan de forma favorable o desfavorable según la preg
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 7
+LPF_RUNTIME_API = 8
 
 
 from dataclasses import dataclass
@@ -179,6 +179,119 @@ def exact_rank_bounds_with_points(base, matches, team, final_points, fixed=None)
     best_above = int(round(best.objective or 0))
     worst_above = int(round(-(worst.objective or 0)))
     return best_above + 1, worst_above + 1
+
+
+def can_finish_exact_rank_by_points(
+    base: Mapping[str, object],
+    matches: Iterable[tuple[str, str]],
+    team: str,
+    rank: int,
+    final_points: int,
+    fixed: Mapping[tuple[str, str], str] | None = None,
+) -> SolverResult:
+    """Prueba un puesto exacto sin depender de un desempate futuro.
+
+    A diferencia de :func:`exact_rank_bounds_with_points`, esta consulta no toma
+    un intervalo de puestos y asume que todos los puestos intermedios son
+    publicables. Exige un escenario concreto en el que ``rank - 1`` rivales
+    terminen con más puntos que ``team`` y todos los demás con menos puntos.
+
+    Si algún rival termina igualado en puntos, ese escenario se descarta: la app
+    no proyecta marcadores futuros y por lo tanto no puede afirmar qué puesto
+    exacto resolvería el desempate.
+    """
+    if not SCIPY_MILP:
+        return SolverResult(False, message="scipy.optimize.milp no está disponible")
+    if team not in base:
+        return SolverResult(False, message="equipo desconocido")
+    rank = int(rank)
+    target_final = int(final_points)
+    if rank < 1 or rank > len(base):
+        return SolverResult(False, message="puesto fuera de rango")
+
+    matches = list(_normalize_matches(matches))
+    fixed = dict(fixed or {})
+    rivals = [rival for rival in base if rival != team]
+
+    if not matches:
+        if _points(base[team]) != target_final:
+            return SolverResult(False, message="puntaje final inalcanzable")
+        rival_points = [_points(base[rival]) for rival in rivals]
+        if any(points == target_final for points in rival_points):
+            return SolverResult(False, message="el puesto depende del desempate")
+        actual_rank = 1 + sum(points > target_final for points in rival_points)
+        return SolverResult(actual_rank == rank)
+
+    m, r = len(matches), len(rivals)
+    nvars = 3 * m + r
+    gains = {club: np.zeros(nvars) for club in base}
+    for j, (home, away) in enumerate(matches):
+        for outcome in range(3):
+            gains.setdefault(home, np.zeros(nvars))[3 * j + outcome] += POINTS_HOME[outcome]
+            gains.setdefault(away, np.zeros(nvars))[3 * j + outcome] += POINTS_AWAY[outcome]
+
+    rows: list[tuple[np.ndarray, float, float]] = []
+    for j, match in enumerate(matches):
+        row = np.zeros(nvars)
+        row[3 * j:3 * j + 3] = 1
+        rows.append((row, 1, 1))
+        if match in fixed:
+            wanted = OUTCOMES.index(fixed[match])
+            for outcome in range(3):
+                if outcome != wanted:
+                    fixed_row = np.zeros(nvars)
+                    fixed_row[3 * j + outcome] = 1
+                    rows.append((fixed_row, 0, 0))
+
+    need = target_final - _points(base[team])
+    rows.append((gains.get(team, np.zeros(nvars)), need, need))
+
+    max_base_gap = max(
+        (abs(_points(base[rival]) - target_final) for rival in rivals),
+        default=0,
+    )
+    big_m = max(12, 3 * len(matches) + max_base_gap + 5)
+    y_start = 3 * m
+    for i, rival in enumerate(rivals):
+        y = y_start + i
+        gain = gains.get(rival, np.zeros(nvars))
+        base_gap = _points(base[rival]) - target_final
+
+        # y=0 => rival termina al menos un punto abajo.
+        row_low = gain.copy()
+        row_low[y] -= big_m
+        rows.append((row_low, -np.inf, -1 - base_gap))
+
+        # y=1 => rival termina al menos un punto arriba.
+        row_high = -gain.copy()
+        row_high[y] += big_m
+        rows.append((row_high, -np.inf, big_m - 1 + base_gap))
+
+    count = np.zeros(nvars)
+    count[y_start:] = 1
+    rows.append((count, rank - 1, rank - 1))
+
+    A = lil_matrix((len(rows), nvars), dtype=float)
+    lb = np.empty(len(rows))
+    ub = np.empty(len(rows))
+    for i, (row, low, high) in enumerate(rows):
+        A[i, :] = row
+        lb[i], ub[i] = low, high
+
+    result = milp(
+        c=np.zeros(nvars),
+        integrality=np.ones(nvars),
+        bounds=Bounds(np.zeros(nvars), np.ones(nvars)),
+        constraints=LinearConstraint(A.tocsr(), lb, ub),
+        options={"time_limit": 12.0, "mip_rel_gap": 0.0},
+    )
+    if not result.success or result.x is None:
+        return SolverResult(False, message=str(result.message))
+
+    outcomes: dict[tuple[str, str], str] = {}
+    for j, match in enumerate(matches):
+        outcomes[match] = OUTCOMES[int(np.argmax(result.x[3 * j:3 * j + 3]))]
+    return SolverResult(True, 0.0, outcomes, str(result.message))
 
 
 def reachable_point_totals(current: int, games_left: int) -> list[int]:

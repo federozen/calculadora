@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lpf_scenarios import (  # noqa: E402
     can_fail_with_points,
+    can_finish_exact_rank_by_points,
     can_qualify_with_points,
     exact_rank_bounds_with_points,
     point_ladder,
@@ -126,6 +127,48 @@ def test_rank_bounds_coinciden_con_fuerza_bruta(n_teams, n_matches):
             assert got == (best, worst), (
                 f"rank_bounds team={team} target={target}: motor={got} fuerza_bruta={(best, worst)}"
             )
+
+
+@pytest.mark.parametrize("n_teams,n_matches", [(4, 4), (5, 4), (5, 5)])
+def test_puesto_exacto_por_puntos_coincide_con_fuerza_bruta(n_teams, n_matches):
+    rng = random.Random(3500 + n_teams * 10 + n_matches)
+    for _ in range(4):
+        base, teams, matches = _random_league(rng, n_teams, n_matches)
+        team = rng.choice(teams)
+        finals = list(_all_finals(base, matches))
+        for target in reachable_point_totals(base[team]["pts"], sum(team in m for m in matches)):
+            rank = rng.randint(1, n_teams)
+            brute = any(
+                p[team] == target
+                and all(p[rival] != p[team] for rival in teams if rival != team)
+                and (1 + sum(1 for rival in teams if rival != team and p[rival] > p[team])) == rank
+                for p in finals
+            )
+            got = can_finish_exact_rank_by_points(base, matches, team, rank, target).feasible
+            assert got == brute, (
+                f"puesto exacto team={team} rank={rank} target={target}: "
+                f"motor={got} fuerza_bruta={brute}"
+            )
+
+
+def test_puesto_exacto_por_puntos_no_publica_un_empate_como_puesto_definido():
+    base = {
+        "A": {"pts": 10},
+        "B": {"pts": 10},
+        "C": {"pts": 6},
+    }
+    assert not can_finish_exact_rank_by_points(base, [], "A", 1, 10).feasible
+    assert not can_finish_exact_rank_by_points(base, [], "A", 2, 10).feasible
+
+
+def test_puesto_exacto_por_puntos_sin_partidos_reconoce_orden_claro():
+    base = {
+        "A": {"pts": 12},
+        "B": {"pts": 10},
+        "C": {"pts": 6},
+    }
+    assert can_finish_exact_rank_by_points(base, [], "B", 2, 10).feasible
+    assert not can_finish_exact_rank_by_points(base, [], "B", 1, 10).feasible
 
 
 @pytest.mark.parametrize("n_teams,n_matches", LEAGUES)

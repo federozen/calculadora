@@ -133,7 +133,7 @@ la existencia de `services` no obliga a reescribir la UI.
 
 ## Compatibilidad de despliegue
 
-Los módulos cuyo contrato cruza capas publican `LPF_RUNTIME_API`; desde 3.8.15 también `lpf_http.py`, porque Streamlit importa sus orquestadores de transporte. En 3.8.16 el nivel subió a **2** al agregarse la secuencia requerida de resultados de FutbolArgentino.com, en 3.8.19 subió a **3** por `lpf_state.refresh_lpf_quality_state` y en 3.8.21 subió a **4** al incorporar `lpf_schedule.py` como dependencia activa de la Previa, en 3.8.22 subió a **5** al incorporar `lpf_result_updates.py` para la carga manual de resultados y en 3.8.23 subió a **6** al incorporar `lpf_qualification.py` para Anual/cupos y en 3.8.24 sube a **7** porque Streamlit importa también sus helpers de contexto de copas. `lpf_runtime.py`
+Los módulos cuyo contrato cruza capas publican `LPF_RUNTIME_API`; desde 3.8.15 también `lpf_http.py`, porque Streamlit importa sus orquestadores de transporte. En 3.8.16 el nivel subió a **2** al agregarse la secuencia requerida de resultados de FutbolArgentino.com, en 3.8.19 subió a **3** por `lpf_state.refresh_lpf_quality_state` y en 3.8.21 subió a **4** al incorporar `lpf_schedule.py` como dependencia activa de la Previa, en 3.8.22 subió a **5** al incorporar `lpf_result_updates.py` para la carga manual de resultados y en 3.8.23 subió a **6** al incorporar `lpf_qualification.py` para Anual/cupos, en 3.8.24 subió a **7** porque Streamlit importa también sus helpers de contexto de copas y en 3.8.25 sube a **8** porque la UI requiere `lpf_scenarios.can_finish_exact_rank_by_points`. `lpf_runtime.py`
 lee esos marcadores directamente desde los archivos, antes de que Streamlit importe
 el motor. Si un deploy manual mezcla módulos viejos y nuevos, la app se detiene con
 un diagnóstico de archivos desincronizados. El nivel de runtime no reemplaza
@@ -156,3 +156,9 @@ de `contract_version` y de `calculation_version`. `lpf_services` valida las inva
 estructurales antes de ejecutar consultas batch y publica `service_capabilities()` para
 que una futura capa HTTP u Opta pueda negociar el formato soportado sin acoplarse a
 Streamlit. El batch sigue siendo stateless y no persiste snapshots en servidor.
+
+
+### Lectura de puntos condicionada al puesto (3.8.25)
+
+En **Escenarios → Puntos y puesto final**, la pregunta práctica “con cuántos puntos suele terminar N.º” se responde con la misma simulación de zona, pero conservando también los puntos finales de cada corrida. La estadística se condiciona a `puesto == objetivo`: mediana y cuantiles se calculan sólo sobre esas corridas. Los extremos de factibilidad matemática se consultan aparte mediante `can_finish_exact_rank_by_points`, que no modela marcadores futuros y por eso exige ausencia de empate en puntos para afirmar un puesto exacto.
+

@@ -11,7 +11,7 @@ from lpf_version import __version__
 import streamlit as st
 from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
-_REQUIRED_RUNTIME_API = 7
+_REQUIRED_RUNTIME_API = 8
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -39,7 +39,7 @@ from lpf_models import DataQualityReport
 from lpf_competition_narratives import (
     libertadores_story, relegation_story, round_preview_story, sudamericana_story, zone_story,
 )
-from lpf_scenarios import can_fail_with_points, exact_result_scenarios, point_ladder, scenario_rank_bounds, best_worst_window_scenarios, exact_rank_bounds_with_points, reachable_point_totals
+from lpf_scenarios import can_fail_with_points, can_finish_exact_rank_by_points, exact_result_scenarios, point_ladder, scenario_rank_bounds, best_worst_window_scenarios, reachable_point_totals
 from lpf_pisos import (
     VENTANA_EXACTA, piso_no_descenso, piso_por_corte, pisos_de_equipo,
     promedio_totales, tabla_pisos_objetivo,
@@ -6629,11 +6629,13 @@ def lpf_previa_fecha_narrativa(
         include_relegation=bool(include_relegation),
     )
 
-def _sim_zone_pos(base, rest, pend, target, n, seed, forced=None,
-                  pdraw=_LPF_PDRAW, loc=_LPF_LOCALIA, jugados=None):
-    """Array (n,) con la posición final de `target` dentro de su zona, simulando
-    los pendientes. `forced` fija resultados {(l,v): 'L'|'E'|'V'} (se aplican de
-    forma determinística; sirve para las ramas del árbol, incluidos interzonales)."""
+def _sim_zone_rank_points(base, rest, pend, target, n, seed, forced=None,
+                          pdraw=_LPF_PDRAW, loc=_LPF_LOCALIA, jugados=None):
+    """Devuelve posición y puntos finales simulados del equipo objetivo.
+
+    La pareja de arrays permite condicionar una lectura por puesto sin tratar todos
+    los puntajes matemáticamente alcanzables como si fueran igual de probables.
+    """
     rng = np.random.default_rng(seed)
     eqs = list(base.keys()); idx = {e: i for i, e in enumerate(eqs)}
     s = _fuerza_lpf(base, jugados)
@@ -6669,7 +6671,17 @@ def _sim_zone_pos(base, rest, pend, target, n, seed, forced=None,
             pts[:, idx[e]] += np.where(u < pa, 3, np.where(u < pa + pdraw, 1, 0)).sum(axis=1)
     key = pts + dg0[None, :] * 1e-4 + rng.random((n, len(eqs))) * 1e-7
     pos = np.argsort(np.argsort(-key, axis=1), axis=1) + 1
-    return pos[:, idx[target]]
+    return pos[:, idx[target]], pts[:, idx[target]].astype(int)
+
+
+def _sim_zone_pos(base, rest, pend, target, n, seed, forced=None,
+                  pdraw=_LPF_PDRAW, loc=_LPF_LOCALIA, jugados=None):
+    """Array (n,) con la posición final de ``target`` dentro de su zona."""
+    positions, _points_final = _sim_zone_rank_points(
+        base, rest, pend, target, n, seed, forced=forced,
+        pdraw=pdraw, loc=loc, jugados=jugados,
+    )
+    return positions
 
 def lpf_arbol_sim(equipo, Z, rest, pend, top=_LPF_TOP_OCTAVOS, seed=17, jugados=None):
     """Árbol por simulación: cómo cambian las chances de entrar a octavos (top 8
@@ -9364,36 +9376,83 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
         )
         _render_point_ladder(team, base, rest, full_games, 8, f"{team} · puntos para clasificar")
         st.divider()
-        ui_markdown("### ¿Con cuántos puntos puede terminar en un puesto específico?")
+        ui_markdown("### ¿Con cuántos puntos suele terminar en un puesto específico?")
         ui_caption(
-            "Elegí un puesto. La app muestra qué totales finales permiten terminar allí en al menos un escenario. "
-            "Un mismo total de puntos puede llevar a posiciones distintas según los resultados de los demás y los desempates."
+            "Elegí un puesto. La app simula el resto del torneo y mira sólo las corridas en las que el equipo termina allí. "
+            "Así cada puntaje pesa según la frecuencia con la que aparece, en vez de tratar todos los extremos matemáticos como igual de probables."
         )
         target_rank = st.number_input("¿Qué puesto querés analizar?", min_value=1, max_value=len(base), value=8,
                                       step=1, key=f"scenario_target_rank_{team}")
-        if st.button(f"Ver con qué puntos puede terminar {int(target_rank)}º", use_container_width=True,
+        if st.button(f"Estimar puntos si termina {int(target_rank)}º", use_container_width=True,
                      key=f"scenario_find_rank_{team}"):
-            current = int(base[team].get("pts", 0))
-            games_left = int(rest.get(team, 0))
-            possible_rows = []
-            with st.spinner("Resolviendo los puntos finales posibles…"):
-                for final_points in reachable_point_totals(current, games_left):
-                    bounds = exact_rank_bounds_with_points(base, full_games, team, final_points)
-                    if bounds and bounds[0] <= int(target_rank) <= bounds[1]:
-                        possible_rows.append({
-                            "Puntos finales": final_points,
-                            "Mejor puesto con esos puntos": bounds[0],
-                            "Peor puesto con esos puntos": bounds[1],
-                        })
-            if possible_rows:
-                ui_dataframe(pd.DataFrame(possible_rows), use_container_width=True, hide_index=True)
-                ui_success(
-                    f"Con alguno de estos totales, {team} puede terminar {int(target_rank)}º en al menos un escenario compatible. "
-                    "El rango muestra hasta dónde puede subir o caer con los mismos puntos según los demás resultados y los desempates."
+            simulations = 6000
+            with st.spinner("Simulando el resto del torneo…"):
+                simulated_rank, simulated_points = _sim_zone_rank_points(
+                    base, rest, pending, team, simulations, 3825 + int(target_rank),
+                    jugados=E.get("jugados") or [],
+                )
+            mask = simulated_rank == int(target_rank)
+            rank_points = simulated_points[mask]
+            if len(rank_points):
+                median = float(np.median(rank_points))
+                q25, q75 = np.quantile(rank_points, [0.25, 0.75])
+                rank_probability = 100.0 * float(mask.mean())
+                counts = pd.Series(rank_points).value_counts().sort_index()
+                distribution = pd.DataFrame({
+                    "Puntos finales": counts.index.astype(int),
+                    f"Frecuencia entre los casos {int(target_rank)}º (%)": (100 * counts.values / len(rank_points)).round(1),
+                    "Simulaciones": counts.values.astype(int),
+                })
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Mediana estimada", _fmt_num_es(median))
+                c2.metric("50% central", f"{_fmt_num_es(q25)}–{_fmt_num_es(q75)}")
+                c3.metric(f"Chance estimada de terminar {int(target_rank)}º", f"{rank_probability:.1f}%")
+                ui_dataframe(distribution, use_container_width=True, hide_index=True)
+                ui_caption(
+                    f"ESTIMACIÓN · {simulations:,} simulaciones. La mediana se calcula sólo entre las corridas donde {team} termina "
+                    f"{int(target_rank)}º; no es la mediana de los puntajes matemáticamente posibles. El rango 50% central deja "
+                    "afuera los extremos menos frecuentes.".replace(",", ".")
                 )
             else:
                 ui_warning(
-                    f"Con el fixture pendiente actual, no hay ningún total de puntos alcanzable que permita a {team} terminar {int(target_rank)}º."
+                    f"En {simulations:,} simulaciones {team} no terminó {int(target_rank)}º. Eso no demuestra que sea imposible; "
+                    "indica que el modelo no encontró ese puesto con frecuencia suficiente en esta muestra.".replace(",", ".")
+                )
+
+        show_math = st.checkbox(
+            "Mostrar también los extremos matemáticos (sin probabilidad)",
+            value=False,
+            key=f"scenario_target_rank_math_{team}_{int(target_rank)}",
+            help="Esta vista responde qué es posible en algún escenario extremo. No debe leerse como un puntaje típico.",
+        )
+        if show_math:
+            current = int(base[team].get("pts", 0))
+            games_left = int(rest.get(team, 0))
+            exact_totals = []
+            first_solver_message = ""
+            with st.spinner("Buscando extremos matemáticos…"):
+                for final_points in reachable_point_totals(current, games_left):
+                    proof = can_finish_exact_rank_by_points(
+                        base, full_games, team, int(target_rank), final_points
+                    )
+                    first_solver_message = first_solver_message or str(proof.message or "")
+                    if proof.feasible:
+                        exact_totals.append(final_points)
+            if exact_totals:
+                ui_info(
+                    f"Extremo matemático: {team} puede quedar exactamente {int(target_rank)}º por puntos desde "
+                    f"**{min(exact_totals)}** hasta **{max(exact_totals)}** puntos en al menos un escenario. "
+                    "Esto no mide probabilidad y puede incluir combinaciones muy poco frecuentes."
+                )
+                ui_dataframe(
+                    pd.DataFrame({"Puntos matemáticamente posibles": exact_totals}),
+                    use_container_width=True, hide_index=True,
+                )
+            elif "no está disponible" in first_solver_message.lower():
+                ui_warning("El optimizador exacto no está disponible en este entorno.")
+            else:
+                ui_warning(
+                    f"No encontré un escenario que deje a {team} exactamente {int(target_rank)}º por puntos sin depender de un desempate."
                 )
 
     if scenario_tool == "Mejor y peor caso":

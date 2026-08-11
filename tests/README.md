@@ -5,11 +5,12 @@ enumeran todos los desenlaces posibles y se comparan, resultado por resultado,
 contra lo que dicen los solucionadores. Es la evidencia de que "los números
 siempre salen de Python y están validados".
 
-La suite actual contiene **217 pruebas**.
+La suite actual contiene **224 pruebas**.
 
 | Archivo | Qué cubre |
 | --- | --- |
-| `test_lpf_scenarios.py` | Motor MILP: `can_qualify` / `can_fail`, rangos de puesto exactos, escalera de puntos (`point_ladder`) y escenarios gana/empata/pierde. |
+| `test_lpf_scenarios.py` | Motor MILP: `can_qualify` / `can_fail`, rangos de puesto, puesto exacto por puntos sin desempate, escalera de puntos (`point_ladder`) y escenarios gana/empata/pierde. |
+| `test_rank_points_simulation.py` | Escenarios por puesto: la simulación refactorizada conserva exactamente las posiciones históricas y devuelve los puntos de las mismas corridas para calcular distribuciones condicionadas. |
 | `test_lpf_exact.py` | Garantías conservadoras: la línea de garantía y el piso por promedios **nunca declaran una garantía falsa** y nunca piden menos que la garantía exacta real. |
 | `test_lpf_text.py` | Utilidades de texto: normalización sin acentos y detección de equipos. |
 | `test_lpf_intents.py` | Ruteo de intención del chat: consultas → `{"intent": ...}`. |

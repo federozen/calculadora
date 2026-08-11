@@ -63,13 +63,18 @@ def test_escenarios_usa_nombre_claro_para_puntos_y_puesto_final():
     assert MAIN.count('"Puntaje y puesto"') == 1  # sólo migración de sesión vieja
     assert 'st.session_state.get("scenario_tool_nav") == "Puntaje y puesto"' in MAIN
     assert "¿Con cuántos puntos puede clasificar?" in MAIN
-    assert "¿Con cuántos puntos puede terminar en un puesto específico?" in MAIN
+    assert "¿Con cuántos puntos suele terminar en un puesto específico?" in MAIN
     assert "¿Qué puesto querés analizar?" in MAIN
 
 
-def test_busqueda_de_puesto_explica_que_mismos_puntos_pueden_dar_posiciones_distintas():
-    assert "Un mismo total de puntos puede llevar a posiciones distintas" in MAIN
-    assert '"Puntos finales": final_points' in MAIN
-    assert '"Mejor puesto con esos puntos": bounds[0]' in MAIN
-    assert '"Peor puesto con esos puntos": bounds[1]' in MAIN
+def test_busqueda_de_puesto_separa_estimacion_de_extremos_matematicos():
+    assert "_sim_zone_rank_points" in MAIN
+    assert "Mediana estimada" in MAIN
+    assert "50% central" in MAIN
+    assert "no es la mediana de los puntajes matemáticamente posibles" in MAIN
+    assert "Mostrar también los extremos matemáticos (sin probabilidad)" in MAIN
+    assert "can_finish_exact_rank_by_points" in MAIN
+    assert "Esto no mide probabilidad" in MAIN
+    assert "Mejor puesto con esos puntos" not in MAIN
+    assert "Peor puesto con esos puntos" not in MAIN
     assert '"¿Puede ser ese puesto?": "Sí"' not in MAIN

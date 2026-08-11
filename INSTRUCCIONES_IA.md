@@ -82,10 +82,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.24` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.25` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
 - Archivo principal: **~10.125 líneas** (arrancó en ~12.780).
-- **217 pruebas**, todas verdes en 3.8.24. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- **224 pruebas**, todas verdes en 3.8.25. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -369,7 +369,7 @@ datos por parámetro y devuelve Apertura seleccionado, Anual autoritativa y repo
 wrapper sólo persiste esos valores. Se comparó contra 3.8.18 en siete escenarios con
 equivalencia exacta de reporte y efectos de sesión.
 
-El nivel interno fue **2** desde 3.8.16, subió a **3** en 3.8.19 por la nueva función de `lpf_state`, a **4** en 3.8.21 por `lpf_schedule.py`, a **5** en 3.8.22 porque la Mesa de redacción requiere `lpf_result_updates.py` y a **6** en 3.8.23 porque la app importa `lpf_qualification.py` para Anual/cupos y a **7** en 3.8.24 porque también importa sus helpers de contexto de copas. El archivo principal también comprueba explícitamente que `lpf_runtime.py` tenga el nivel requerido antes de importar módulos sensibles. Los paquetes de actualización deben reemplazar los módulos críticos juntos; no bajes ese nivel sólo para reducir el ZIP.
+El nivel interno fue **2** desde 3.8.16, subió a **3** en 3.8.19 por la nueva función de `lpf_state`, a **4** en 3.8.21 por `lpf_schedule.py`, a **5** en 3.8.22 porque la Mesa de redacción requiere `lpf_result_updates.py` y a **6** en 3.8.23 porque la app importa `lpf_qualification.py` para Anual/cupos, a **7** en 3.8.24 porque también importa sus helpers de contexto de copas y a **8** en 3.8.25 porque la UI importa `lpf_scenarios.can_finish_exact_rank_by_points`. El archivo principal también comprueba explícitamente que `lpf_runtime.py` tenga el nivel requerido antes de importar módulos sensibles. Los paquetes de actualización deben reemplazar los módulos críticos juntos; no bajes ese nivel sólo para reducir el ZIP.
 
 Football-data y Apify siguen definidos por compatibilidad histórica, pero sus ramas
 de UI están actualmente deshabilitadas con `and False`. No los extraigas ni reactives
@@ -395,6 +395,14 @@ La extracción se comparó contra 3.8.22 en 300 casos de Anual y 600 combinacion
 `lpf_qualification.py` también normaliza los clasificados fijos a Libertadores, los equipos vivos de Copa Argentina y la etiqueta de actualización/fuente. Los wrappers `_lpf_fixed_lib_qualifiers`, `_lpf_copa_arg_alive_for_annual` y `_lpf_copa_snapshot` sólo aportan los fallbacks de sesión.
 
 La extracción se comparó contra 3.8.23 en 600 estados de sesión y 1.800 llamadas de wrapper, con equivalencia exacta. No avanzar todavía sobre el tejido grande de narrativas salvo que haya un corte chico, activo y con dependencias inyectables.
+
+### 8d sexies. Puesto específico: posibilidad vs. probabilidad — corregido en 3.8.25
+
+La pantalla **Escenarios → Puntos y puesto final** ya no debe responder la pregunta práctica con la lista cruda de puntajes matemáticamente posibles. Para el puesto elegido, la vista principal usa 6.000 simulaciones y calcula mediana, 50% central y frecuencia por puntaje **condicionando a las corridas donde el equipo termina exactamente en ese puesto**. Esa mediana sí tiene interpretación probabilística dentro del modelo.
+
+Los extremos matemáticos quedan en una vista separada y rotulada “sin probabilidad”. `lpf_scenarios.can_finish_exact_rank_by_points` exige un escenario en el que haya exactamente `puesto - 1` rivales con más puntos y ninguno empatado con el equipo; como el motor exacto no proyecta marcadores futuros, no publiques un puesto exacto que dependa de un desempate. La prueba por fuerza bruta cubre esta regla.
+
+No vuelvas a calcular una “mediana” sobre la lista de puntajes alcanzables: esos valores no son equiprobables. Si se cambia el modelo probabilístico, rotulalo siempre como estimación y conservá la vista exacta separada.
 
 ### 8e. Ambigüedad de promedios (deuda vieja, documentada)
 Hay una ambigüedad histórica en cómo se arma el diccionario de promedios (`prom`):
