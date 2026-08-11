@@ -1,3 +1,3 @@
-"""Versión del motor de cálculo compartida por Streamlit y futuras interfaces."""
+"""Versión única del motor LPF."""
 
-__version__ = "3.8.11"
+__version__ = "3.8.20"

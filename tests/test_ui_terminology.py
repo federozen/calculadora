@@ -22,6 +22,9 @@ def test_interfaz_usa_tres_conceptos_editoriales_distintos():
     assert "piso seguro" not in MAIN.lower()
     assert "piso ajustado" not in MAIN.lower()
     assert "Garantía matemática" not in SCENARIOS
+    assert "Garantía exacta" not in SCENARIOS
+    assert "Mínimo que asegura" in SCENARIOS
+    assert "mínimo que garantiza" not in MAIN.lower()
 
 
 def test_cota_no_aparece_en_interfaz_ni_narrativas_principales():
@@ -53,3 +56,20 @@ def test_total_seguro_explica_que_puede_no_ser_el_minimo():
     assert "Todavía no sabemos si" in MAIN
     assert "es el menor total que asegura" in MAIN
     assert "Puede que alcance con menos" in MAIN or "Puede alcanzar con menos" in MAIN
+
+
+def test_escenarios_usa_nombre_claro_para_puntos_y_puesto_final():
+    assert '"Puntos y puesto final"' in MAIN
+    assert MAIN.count('"Puntaje y puesto"') == 1  # sólo migración de sesión vieja
+    assert 'st.session_state.get("scenario_tool_nav") == "Puntaje y puesto"' in MAIN
+    assert "¿Con cuántos puntos puede clasificar?" in MAIN
+    assert "¿Con cuántos puntos puede terminar en un puesto específico?" in MAIN
+    assert "¿Qué puesto querés analizar?" in MAIN
+
+
+def test_busqueda_de_puesto_explica_que_mismos_puntos_pueden_dar_posiciones_distintas():
+    assert "Un mismo total de puntos puede llevar a posiciones distintas" in MAIN
+    assert '"Puntos finales": final_points' in MAIN
+    assert '"Mejor puesto con esos puntos": bounds[0]' in MAIN
+    assert '"Peor puesto con esos puntos": bounds[1]' in MAIN
+    assert '"¿Puede ser ese puesto?": "Sí"' not in MAIN

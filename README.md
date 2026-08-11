@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.11
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.20
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -9,6 +9,76 @@ La versión 3 prioriza tres objetivos:
 1. **Base coherente:** Zonas, Tabla Anual, promedios, fixture y resultados se reconcilian antes de habilitar una cuenta.
 2. **Explicación honesta:** distingue hechos exactos, mínimo posible, total seguro, mínimo que asegura y estimaciones.
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
+
+
+
+## Novedad 3.8.20 · Escenarios más claros
+
+- **“Puntaje y puesto”** pasa a llamarse **“Puntos y puesto final”**.
+- La pantalla separa la escalera de puntos para clasificar de la búsqueda de un puesto específico.
+- La búsqueda por puesto explica que el mismo total puede producir posiciones distintas según otros resultados y desempates.
+- La tabla usa columnas directas: puntos finales, mejor puesto y peor puesto con esos puntos. Suite: **194 pruebas**.
+
+## Novedad 3.8.19 · Revalidación de sesiones fuera de Streamlit
+
+- `_lpf_refresh_quality` ya no decide cómo migrar una sesión vieja ni reconstruye la Tabla Anual dentro de la UI.
+- `lpf_state.refresh_lpf_quality_state` recibe zonas, candidatos de Apertura, Anual, promedios, fixture, resultados y alertas de fuente; devuelve Apertura seleccionado, Anual autoritativa y auditoría sin leer `session_state`.
+- Streamlit sólo persiste los valores devueltos. La implementación se comparó contra 3.8.18 en **7 escenarios dirigidos** y conservó exactamente reporte y efectos de sesión.
+- Como el archivo principal requiere esta nueva frontera de `lpf_state`, `LPF_RUNTIME_API` sube a **3** en todos los módulos críticos. Suite: **192 pruebas**.
+
+## Novedad 3.8.18 · Respaldo válido fuera de Streamlit
+
+- El último respaldo de zonas + Tabla Anual se construye, serializa, escribe y recupera en `lpf_table_backup.py`; ese módulo no importa Streamlit ni proveedores.
+- Streamlit conserva sólo una copia opcional en sesión y delega el filesystem. Se mantiene la prioridad **sesión → disco**, el vencimiento de una semana y la lectura de formatos legacy.
+- La recuperación se comparó contra 3.8.17 en cinco escenarios y conserva exactamente las mismas salidas/diagnósticos.
+- `lpf_table_backup.py` entra en el chequeo de compatibilidad de despliegue. Suite: **189 pruebas**.
+
+## Novedad 3.8.17 · Política de fuentes fuera de Streamlit
+
+- `lpf_tables_with_fallback` ya no decide dentro del archivo principal qué combinación usar entre ESPN, FutbolArgentino.com, último respaldo y Tabla Anual local.
+- La prioridad vive en `lpf_table_selection.select_lpf_tables`, módulo puro sin Streamlit, red, disco ni estado de sesión.
+- Streamlit queda como orquestador: obtiene candidatos, carga el respaldo/locales, delega la decisión y sólo persiste una foto cuando corresponde.
+- La nueva política se comparó contra 3.8.16 en **9 escenarios dirigidos** y devolvió exactamente las mismas tablas, fuentes, advertencias, errores y decisiones de guardado.
+- `lpf_table_selection.py` entra en el chequeo de compatibilidad de despliegue. Suite: **180 pruebas**.
+
+
+## Novedad 3.8.16 · Fixture FutbolArgentino.com sin orquestación de red en Streamlit
+
+- Las dos consultas de resultados de FutbolArgentino.com, sus cache-busters y los fallos parciales se coordinan ahora en `lpf_http.fetch_futbolargentino_results_pages`.
+- `futbolargentino_fixture` conserva la caché de Streamlit, pero ya no arma URLs ni controla el ciclo de requests; sólo interpreta y valida las respuestas obtenidas.
+- La ruta se comparó contra 3.8.15 en cuatro escenarios dirigidos y conserva salida, errores y URLs consultadas. Suite: **172 pruebas**.
+- El contrato interno de deploy sube a `LPF_RUNTIME_API = 2`; al actualizar esta versión hay que reemplazar **todos los archivos incluidos en el ZIP de actualización** para que el chequeo previo pueda detectar mezclas.
+- Football-data y Apify siguen deshabilitados y no se reactivaron.
+
+## Novedad 3.8.15 · Scoreboards ESPN sin orquestación de red en Streamlit
+
+- La ventana de resultados/fixture ESPN (fecha inicial, bloques de 21 días, límite de consultas y fallos parciales) vive ahora en `lpf_http.fetch_espn_scoreboard_window`.
+- `espn_fixture` conserva la caché de Streamlit inyectando `_espn_get`, pero ya no construye requests ni fechas por su cuenta; el parser sigue en `lpf_provider_adapters`.
+- La ruta fue comparada contra 3.8.14 con transporte simulado y conserva exactamente salida y metadatos. `lpf_http.py` también entra en el chequeo previo de archivos desincronizados. Suite: **170 pruebas**.
+- Football-data y Apify se confirmaron deshabilitados en la UI actual; no se movieron ni se reactivaron.
+
+## Novedad 3.8.14 · URLs avanzadas sin parsing dentro de Streamlit
+
+- `tabla_desde_url` y `partidos_desde_url` quedaron como wrappers finos: descargan el HTML y delegan la interpretación.
+- `competition_html_adapters.py` parsea tablas de posiciones y matrices equipo × equipo sin red ni Streamlit.
+- `lpf_http.fetch_url_text` concentra el transporte histórico de esas URLs sin cambiar su semántica.
+- Hay fixtures locales para tabla, una rueda e ida/vuelta, comparados contra el código 3.8.13.
+- El runtime también verifica que el nuevo adaptador esté presente en deploys manuales. Suite: **166 pruebas**.
+
+## Novedad 3.8.13 · Snapshot versionado y validado
+
+- La foto canónica de competencia declara `snapshot_schema_version = "1"`, independiente de la versión del motor y del contrato de servicios.
+- Antes de ejecutar un batch se validan estructura e invariantes simples: equipos/zonas, pendientes, `remaining` y reglas. Si una foto está desincronizada, falla antes de llegar al optimizador.
+- El batch acepta directamente el sobre completo de `prepare_competition_snapshot`, además del `result` crudo.
+- `service_capabilities()` publica las operaciones y tipos de consulta soportados, la versión del snapshot y la ventana exacta de 8 partidos.
+- No se agregó servidor HTTP ni SDK de Opta. Suite: **160 pruebas**.
+
+## Corrección 3.8.12 · Deploy sincronizado
+
+- Streamlit comprueba al arrancar que los módulos críticos pertenecen al mismo nivel de compatibilidad antes de importarlos.
+- Si detecta un archivo viejo o faltante, se detiene con un mensaje claro que enumera qué módulos hay que actualizar, en vez de terminar más adelante con un `NameError` o `AttributeError`.
+- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.20`) para verificar rápidamente qué commit tomó Streamlit Cloud.
+- Este cambio no toca ninguna fórmula ni resultado. Suite: **154 pruebas**.
 
 ## Novedad 3.8.11 · Total seguro vs. mínimo que asegura
 

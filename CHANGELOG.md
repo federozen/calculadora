@@ -1,3 +1,105 @@
+## 3.8.20 · 2026-08-11
+
+### Escenarios: Puntos y puesto final más claro
+
+- La herramienta visible **“Puntaje y puesto”** pasa a llamarse **“Puntos y puesto final”**, usando el vocabulario habitual del fútbol argentino.
+- La pantalla separa explícitamente dos preguntas: **“¿Con cuántos puntos puede clasificar?”** y **“¿Con cuántos puntos puede terminar en un puesto específico?”**.
+- El selector **“Puesto puntual a buscar”** se reemplaza por **“¿Qué puesto querés analizar?”** y el botón nombra directamente el puesto elegido.
+- La tabla deja de repetir una columna de “Sí” y muestra sólo **Puntos finales**, **Mejor puesto con esos puntos** y **Peor puesto con esos puntos**.
+- Se aclara que un mismo total de puntos puede llevar a posiciones distintas por los resultados de los demás equipos y los desempates.
+- Se migra automáticamente una sesión que todavía conserve la selección interna `Puntaje y puesto`.
+- No cambia ninguna fórmula ni resultado matemático. La suite sube de 192 a **194 pruebas**.
+
+## 3.8.19 · 2026-08-11
+
+### Revalidación/migración de sesiones fuera de Streamlit
+
+- Se agregó `lpf_state.refresh_lpf_quality_state`, función pura que elige el primer Apertura válido entre candidatos explícitos, reconstruye la Anual viva cuando corresponde y vuelve a emitir el `DataQualityReport` con alertas de procedencia.
+- `_lpf_refresh_quality` queda como adaptador: lee los candidatos de sesión/estado, delega toda la lógica y sólo persiste `LPF_APERTURA`, `LPF_ANUAL` y `LPF_DATA_QUALITY`.
+- La función nueva no intenta derivar un Apertura nuevo para migrar una sesión; conserva la semántica histórica exacta de 3.8.18.
+- Se comparó contra `_lpf_refresh_quality` de 3.8.18 en **7 escenarios dirigidos**, incluidos fallback a sesión/incorporado, ausencia de Apertura válido, Anual importada y alertas warning/bloqueo. Coincidieron reporte y efectos laterales.
+- `LPF_RUNTIME_API` sube de 2 a **3** porque el archivo principal requiere la nueva función de `lpf_state`; los módulos críticos deben actualizarse juntos.
+- No cambia ninguna fórmula, fuente ni resultado. La suite sube de 189 a **192 pruebas**.
+
+## 3.8.18 · 2026-08-11
+
+### Último respaldo válido fuera de Streamlit
+
+- Se agregó `lpf_table_backup.py`, responsable de construir, escribir y recuperar el respaldo JSON de zonas + Tabla Anual sin importar Streamlit ni conocer proveedores.
+- `_save_lpf_snapshot` queda como adaptador de sesión: construye el payload con el módulo nuevo, conserva una copia en `st.session_state` y delega la escritura atómica a disco. `_load_lpf_snapshot` sólo aporta el candidato de sesión y delega la recuperación.
+- Se conserva exactamente la prioridad histórica **sesión → disco**, el límite de antigüedad de una semana, la compatibilidad con respaldos legacy (`A/B`, `Zona A/B`, `tabla_anual`) y los mismos diagnósticos editoriales.
+- La función de recuperación se comparó directamente contra la implementación 3.8.17 en 5 escenarios: sesión válida, sesión vencida con disco válido, formato legacy, respaldo inválido y ausencia total. Las salidas fueron equivalentes.
+- `lpf_table_backup.py` entra en `lpf_runtime.CRITICAL_COMPONENTS`, por lo que una actualización parcial que omita el módulo se detecta antes de cargar el motor.
+- No cambia selección de fuentes, datos ni matemática. La suite sube de 180 a **189 pruebas**.
+
+## 3.8.17 · 2026-08-10
+
+### Política de prioridad/fallback de tablas fuera de Streamlit
+
+- Se agregó `lpf_table_selection.py`, módulo puro que decide la combinación de zonas y Tabla Anual entre ESPN, FutbolArgentino.com, último respaldo y candidatos locales.
+- `lpf_tables_with_fallback` queda reducido a obtener candidatos, delegar la selección y persistir el respaldo si la política lo habilita. No valida ni decide prioridades dentro de la UI.
+- La prioridad se conserva: zonas ESPN → FutbolArgentino.com → última foto; con zonas frescas, Anual FutbolArgentino.com → Anual de la última foto → sesión/incluida.
+- El selector no importa Streamlit, `requests`, no lee disco y no escribe sesión; una futura fuente Opta puede entregar candidatos a la misma política.
+- Se comparó la salida exacta con 3.8.16 en 9 escenarios dirigidos, incluidos fallos parciales, tablas inválidas y error de persistencia.
+- `lpf_table_selection.py` entra en `lpf_runtime.CRITICAL_COMPONENTS` para detectar actualizaciones parciales antes del import.
+- No cambia ninguna fórmula ni dato. La suite sube de 172 a **180 pruebas**.
+
+## 3.8.16 · 2026-08-10
+
+### Fixture FutbolArgentino.com sin orquestación HTTP en Streamlit
+
+- `futbolargentino_fixture` deja de construir dentro del archivo principal las dos URLs de resultados, el cache-buster y la tolerancia a fallos parciales.
+- Esa orquestación de transporte vive ahora en `lpf_http.fetch_futbolargentino_results_pages`, que recibe `get_html` por parámetro para conservar la caché de Streamlit o reutilizar `fetch_html` desde otra interfaz.
+- El parsing, canonicalización y validación de partidos siguen fuera del transporte y no cambia ninguna prioridad de fuentes ni cálculo LPF.
+- La implementación nueva se comparó contra 3.8.15 en cuatro escenarios dirigidos: éxito total, error de parsing + fallo de red, primer origen caído y una página vacía. Salidas, errores y URLs consultadas fueron equivalentes.
+- Como el archivo principal ahora importa una función nueva de `lpf_http`, el nivel `LPF_RUNTIME_API` sube a **2** en todos los módulos críticos; así una actualización parcial se detecta antes de cargar el motor.
+- La suite sube de 170 a **172 pruebas**.
+
+## 3.8.15 · 2026-08-10
+
+### Ventana de scoreboards ESPN fuera de Streamlit
+
+- `espn_fixture` deja de construir dentro del archivo principal la ventana temporal y los bloques de scoreboards. Esa orquestación de transporte vive ahora en `lpf_http.fetch_espn_scoreboard_window`.
+- La función nueva no parsea eventos ni toca Streamlit. Acepta un `get_json` inyectable: la UI conserva `_espn_get` y su caché, mientras una futura API puede usar `fetch_espn_json` directamente.
+- Se preservan el inicio especial de LPF (`2026-07-01`), bloques de 21 días, límite `max_req`, tolerancia a bloques fallidos y metadatos de cobertura.
+- La nueva ruta se comparó de forma exacta contra `espn_fixture` de 3.8.14 en cuatro escenarios: normal, consulta limitada, bloque fallido y fallo inicial. Coincidieron salida, secuencia de requests simulados y efectos de sesión.
+- `lpf_http.py` entra en el chequeo de compatibilidad de deploy, porque la 3.8.15 agrega una función que el archivo principal importa; una actualización parcial con un `lpf_http.py` viejo se detecta antes del import.
+- Se confirmó que las ramas de football-data y Apify del modo avanzado están actualmente deshabilitadas (`and False`); no se refactorizan mientras no vuelvan a ser consumidoras reales.
+- No cambia parsing, datos ni matemática LPF. La suite sube de 166 a **170 pruebas**.
+
+## 3.8.14 · 2026-08-10
+
+### Parsing HTML genérico separado del transporte
+
+- Las cargas avanzadas por URL (`tabla_desde_url` y `partidos_desde_url`) dejan de mezclar descarga y parsing dentro del archivo Streamlit. Los wrappers sólo descargan y delegan.
+- Se agregó `competition_html_adapters.py`, módulo puro que interpreta tablas de posiciones y matrices equipo × equipo desde HTML ya obtenido. No importa `requests` ni Streamlit.
+- `lpf_http.fetch_url_text` conserva el transporte histórico de esas URLs genéricas (User-Agent simple, timeout y sin reinterpretar el status), para no cambiar mensajes ni comportamiento mientras se separan responsabilidades.
+- Se agregaron fixtures locales de tabla, una rueda e ida/vuelta. Las salidas se compararon de forma exacta contra las funciones anteriores de 3.8.13: jugados, pendientes, notas y texto de tabla coinciden.
+- `competition_html_adapters.py` entra en el chequeo previo de compatibilidad de deploy para que una actualización parcial no termine en `ModuleNotFoundError`.
+- No cambia ninguna fórmula ni cálculo LPF. La suite sube de 160 a **166 pruebas**.
+
+## 3.8.13 · 2026-08-10
+
+### Contrato de snapshot validado para futura API/Opta
+
+- La foto canónica declara ahora `snapshot_schema_version = "1"`, separada de `contract_version` y de la versión del motor. Esto permite evolucionar el formato de datos sin confundirlo con cambios matemáticos.
+- `lpf_services.validate_competition_snapshot` valida una foto completa antes de usarla: nómina y zonas, enteros no negativos de `remaining`, equipos conocidos en pendientes, coherencia exacta entre pendientes y partidos restantes, y reglas de descenso. No ejecuta ni modifica fórmulas.
+- `calculate_competition_batch` acepta tanto el objeto `result` de un snapshot como el sobre completo devuelto por `prepare_competition_snapshot`; también rechaza explícitamente schemas de snapshot no soportados antes de entrar a los optimizadores.
+- Se agregó `service_capabilities()`: informa versión de contrato, versión de snapshot, operaciones, tipos de consulta batch y la ventana exacta vigente (8 partidos). Una futura API puede exponerlo como endpoint de metadatos sin importar Streamlit.
+- El batch devuelve además `snapshot_schema_version` y `query_count`. Los snapshots parciales del contrato v1 siguen siendo aceptados para compatibilidad; la validación estricta se aplica a las fotos canónicas.
+- No se agregó FastAPI, persistencia, base de datos ni SDK de Opta. La suite sube de 154 a **160 pruebas** y no cambia ninguna fórmula ni resultado matemático.
+
+## 3.8.12 · 2026-08-10
+
+### Protección contra despliegues con archivos mezclados
+
+- Se agregó `lpf_runtime.py`, un chequeo de compatibilidad que lee marcadores de los módulos críticos **sin importarlos**. Si un deploy combina archivos de distintas generaciones, Streamlit lo detecta antes de cargar el motor y muestra qué archivos deben sincronizarse.
+- Los módulos sensibles al contrato entre capas comparten `LPF_RUNTIME_API = 1`. Este nivel sólo se incrementa cuando cambia una interfaz interna incompatible; no depende del número de versión comercial.
+- El sidebar muestra siempre `Motor de cálculo · vX.Y.Z`, para poder comprobar visualmente qué versión tomó Streamlit Cloud.
+- Se cerró el barrido editorial residual de la escalera exacta: sus estados visibles usan **Mínimo que asegura** y ya no reaparecen “garantía exacta” ni “mínimo que garantiza” en esa ruta.
+- Se agregaron pruebas del caso sano, de un `lpf_pisos.py` viejo/sin marcador y del orden de arranque: el chequeo ocurre antes de importar los módulos sensibles.
+- No cambia ninguna fórmula, dato, umbral ni narrativa de cálculo. La suite sube de 151 a **154 pruebas**.
+
 ## 3.8.11 · 2026-08-10
 
 ### Narrativa: Total seguro y Mínimo que asegura

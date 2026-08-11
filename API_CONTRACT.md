@@ -7,8 +7,9 @@ compatibles con JSON y delega la matemática en los motores existentes.
 
 ## Principios
 
-- `contract_version` versiona la forma del payload; `calculation_version` identifica
-  la versión del motor que produjo la respuesta.
+- `contract_version` versiona la forma de los servicios; `calculation_version` identifica
+  la versión del motor que produjo la respuesta; `snapshot_schema_version` versiona
+  específicamente la forma de la foto canónica de competencia.
 - Las funciones de servicio no importan Streamlit, `requests` ni proveedores.
 - ESPN, FutbolArgentino.com y un futuro Opta quedan antes de esta frontera: sus datos
   deben normalizarse al modelo LPF antes de pedir cálculos.
@@ -24,7 +25,7 @@ Todas las operaciones devuelven:
 ```json
 {
   "contract_version": "1",
-  "calculation_version": "3.8.11",
+  "calculation_version": "3.8.20",
   "calculation": "standings",
   "result": {}
 }
@@ -69,7 +70,7 @@ Función: `calculate_point_ladder(payload)`.
 ```
 
 Devuelve exactamente la salida de `lpf_scenarios.point_ladder`, convertida a JSON.
-La distinción entre mínimo posible, clasificación condicionada y garantía exacta
+La distinción entre mínimo posible, clasificación condicionada y mínimo que asegura
 sigue siendo responsabilidad del motor, no del contrato.
 
 ## 3. Rango de puesto en una ventana
@@ -131,13 +132,21 @@ Entrada conceptual:
 }
 ```
 
-La auditoría puede devolver `blocked`; eso describe la calidad de la foto. El servicio
-no inventa datos para volverla válida.
+La foto incluye `snapshot_schema_version = "1"`. La auditoría puede devolver `blocked`;
+eso describe la calidad de la foto. El servicio no inventa datos para volverla válida.
+
+`validate_competition_snapshot({"snapshot": ...})` permite validar la foto antes de
+calcular. En una foto canónica comprueba que la nómina coincida con las zonas, que
+`remaining` tenga enteros no negativos y que su conteo coincida exactamente con los
+partidos de `pending`. Un schema de snapshot desconocido se rechaza de forma
+explícita antes de entrar a los motores.
 
 ## 6. Varias consultas sobre una misma foto
 
 Función: `calculate_competition_batch(payload)`. Es stateless: el cliente manda la
-foto y una lista `queries`. No hay IDs de servidor ni persistencia en esta versión.
+foto y una lista `queries`. Puede mandar tanto el objeto `result` como el sobre
+completo devuelto por `prepare_competition_snapshot`. No hay IDs de servidor ni
+persistencia en esta versión.
 
 ```json
 {
@@ -154,8 +163,21 @@ foto y una lista `queries`. No hay IDs de servidor ni persistencia en esta versi
 Tipos soportados: `objective_points`, `point_ladder`, `rank_window` y
 `descent_points`. Los tres primeros pueden seleccionar `scope=zone` (con `zone`) o
 `scope=annual`; descenso usa siempre la Anual, los pendientes y los antecedentes de
-promedios de la foto. La respuesta conserva el orden de las consultas y devuelve su
-`id`.
+promedios de la foto. La respuesta conserva el orden de las consultas y devuelve su `id`; además informa
+`snapshot_schema_version` y `query_count`.
+
+## 7. Capacidades del servicio
+
+Función: `service_capabilities()`. No recibe datos de competencia y puede exponerse
+como un endpoint de metadatos en una futura API. Informa:
+
+- `snapshot_schema_version`;
+- operaciones disponibles;
+- tipos de consulta aceptados por `competition_batch`;
+- cantidad de partidos restantes a partir de la cual se activa la ventana exacta.
+
+Esto permite que un cliente o un futuro adaptador Opta compruebe compatibilidad sin
+importar Streamlit ni inspeccionar código interno.
 
 ## Futuro adaptador HTTP
 

@@ -9,6 +9,15 @@ El historial completo está en ``CHANGELOG.md``.
 from lpf_version import __version__
 
 import streamlit as st
+from lpf_runtime import runtime_compatibility, runtime_error_message
+
+_RUNTIME_REPORT = runtime_compatibility()
+if not _RUNTIME_REPORT["ok"]:
+    st.error("⚠️ Archivos del motor desincronizados")
+    st.write(runtime_error_message(_RUNTIME_REPORT))
+    st.caption(f"Versión esperada de la app: {__version__}")
+    st.stop()
+
 from itertools import product, combinations
 import pandas as pd
 import numpy as np
@@ -38,7 +47,9 @@ from lpf_standings import (
     DEFAULT_CRITERIOS, _stats, liga_tabla_df, _liga_in_out,
     posiciones as _standings_posiciones, tabla as _standings_tabla,
 )
-from lpf_state import LPF_APERTURA_PJ, add_source_issues, build_lpf_state, opening_is_valid
+from lpf_state import (
+    LPF_APERTURA_PJ, build_lpf_state, opening_is_valid, refresh_lpf_quality_state,
+)
 
 
 def _piso_garantia_exacta(obj):
@@ -934,13 +945,18 @@ from lpf_reconcile import (
 from lpf_loading import (
     normalize_results_for_zones, prepare_automatic_update, prepare_offline_load,
 )
-from lpf_http import fetch_espn_json, fetch_html
+from lpf_http import (
+    fetch_espn_json, fetch_espn_scoreboard_window, fetch_futbolargentino_results_pages,
+    fetch_html, fetch_url_text,
+)
 from lpf_provider_adapters import (
-    norm_table_label as _norm_table_label,
     parse_espn_lpf_zones_payload, parse_espn_scoreboard_payloads,
     parse_espn_table_payload, parse_futbolargentino_annual_html,
     parse_futbolargentino_zones_html,
 )
+from competition_html_adapters import parse_cross_table_html, parse_standings_table_html
+from lpf_table_selection import select_lpf_tables
+from lpf_table_backup import build_table_backup, load_table_backup, write_table_backup
 
 def _color_zona(nombre):
     k = _zlow(nombre)
@@ -1176,7 +1192,7 @@ def liga_que_necesita_texto(equipo, base, rest, zonas, texto, pend=None):
         L.append("🔍 **Por qué:** " + pq)
     if _piso_garantia_exacta(calc) is not None:
         L.append(
-            f"_La garantía es exacta porque el equipo está dentro de la ventana de {VENTANA_EXACTA} partidos o menos "
+            f"_El mínimo que asegura está comprobado porque el equipo está dentro de la ventana de {VENTANA_EXACTA} partidos o menos "
             "y el fixture permite resolver los escenarios compatibles._"
         )
     elif _piso_referencia_conservadora(calc) is not None:
@@ -2070,131 +2086,22 @@ def placa_chances_mc_png(equipo, pct, nota="Estimación por simulación"):
     return buf.getvalue()
 
 def partidos_desde_url(url):
-    """Lee la tabla cruzada (matriz equipo × equipo) de una página tipo Wikipedia.
-    Devuelve (jugados, pendientes, error, nota). Las celdas con marcador son resultados;
-    las vacías, partidos por jugar. Detecta si el torneo es ida y vuelta o una sola rueda."""
-    import requests as _rq, io as _io
+    """Descarga una página y delega la matriz equipo × equipo a un parser puro."""
     try:
-        html = _rq.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=30).text
-    except Exception as e:
-        return [], [], f"No pude descargar la página: {e}", ""
-    try:
-        tablas = pd.read_html(_io.StringIO(html))
-    except Exception as e:
-        return [], [], f"No encontré tablas legibles ({e}).", ""
-    rx = re.compile(r"(\d+)\s*[–—:\-]\s*(\d+)")
-    jugados, pend = [], []
-    doble = False; encontrados = 0
-    for t in tablas:
-        n = len(t)
-        if n < 4 or len(t.columns) != n + 1:
-            continue
-        nombres, ok = [], True
-        for _, row in t.iterrows():
-            nm = str(row.iloc[0]).strip()
-            nm = re.sub(r"\s*\[[^\]]*\]", "", nm)
-            nm = re.sub(r"\s*\([^)]*\)\s*$", "", nm).strip()
-            if not nm or nm.lower() == "nan" or rx.search(nm):
-                ok = False; break
-            nombres.append(nm)
-        if not ok or len(set(nombres)) != n:
-            continue
-        encontrados += 1
-        mat = {}
-        for i in range(n):
-            for j in range(1, n + 1):
-                if j - 1 == i:
-                    continue
-                a, b = nombres[i], nombres[j - 1]
-                m = rx.search(str(t.iat[i, j]))
-                mat[(a, b)] = (int(m.group(1)), int(m.group(2))) if m else None
-        if any(v is not None and mat.get((b, a)) is not None for (a, b), v in mat.items()):
-            doble = True
-        for (a, b), v in mat.items():
-            if v is not None:
-                jugados.append((a, b, v[0], v[1]))
-        vistos = set()
-        for (a, b), v in mat.items():
-            if v is None:
-                if doble:
-                    pend.append((a, b))
-                else:
-                    key = frozenset((a, b))
-                    if key in vistos:
-                        continue
-                    vistos.add(key)
-                    if mat.get((b, a)) is None:
-                        pend.append((a, b))
-    if not encontrados:
-        return [], [], ("No encontré la tabla cruzada (matriz equipo × equipo) en esa página. "
-                        "Probá con la página de Wikipedia del torneo, o pegá el fixture a mano."), ""
-    nota = "torneo ida y vuelta" if doble else "una sola rueda (si en realidad es ida y vuelta recién arrancado, revisá los «Restan»)"
-    return jugados, pend, None, nota
+        html = fetch_url_text(url, timeout=30)
+    except Exception as exc:
+        return [], [], f"No pude descargar la página: {exc}", ""
+    return parse_cross_table_html(html)
+
 
 def tabla_desde_url(url):
-    """Lee una tabla de posiciones desde una URL (ej. Wikipedia) y la devuelve como texto
-    «Equipo, Pts, PJ, DG» listo para el modo tabla. Devuelve (texto, error)."""
-    import requests as _rq, io as _io
+    """Descarga una página y delega la tabla de posiciones a un parser puro."""
     try:
-        html = _rq.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=30).text
-    except Exception as e:
-        return "", f"No pude descargar la página: {e}"
-    try:
-        tablas = pd.read_html(_io.StringIO(html))
-    except Exception as e:
-        return "", f"No encontré tablas legibles en esa página ({e})."
-    def _cols(t):
-        if isinstance(t.columns, pd.MultiIndex):
-            return [_zlow(str(c[-1])) for c in t.columns]
-        return [_zlow(str(c)) for c in t.columns]
-    def _busca(cols, nombres):
-        for i, c in enumerate(cols):
-            if c in nombres:
-                return i
-        return None
-    def _extraer(t):
-        cols = _cols(t)
-        i_pts = _busca(cols, {"pts", "pts.", "puntos"})
-        i_pj = _busca(cols, {"pj", "j", "jug", "jj", "part", "pj."})
-        i_dg = _busca(cols, {"dg", "dif", "dif.", "+/-", "dif. de gol", "dg.", "dif de gol"})
-        i_eq = _busca(cols, {"equipo", "club", "team", "equipos"})
-        if i_eq is None:
-            for i in range(len(cols)):
-                if t.dtypes.iloc[i] == object:
-                    i_eq = i; break
-        if i_pts is None or i_eq is None:
-            return []
-        out = []
-        for _, row in t.iterrows():
-            raw = str(row.iloc[i_eq]).strip()
-            name = re.sub(r"\s*\[[^\]]*\]", "", raw)
-            name = re.sub(r"\s*\([^)]*\)\s*$", "", name).strip()
-            if not name or name.lower() in ("nan", "equipo", "club", "equipos"):
-                continue
-            def _num(i):
-                if i is None: return None
-                m = re.search(r"[+-]?\d+", str(row.iloc[i]))
-                return int(m.group()) if m else None
-            pts = _num(i_pts)
-            if pts is None:
-                continue
-            pj = _num(i_pj) or 0
-            dg = _num(i_dg) or 0
-            out.append(f"{name}, {pts}, {pj}, {dg:+d}")
-        return out
-    mejor = []
-    for t in tablas:
-        try:
-            lineas = _extraer(t)
-        except Exception:
-            lineas = []
-        if len(lineas) > len(mejor):
-            mejor = lineas
-    if len(mejor) < 4:
-        return "", ("Leí la página pero no encontré una tabla de posiciones con filas cargadas. "
-                    "En algunos torneos (como la Liga Argentina por zonas) Wikipedia no trae esas tablas en el HTML: "
-                    "usá la tabla acumulada o de promedios, o pegá la tabla a mano.")
-    return "\n".join(mejor), None
+        html = fetch_url_text(url, timeout=30)
+    except Exception as exc:
+        return "", f"No pude descargar la página: {exc}"
+    return parse_standings_table_html(html)
+
 
 # ═══ API ESPN (gratis, sin token) — incluye Liga Argentina y ligas que no están en football-data ═══
 
@@ -2262,33 +2169,33 @@ def futbolargentino_annual(timeout=30):
 def futbolargentino_fixture(zones, timeout=30):
     """Carga resultados y programación del Clausura desde FutbolArgentino.com.
 
-    Se consultan las dos rutas públicas del proveedor con un parámetro que evita
-    fotos intermedias de CDN. Una fuente parcial sigue siendo útil: se valida la
-    identidad y el marcador de cada partido, pero la cobertura total se comprueba
-    después, al combinarla con ESPN y las bases ya validadas.
+    La orquestación HTTP vive en :mod:`lpf_http`; este wrapper conserva el cache de
+    Streamlit, delega el parsing al adaptador existente y mantiene la validación
+    histórica de cobertura antes de entregar jugados y pendientes.
     """
-    import time
+    transport = fetch_futbolargentino_results_pages(
+        FUTBOLARGENTINO_RESULTS_URLS,
+        referer=FUTBOLARGENTINO_REFERER,
+        timeout=timeout,
+        get_html=_standings_html_get,
+    )
 
     records = []
     final_urls = []
     errors = []
-    stamp = int(time.time())
-    for index, source_url in enumerate(FUTBOLARGENTINO_RESULTS_URLS):
-        separator = "&" if "?" in source_url else "?"
-        fresh_url = f"{source_url}{separator}_lpf_refresh={stamp + index}"
+    for attempt in transport["attempts"]:
+        source_url = attempt["source_url"]
+        if attempt["error"]:
+            errors.append(f"{source_url}: {attempt['error']}")
+            continue
         try:
-            html, final_url = _standings_html_get(
-                fresh_url,
-                FUTBOLARGENTINO_REFERER,
-                timeout=timeout,
-            )
             parsed = parse_futbolargentino_results_html(
-                html,
+                attempt["html"],
                 canon_club=canon_club,
                 official_fixture=LPF_FIXTURE,
             )
             records.extend(parsed)
-            final_urls.append(final_url)
+            final_urls.append(attempt["final_url"])
         except Exception as exc:
             errors.append(f"{source_url}: {exc}")
 
@@ -2313,50 +2220,12 @@ def futbolargentino_fixture(zones, timeout=30):
     return played, pending, " · ".join(dict.fromkeys(final_urls))
 
 
-def _snapshot_path():
-    import os
-    from pathlib import Path
-
-    override = str(os.environ.get("LPF_SNAPSHOT_PATH", "") or "").strip()
-    if override:
-        return Path(override)
-    return Path(__file__).resolve().parent / "data" / "lpf_last_valid.json"
-
-
-def _plain_base(base):
-    out = {}
-    for team, stats in (base or {}).items():
-        row = {
-            key: int((stats or {}).get(key, 0))
-            for key in ("pts", "pj", "dg", "gf", "ga")
-        }
-        if (stats or {}).get("source_pos") is not None:
-            row["source_pos"] = int((stats or {}).get("source_pos"))
-        out[str(team)] = row
-    return out
-
-
 def _save_lpf_snapshot(zones, annual, source_name):
     """Guarda la última foto válida en sesión y, si se puede, en disco."""
-    import json
-    from datetime import datetime, timezone
-
-    _validate_lpf_tables(zones, annual)
-    payload = {
-        "schema": 1,
-        "competition": "LPF Clausura 2026",
-        "source": str(source_name or "fuente automática"),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "zones": {label: _plain_base(base) for label, base in zones.items()},
-        "annual": _plain_base(annual),
-    }
+    payload = build_table_backup(zones, annual, source_name)
     st.session_state["LPF_LAST_VALID_SNAPSHOT"] = payload
     try:
-        path = _snapshot_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        write_table_backup(payload)
     except Exception as exc:
         # En algunos hostings el filesystem es efímero o de sólo lectura. La sesión
         # sigue conservando la foto y se informa el detalle sin bloquear la carga.
@@ -2364,192 +2233,70 @@ def _save_lpf_snapshot(zones, annual, source_name):
     return ""
 
 
-def _snapshot_payloads():
-    import json
-
-    candidates = []
-    session_payload = st.session_state.get("LPF_LAST_VALID_SNAPSHOT")
-    if isinstance(session_payload, dict):
-        candidates.append(("sesión", session_payload))
-    try:
-        path = _snapshot_path()
-        if path.exists():
-            candidates.append(("disco", json.loads(path.read_text(encoding="utf-8"))))
-    except Exception:
-        pass
-    return candidates
-
-
 def _load_lpf_snapshot(max_age_hours=LPF_SNAPSHOT_MAX_AGE_HOURS):
-    """Recupera la última foto válida si no supera la antigüedad admitida."""
-    from datetime import datetime, timezone
+    """Recupera la última foto válida delegando persistencia fuera de Streamlit."""
+    return load_table_backup(
+        session_payload=st.session_state.get("LPF_LAST_VALID_SNAPSHOT"),
+        max_age_hours=max_age_hours,
+    )
 
-    errors = []
-    for location, payload in _snapshot_payloads():
-        try:
-            updated = datetime.fromisoformat(str(payload.get("updated_at", "")).replace("Z", "+00:00"))
-            if updated.tzinfo is None:
-                updated = updated.replace(tzinfo=timezone.utc)
-            age_hours = max(0.0, (datetime.now(timezone.utc) - updated).total_seconds() / 3600.0)
-            if age_hours > float(max_age_hours):
-                errors.append(
-                    f"respaldo de {location} demasiado viejo ({_fmt_num_es(age_hours / 24, 1)} días)"
-                )
-                continue
-            raw_zones = payload.get("zones") or payload.get("zonas") or {}
-            if not raw_zones:
-                # Compatibilidad con respaldos que guardaron A/B directamente
-                # en la raíz del JSON.
-                raw_zones = {
-                    key: payload.get(key)
-                    for key in ("A", "B", "Zona A", "Zona B", "zone_a", "zone_b")
-                    if isinstance(payload.get(key), dict)
-                }
-
-            zones = {}
-            for raw_label, base in raw_zones.items():
-                label_norm = _norm_table_label(raw_label).replace("_", " ")
-                if label_norm in {"a", "zona a", "zone a"}:
-                    label = "A"
-                elif label_norm in {"b", "zona b", "zone b"}:
-                    label = "B"
-                else:
-                    continue
-                zones[label] = canon_base(base)
-
-            annual_raw = (
-                payload.get("annual")
-                or payload.get("anual")
-                or payload.get("tabla_anual")
-                or payload.get("tabla general")
-                or {}
-            )
-            annual = canon_base(annual_raw)
-            _validate_lpf_tables(zones, annual)
-            source = str(payload.get("source") or "fuente desconocida")
-            return zones, annual, source, age_hours, None
-        except Exception as exc:
-            errors.append(f"respaldo de {location} inválido: {exc}")
-    return {}, {}, "", None, " | ".join(errors) if errors else "no existe un respaldo válido"
-
-
-def _session_or_embedded_annual(zones):
-    """Último recurso para la Anual si la fuente externa falla pero las zonas son frescas."""
-    candidates = [
-        ("Tabla Anual de la sesión", st.session_state.get("LPF_ANUAL") or {}),
-    ]
+def _annual_fallback_candidates():
+    """Candidatos locales de Anual; la política de selección vive fuera de Streamlit."""
+    candidates = [("Tabla Anual de la sesión", st.session_state.get("LPF_ANUAL") or {})]
     try:
         embedded = parse_tabla_anual(TABLA_ANUAL_LPF_2026)[0]
     except Exception:
         embedded = {}
     candidates.append(("Tabla Anual incluida en la aplicación", embedded))
-    for label, annual in candidates:
-        annual = canon_base(annual)
-        try:
-            _validate_lpf_tables(zones, annual)
-            return annual, label
-        except Exception:
-            continue
-    return {}, ""
+    return candidates
 
 
 def lpf_tables_with_fallback(liga="arg.1", timeout=30):
-    """ESPN → FutbolArgentino.com → última foto válida → carga manual.
-
-    ESPN se usa para las zonas cuando responde. FutbolArgentino.com aporta las
-    zonas de respaldo y la Tabla Anual. Una foto sólo se guarda si las dos zonas y
-    la Anual pasan las validaciones de cantidad de clubes, nombres y consistencia.
-    """
-    warnings = []
-    errors = []
-
+    """Obtiene candidatos y delega la prioridad/fallback a una política pura."""
     espn_zones, espn_error = espn_lpf_zonas(liga, timeout=timeout)
-    if espn_error:
-        errors.append(espn_error)
-        espn_zones = {}
-    else:
-        try:
-            _validate_lpf_tables(espn_zones)
-        except Exception as exc:
-            errors.append(f"ESPN devolvió una tabla inválida: {exc}")
-            espn_zones = {}
 
     fa_zones, fa_annual = {}, {}
+    fa_zones_error = None
+    fa_annual_error = None
     try:
         fa_zones, _ = futbolargentino_zones(timeout=timeout)
     except Exception as exc:
-        errors.append(f"FutbolArgentino.com (zonas): {exc}")
+        fa_zones_error = str(exc)
     try:
         fa_annual, _ = futbolargentino_annual(timeout=timeout)
     except Exception as exc:
-        errors.append(f"FutbolArgentino.com (Anual): {exc}")
-
-    zones = espn_zones or fa_zones
-    zones_source = "ESPN" if espn_zones else ("FutbolArgentino.com" if fa_zones else "")
-
-    if zones:
-        annual = fa_annual
-        annual_source = "FutbolArgentino.com"
-        if not annual:
-            # Antes de usar una tabla incluida, se intenta reutilizar sólo la parte
-            # anual de una foto reciente y validada.
-            snap_zones, snap_annual, snap_source, age_hours, _snap_err = _load_lpf_snapshot()
-            if snap_annual:
-                try:
-                    _validate_lpf_tables(zones, snap_annual)
-                    annual = snap_annual
-                    annual_source = f"último respaldo ({snap_source})"
-                    warnings.append(
-                        "La Tabla Anual no pudo actualizarse; uso la última válida "
-                        f"de hace {_fmt_num_es(age_hours, 1)} horas."
-                    )
-                except Exception:
-                    annual = {}
-            if not annual:
-                annual, annual_source = _session_or_embedded_annual(zones)
-                if annual:
-                    warnings.append(
-                        f"La Tabla Anual no pudo actualizarse; uso {annual_source.lower()}."
-                    )
-
-        if annual:
-            _validate_lpf_tables(zones, annual)
-            source_name = zones_source
-            if annual_source and annual_source != zones_source:
-                source_name = f"{zones_source} (zonas) + {annual_source} (Anual)"
-            # No se pisa el respaldo con una Anual incluida/posiblemente vieja.
-            if fa_annual:
-                disk_warning = _save_lpf_snapshot(zones, annual, source_name)
-                if disk_warning:
-                    warnings.append(disk_warning)
-            if zones_source == "FutbolArgentino.com" and espn_error:
-                warnings.append("ESPN rechazó las posiciones; se usó el respaldo automático.")
-            return zones, annual, source_name, warnings, None
-
-        warnings.append(
-            "Las zonas se actualizaron, pero no hay una Tabla Anual válida; "
-            "las cuentas de copas pueden quedar bloqueadas."
-        )
-        return zones, {}, zones_source, warnings, None
+        fa_annual_error = str(exc)
 
     snap_zones, snap_annual, snap_source, age_hours, snap_error = _load_lpf_snapshot()
-    if snap_zones:
-        warnings.append(
-            "No pude consultar las fuentes ahora. Uso la última foto válida "
-            f"({snap_source}), guardada hace {_fmt_num_es(age_hours, 1)} horas."
-        )
-        return (
-            snap_zones,
-            snap_annual,
-            f"Último respaldo válido · {snap_source}",
-            warnings,
-            None,
-        )
+    selected = select_lpf_tables(
+        espn_zones=espn_zones,
+        espn_error=espn_error,
+        fa_zones=fa_zones,
+        fa_zones_error=fa_zones_error,
+        fa_annual=fa_annual,
+        fa_annual_error=fa_annual_error,
+        snapshot_zones=snap_zones,
+        snapshot_annual=snap_annual,
+        snapshot_source=snap_source,
+        snapshot_age_hours=age_hours,
+        snapshot_error=snap_error,
+        annual_fallbacks=_annual_fallback_candidates(),
+    )
 
-    if snap_error:
-        errors.append(f"Último respaldo: {snap_error}")
-    return {}, {}, "", warnings, (
-        "No pude obtener las zonas automáticamente. " + " | ".join(errors)
+    warnings = list(selected["warnings"])
+    if selected["save_snapshot"]:
+        disk_warning = _save_lpf_snapshot(
+            selected["zones"], selected["annual"], selected["source_name"]
+        )
+        if disk_warning:
+            warnings.append(disk_warning)
+
+    return (
+        selected["zones"],
+        selected["annual"],
+        selected["source_name"],
+        warnings,
+        selected["error"],
     )
 
 
@@ -2586,64 +2333,19 @@ def espn_tabla(liga, timeout=30):
 
 def espn_fixture(liga, dias=120, timeout=30, max_req=30, desde=None):
     """Trae scoreboards por HTTP y delega su interpretacion al adaptador puro."""
-    import datetime as _dt
-
     lg = (liga or "").strip()
     if not lg:
         return [], [], "", "Indicá el código de liga."
 
     try:
-        head_payload = _espn_get(
-            f"https://site.api.espn.com/apis/site/v2/sports/soccer/{lg}/scoreboard",
-            timeout,
+        window = fetch_espn_scoreboard_window(
+            lg, dias=dias, timeout=timeout, max_req=max_req, desde=desde, get_json=_espn_get
         )
     except Exception as exc:
         return [], [], "", f"No pude obtener el fixture desde ESPN. {exc}"
 
-    today = _dt.date.today()
-    end_date = today + _dt.timedelta(days=max(0, int(dias)))
-
-    def _as_date(value):
-        if isinstance(value, _dt.datetime):
-            return value.date()
-        if isinstance(value, _dt.date):
-            return value
-        raw = str(value or "").strip()
-        if not raw:
-            return None
-        for fmt in ("%Y-%m-%d", "%Y%m%d"):
-            try:
-                return _dt.datetime.strptime(raw[:10], fmt).date()
-            except ValueError:
-                continue
-        return None
-
-    start_date = _as_date(desde)
-    if start_date is None:
-        start_date = _dt.date(2026, 7, 1) if lg == "arg.1" else today - _dt.timedelta(days=30)
-    if start_date > end_date:
-        start_date = today
-
-    payloads = [head_payload]
-    chunk_days = 21
-    cursor = start_date
-    requests_used = 0
-    failed_chunks = 0
-    while cursor <= end_date and requests_used < max(1, int(max_req)):
-        chunk_end = min(cursor + _dt.timedelta(days=chunk_days - 1), end_date)
-        url = (
-            f"https://site.api.espn.com/apis/site/v2/sports/soccer/{lg}/scoreboard"
-            f"?dates={cursor:%Y%m%d}-{chunk_end:%Y%m%d}"
-        )
-        try:
-            payloads.append(_espn_get(url, timeout))
-        except Exception:
-            failed_chunks += 1
-        requests_used += 1
-        cursor = chunk_end + _dt.timedelta(days=1)
-
     parsed = parse_espn_scoreboard_payloads(
-        payloads,
+        window["payloads"],
         initial_event_meta=st.session_state.get("LPF_EVENT_META") or {},
         initial_schedule=st.session_state.get("LPF_SCHEDULE") or {},
     )
@@ -2651,10 +2353,10 @@ def espn_fixture(liga, dias=120, timeout=30, max_req=30, desde=None):
     st.session_state["LPF_EVENT_META"] = parsed["event_meta"]
     st.session_state["LPF_RESULTS_COVERAGE"] = {
         "league": lg,
-        "from": start_date.isoformat(),
-        "to": end_date.isoformat(),
-        "requests": requests_used,
-        "failed_chunks": failed_chunks,
+        "from": window["start_date"].isoformat(),
+        "to": window["end_date"].isoformat(),
+        "requests": window["requests"],
+        "failed_chunks": window["failed_chunks"],
     }
     globals()["_ESPN_DIA"] = {**(globals().get("_ESPN_DIA") or {}), **parsed["day_map"]}
     globals()["_ESPN_FECHA_HORA"] = {
@@ -2664,11 +2366,11 @@ def espn_fixture(liga, dias=120, timeout=30, max_req=30, desde=None):
 
     played = parsed["played"]
     pending = parsed["pending"]
-    notes = [f"resultados cotejados desde {start_date:%d/%m/%Y}"]
-    if cursor <= end_date:
-        notes.append(f"consulta limitada a {requests_used} bloques")
-    if failed_chunks:
-        notes.append(f"{failed_chunks} bloque(s) no respondieron")
+    notes = [f"resultados cotejados desde {window['start_date']:%d/%m/%Y}"]
+    if window["limited"]:
+        notes.append(f"consulta limitada a {window['requests']} bloques")
+    if window["failed_chunks"]:
+        notes.append(f"{window['failed_chunks']} bloque(s) no respondieron")
     note = "(" + " · ".join(notes) + ")"
 
     if not played and not pending:
@@ -3756,7 +3458,7 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
             L.append(
                 f"**No existe un total alcanzable que asegure el objetivo.** Incluso ganando sus {gx} partidos y llegando a "
                 f"**{techo} puntos**, el motor encontró al menos una combinación compatible que puede dejarlo afuera. "
-                "Como ése es su máximo, ningún puntaje menor puede garantizar la clasificación."
+                "Como ése es su máximo, ningún puntaje menor puede asegurar la clasificación."
             )
         elif max_fail_exact is False:
             L.append(
@@ -3807,7 +3509,7 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
                     f"{example}; también existe un escenario de eliminación."
                 )
             if guarantee_exact and meta_exacta is not None:
-                L.append(f"- **{meta_exacta} puntos:** mínimo exacto que garantiza el objetivo.")
+                L.append(f"- **{meta_exacta} puntos:** mínimo que asegura el objetivo.")
 
     return L
 
@@ -5626,6 +5328,7 @@ def cargar_lpf_espn(liga="arg.1"):
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("🔧 Configuración")
+    ui_caption(f"Motor de cálculo · v{__version__}")
 
     # Desempate
     st.subheader("Criterio de desempate")
@@ -9476,7 +9179,7 @@ def render_newsroom(E):
 
 #### Cómo leer las cuentas
 
-**Mínimo que asegura:** es el **menor puntaje alcanzable** que asegura el objetivo pase lo que pase. Sólo se muestra cuando el motor exacto puede comprobarlo sobre el fixture completo. Antes de ese tramo no se publica una aproximación como garantía: se muestran por separado el corte actual, la proyección, las referencias y los puntajes condicionados.
+**Mínimo que asegura:** es el **menor puntaje alcanzable** que asegura el objetivo pase lo que pase. Sólo se muestra cuando el motor exacto puede comprobarlo sobre el fixture completo. Antes de ese tramo no se publica un número aproximado como si fuera el mínimo exacto: se muestran por separado el corte actual, la proyección, el total seguro y los puntajes condicionados.
 
 **Rango de una fecha:** es exacto por puntos y respeta los partidos entre rivales. Si hay igualdad, abre el intervalo porque el marcador futuro cambia DG/GF y todavía pueden intervenir mano a mano, fair play o sorteo.
 
@@ -9486,38 +9189,27 @@ def render_newsroom(E):
 
 
 def _lpf_refresh_quality(E):
-    """Revalida y repara una sesión vieja antes de mostrar cualquier cuenta.
-
-    Versiones anteriores podían guardar la Tabla Anual importada como si fuera
-    una tabla viva. Acá se migra automáticamente: Apertura fijo + zonas actuales.
-    """
-    zones = E.get("zonas_lpf") or {}
-    candidates = [
-        canon_base(E.get("apertura") or {}),
-        canon_base(st.session_state.get("LPF_APERTURA") or {}),
-        canon_base(globals().get("LPF_APERTURA_BASE_2026") or {}),
-    ]
-    opening = next((candidate for candidate in candidates if _lpf_opening_is_valid(candidate, zones)), {})
+    """Revalida una sesión vieja delegando toda la lógica al estado puro LPF."""
+    opening, authoritative, report = refresh_lpf_quality_state(
+        E.get("zonas_lpf") or {},
+        annual_imported=E.get("anual_importada") or {},
+        annual_direct=E.get("anual_directo") or {},
+        opening_candidates=(
+            E.get("apertura") or {},
+            st.session_state.get("LPF_APERTURA") or {},
+            globals().get("LPF_APERTURA_BASE_2026") or {},
+        ),
+        promedios=st.session_state.get("PROMEDIOS") or {},
+        fixture=LPF_FIXTURE,
+        played=E.get("jugados") or [],
+        source_issues=st.session_state.get("PROM_SOURCE_ISSUES") or [],
+        opening_rounds=LPF_APERTURA_PJ,
+    )
     if opening:
-        authoritative = sum_opening_and_zones(opening, zones)
         E["apertura"] = opening
         E["anual_directo"] = authoritative
         st.session_state.LPF_APERTURA = opening
         st.session_state.LPF_ANUAL = authoritative
-    else:
-        authoritative = E.get("anual_directo") or {}
-
-    report = build_quality_report(
-        zones,
-        E.get("anual_importada") or authoritative,
-        st.session_state.get("PROMEDIOS") or {},
-        LPF_FIXTURE,
-        E.get("jugados") or [],
-        opening_snapshot=opening,
-    )
-    report = add_source_issues(
-        report, st.session_state.get("PROM_SOURCE_ISSUES") or []
-    )
     E["data_quality"] = report
     st.session_state.LPF_DATA_QUALITY = report
     return report
@@ -9620,16 +9312,16 @@ def _render_point_ladder(team, base, rest, pending, cutoff, title):
     c4.metric("Mínimo que asegura", exact.get("guarantee") if exact.get("available") else "No calculado")
     if not exact.get("available"):
         ui_warning(exact.get("reason") or "No se pudo ejecutar el motor exacto.")
-        ui_info("No se publica una garantía aproximada. La garantía será el menor puntaje alcanzable que el motor exacto compruebe suficiente pase lo que pase.")
+        ui_info("No se publica un mínimo aproximado como si fuera exacto. El mínimo que asegura será el menor puntaje alcanzable que el motor compruebe suficiente pase lo que pase.")
         return
     ui_markdown(
         f"**Mínimo todavía posible:** {exact.get('minimum_possible')} · "
-        f"**Mínimo exacto que garantiza:** {exact.get('guarantee')}"
+        f"**Mínimo que asegura:** {exact.get('guarantee')}"
     )
     rows = []
     for row in exact.get("rows", []):
         rows.append({
-            "Puntaje final": row.final_points,
+            "Puntos finales": row.final_points,
             "Situación": row.status,
             "¿Puede entrar?": "Sí" if row.can_qualify else "No",
             "¿También puede quedar afuera?": "Sí" if row.can_fail else "No",
@@ -9781,11 +9473,13 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
     scenario_labels = [
         "Gana / empata / pierde",
         "Qué pasa si…",
-        "Puntaje y puesto",
+        "Puntos y puesto final",
         "Mejor y peor caso",
         "Distribución",
         "Clasificados y eliminados",
     ]
+    if st.session_state.get("scenario_tool_nav") == "Puntaje y puesto":
+        st.session_state["scenario_tool_nav"] = "Puntos y puesto final"
     if st.session_state.get("scenario_tool_nav") not in scenario_labels:
         st.session_state["scenario_tool_nav"] = scenario_labels[0]
     scenario_tool = st.radio(
@@ -9870,32 +9564,46 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
             else:
                 ui_info("Elegí uno o más resultados. El resto de los partidos quedará abierto y el motor calculará el rango posible.")
 
-    if scenario_tool == "Puntaje y puesto":
+    if scenario_tool == "Puntos y puesto final":
         full_games = [match for match in pending if match[0] in base or match[1] in base]
-        _render_point_ladder(team, base, rest, full_games, 8, f"{team} · escalera de clasificación")
+        ui_markdown("### ¿Con cuántos puntos puede clasificar?")
+        ui_caption(
+            "Esta parte recorre los totales finales que el equipo todavía puede alcanzar y muestra si con cada uno "
+            "puede entrar entre los ocho, si todavía depende de otros resultados o si ya asegura la clasificación."
+        )
+        _render_point_ladder(team, base, rest, full_games, 8, f"{team} · puntos para clasificar")
         st.divider()
-        target_rank = st.number_input("Puesto puntual a buscar", min_value=1, max_value=len(base), value=8,
+        ui_markdown("### ¿Con cuántos puntos puede terminar en un puesto específico?")
+        ui_caption(
+            "Elegí un puesto. La app muestra qué totales finales permiten terminar allí en al menos un escenario. "
+            "Un mismo total de puntos puede llevar a posiciones distintas según los resultados de los demás y los desempates."
+        )
+        target_rank = st.number_input("¿Qué puesto querés analizar?", min_value=1, max_value=len(base), value=8,
                                       step=1, key=f"scenario_target_rank_{team}")
-        if st.button("Buscar con qué puntajes puede terminar en ese puesto", use_container_width=True,
+        if st.button(f"Ver con qué puntos puede terminar {int(target_rank)}º", use_container_width=True,
                      key=f"scenario_find_rank_{team}"):
             current = int(base[team].get("pts", 0))
             games_left = int(rest.get(team, 0))
             possible_rows = []
-            with st.spinner("Resolviendo los puntajes alcanzables…"):
+            with st.spinner("Resolviendo los puntos finales posibles…"):
                 for final_points in reachable_point_totals(current, games_left):
                     bounds = exact_rank_bounds_with_points(base, full_games, team, final_points)
                     if bounds and bounds[0] <= int(target_rank) <= bounds[1]:
                         possible_rows.append({
-                            "Puntaje final": final_points,
-                            "Mejor puesto posible": bounds[0],
-                            "Peor puesto posible": bounds[1],
-                            "¿Puede ser ese puesto?": "Sí",
+                            "Puntos finales": final_points,
+                            "Mejor puesto con esos puntos": bounds[0],
+                            "Peor puesto con esos puntos": bounds[1],
                         })
             if possible_rows:
                 ui_dataframe(pd.DataFrame(possible_rows), use_container_width=True, hide_index=True)
-                ui_success(f"{team} puede terminar {int(target_rank)}º con alguno de estos puntajes, según los demás resultados y desempates.")
+                ui_success(
+                    f"Con alguno de estos totales, {team} puede terminar {int(target_rank)}º en al menos un escenario compatible. "
+                    "El rango muestra hasta dónde puede subir o caer con los mismos puntos según los demás resultados y los desempates."
+                )
             else:
-                ui_warning(f"No existe un puntaje alcanzable que permita a {team} terminar {int(target_rank)}º.")
+                ui_warning(
+                    f"Con el fixture pendiente actual, no hay ningún total de puntos alcanzable que permita a {team} terminar {int(target_rank)}º."
+                )
 
     if scenario_tool == "Mejor y peor caso":
         scope_label = st.radio(
@@ -10152,7 +9860,7 @@ def render_guided_workspace(E):
         "Cómo puede terminar el próximo partido o la fecha",
         "Qué necesita para alcanzar el objetivo",
         "Qué resultados ajenos le convienen",
-        "Escalera exacta: mínimo que garantiza y caminos con menos",
+        "Escalera exacta: mínimo que asegura y caminos con menos",
         "Comparar con otro equipo",
         "Cómo viene su zona",
         "Radar de las últimas fechas",
@@ -10294,9 +10002,9 @@ def render_guided_workspace(E):
             if text: ui_markdown(text)
             if frame is not None: ui_dataframe(frame, use_container_width=True, hide_index=True)
             if crosses is not None: ui_dataframe(crosses, use_container_width=True, hide_index=True)
-    elif task == "Escalera exacta: mínimo que garantiza y caminos con menos":
+    elif task == "Escalera exacta: mínimo que asegura y caminos con menos":
         if objective != "Playoffs":
-            ui_info("La escalera exacta está habilitada para playoffs. En copas, la sección de garantía sólo muestra un número cuando el mínimo fue comprobado; si no, figura como todavía no calculado.")
+            ui_info("La escalera exacta está habilitada para playoffs. En copas, el mínimo que asegura sólo se muestra cuando fue comprobado; si no, figura como todavía no calculado.")
         _render_point_ladder(team, Z[lab], rest, pending, 8, f"{team} · clasificación a playoffs")
     elif task == "Comparar con otro equipo":
         base_all = {team_name: row for base in Z.values() for team_name, row in base.items()}
@@ -10537,7 +10245,7 @@ for _col, _label in zip(_main_cols, _WORKSPACES):
 _SCENARIO_SHORTCUTS = [
     ("Gana / empata / pierde", "Gana / empata / pierde"),
     ("Qué pasa si…", "Qué pasa si…"),
-    ("Puntaje y puesto", "Puntaje y puesto"),
+    ("Puntos y puesto final", "Puntos y puesto final"),
     ("Mejor y peor caso", "Mejor y peor caso"),
     ("Distribución", "Distribución"),
     ("Clasificados / eliminados", "Clasificados y eliminados"),

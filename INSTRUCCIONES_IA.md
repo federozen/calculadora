@@ -63,6 +63,13 @@ python -m ruff check --select F,E9 *.py tests/*.py    # "All checks passed!"
 python -m py_compile calculadora_futbol_argentino.py lpf_*.py
 ```
 
+### Evitar deploys con archivos mezclados
+Desde 3.8.12, los módulos críticos comparten `LPF_RUNTIME_API`. Streamlit ejecuta
+`lpf_runtime.runtime_compatibility()` antes de importarlos. Si agregás o cambiás una
+interfaz interna incompatible, incrementá el nivel y actualizá juntos los módulos
+listados en `lpf_runtime.CRITICAL_COMPONENTS`. No desactives este chequeo para hacer
+pasar una actualización parcial.
+
 ### Verificar que la app realmente arranca (sin abrir un navegador)
 El archivo principal ejecuta UI al importarse, así que se puede hacer un "smoke test"
 con Streamlit simulado. Si el import corre **más allá de la carga de datos** (llega a
@@ -75,10 +82,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.11` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.20` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
-- Archivo principal: **~10.600 líneas** (arrancó en ~12.780).
-- **151 pruebas**, todas verdes en 3.8.11. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- Archivo principal: **~10.300 líneas** (arrancó en ~12.780).
+- **194 pruebas**, todas verdes en 3.8.20. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -130,10 +137,13 @@ ciclos); respétalo. De más básico a más compuesto:
 | `lpf_standings.py` | Motor puro de tabla: estadísticas, desempates, orden, posiciones, tabla y clasificador in/out/pelea. Los criterios entran como parámetro. | — (pandas) |
 | `lpf_fixture_sources.py` | Fuentes de fixture y `expected_played_count` (ya existía). | — |
 | `lpf_data_quality.py` | Reportes de calidad de datos (ya existía). | lpf_models |
-| `lpf_state.py` | Constructor puro del estado LPF canónico: Apertura, Anual autoritativa, pendientes y auditoría. Todos los valores de sesión entran por parámetro. | lpf_clubs, lpf_data_quality, lpf_models |
+| `lpf_state.py` | Constructor y revalidador puros del estado LPF canónico: Apertura, Anual autoritativa, pendientes y auditoría. Todos los valores de sesión entran por parámetro. | lpf_clubs, lpf_data_quality, lpf_models |
 | `lpf_loading.py` | Preparación pura de carga: canonicaliza resultados, combina fuentes, avanza standings, reconstruye la Anual e infiere faltantes sin red ni Streamlit. | lpf_clubs, lpf_data_2026, lpf_data_quality, lpf_derive, lpf_fixture_sources, lpf_reconcile, lpf_state |
 | `lpf_http.py` | Transporte HTTP de fuentes públicas; no parsea ni conoce Streamlit. | requests |
 | `lpf_provider_adapters.py` | Adaptación pura de respuestas ESPN/FutbolArgentino.com a tablas/resultados/metadatos del dominio. | pandas, lpf_clubs, lpf_reconcile, lpf_text |
+| `lpf_table_selection.py` | Política pura de prioridad/fallback de zonas y Anual entre proveedores, respaldo y candidatos locales. | lpf_clubs, lpf_reconcile, lpf_text |
+| `lpf_table_backup.py` | Construcción, persistencia JSON y recuperación del último respaldo válido de tablas; no conoce Streamlit ni proveedores. | lpf_clubs, lpf_reconcile, lpf_text |
+| `competition_html_adapters.py` | Parsing puro de tablas HTML genéricas del modo avanzado (posiciones y matrices equipo × equipo). | pandas, lpf_text |
 | `lpf_reconcile.py` | Reconciliación e integridad: ajusta resultados a zonas, repara duplicados, avanza zonas, valida. | lpf_clubs, lpf_data_2026, lpf_fixture_sources, lpf_parsers |
 | `lpf_derive.py` | Deriva la foto del Apertura e infiere resultados faltantes. | lpf_text, lpf_clubs, lpf_data_2026, lpf_reconcile |
 | `lpf_intents.py` | Ruteo de intención del chat (consulta → `{"intent": ...}`). | lpf_text |
@@ -142,8 +152,9 @@ ciclos); respétalo. De más básico a más compuesto:
 | `lpf_pisos.py` | Puntos por objetivo y combinación pura de antecedentes/temporada actual para promedios. | lpf_scenarios, lpf_exact |
 | `lpf_models.py` | Dataclasses de dominio y auditoría. | — |
 | `lpf_version.py` | Única versión del motor compartida por todas las interfaces. | — |
-| `lpf_snapshot.py` | Foto canónica JSON-safe de competencia y selección de alcance por zona/Anual. | lpf_state, lpf_pisos |
-| `lpf_services.py` | Contrato JSON-safe para cálculos, snapshots y consultas por lote; futura frontera HTTP. | lpf_version, lpf_snapshot, lpf_standings, lpf_scenarios, lpf_pisos |
+| `lpf_runtime.py` | Chequeo previo al arranque de compatibilidad entre módulos críticos desplegados; lee marcadores sin importar esos módulos. | — |
+| `lpf_snapshot.py` | Foto canónica JSON-safe de competencia, `snapshot_schema_version` y selección de alcance por zona/Anual. | lpf_state, lpf_pisos |
+| `lpf_services.py` | Contrato JSON-safe para cálculos, validación/capacidades, snapshots y consultas por lote; futura frontera HTTP. | lpf_version, lpf_snapshot, lpf_standings, lpf_scenarios, lpf_pisos |
 | `lpf_competition_narratives.py`, `lpf_competitive_context.py`, `lpf_display.py` | Relatos y presentación (ya existían). | varias |
 
 El motor `_resolver` / `_orden` ya no está en el archivo principal. `posiciones` y
@@ -320,14 +331,49 @@ ni volver a implementar cálculos. `API_CONTRACT.md` documenta la versión 1.
 
 La función pura `lpf_pisos.promedio_totales` arma los totales de promedios para UI y
 API; no vuelvas a duplicar esa fórmula dentro de Streamlit. No agregues FastAPI/Flask,
-persistencia de snapshots ni un SDK de Opta hasta que exista el consumidor concreto.
+persistencia nueva de snapshots canónicos en servidor ni un SDK de Opta hasta que exista el consumidor concreto. El respaldo histórico de tablas sí vive en `lpf_table_backup`.
 
-### 8d. Otros fetchers de red (dejalos para el final)
+### 8d. Otros fetchers de red (parcialmente resuelto en 3.8.14–3.8.16)
 Los caminos LPF de ESPN/FutbolArgentino.com ya tienen transporte y parsing separados.
-Todavía existen utilidades genéricas/otras fuentes (`tabla_desde_url`,
-`partidos_desde_url`, football-data, Apify) que tocan red dentro del archivo principal.
-No las muevas sólo por uniformidad: primero agregá una red de seguridad específica si
-alguna pasa a ser relevante para el núcleo LPF o para la futura API.
+Desde 3.8.14, `tabla_desde_url` y `partidos_desde_url` también son wrappers finos: la
+descarga histórica vive en `lpf_http.fetch_url_text` y el parsing puro en
+`competition_html_adapters.py`, con fixtures locales y equivalencia contra 3.8.13.
+
+Desde 3.8.15, `espn_fixture` tampoco arma dentro de Streamlit la ventana multi-request:
+`lpf_http.fetch_espn_scoreboard_window` concentra fecha inicial, bloques de 21 días,
+`max_req` y tolerancia a fallos parciales. Recibe `get_json` por parámetro para que la
+UI conserve `_espn_get` y su caché. Se comparó contra 3.8.14 en cuatro rutas exactas.
+
+Desde 3.8.16, `futbolargentino_fixture` tampoco arma dentro de Streamlit las dos
+consultas de resultados ni sus cache-busters: `lpf_http.fetch_futbolargentino_results_pages`
+concentra esa orquestación y recibe `get_html` por parámetro para conservar la caché de UI.
+El wrapper sólo parsea/valida respuestas y mantiene exactamente el comportamiento 3.8.15.
+
+Desde 3.8.17, `lpf_tables_with_fallback` tampoco contiene la política de prioridad entre
+ESPN, FutbolArgentino.com, última foto y Anual local. Esa decisión vive en
+`lpf_table_selection.select_lpf_tables`, módulo puro; Streamlit sólo obtiene candidatos,
+delega y persiste si corresponde. La salida se comparó contra 3.8.16 en nueve rutas.
+
+Desde 3.8.18, la persistencia del último respaldo válido tampoco vive en Streamlit.
+`lpf_table_backup` construye/valida el JSON, escribe de forma atómica y recupera candidatos
+de sesión/disco con la misma prioridad y antigüedad histórica. Streamlit sólo aporta la
+copia de sesión y conserva el warning si el filesystem no permite escribir. La recuperación
+se comparó contra 3.8.17 en cinco escenarios dirigidos.
+
+Desde 3.8.19, `_lpf_refresh_quality` tampoco reconstruye Apertura/Anual ni arma la auditoría
+dentro de Streamlit. `lpf_state.refresh_lpf_quality_state` recibe todos los candidatos y
+datos por parámetro y devuelve Apertura seleccionado, Anual autoritativa y reporte; el
+wrapper sólo persiste esos valores. Se comparó contra 3.8.18 en siete escenarios con
+equivalencia exacta de reporte y efectos de sesión.
+
+El nivel interno fue **2** desde 3.8.16 y sube a **3** en 3.8.19 porque el archivo principal
+requiere la nueva función de `lpf_state`. Los paquetes de actualización deben reemplazar
+los módulos críticos juntos; no bajes ese nivel sólo para reducir el ZIP.
+
+Football-data y Apify siguen definidos por compatibilidad histórica, pero sus ramas
+de UI están actualmente deshabilitadas con `and False`. No los extraigas ni reactives
+sólo por uniformidad; recién separalos cuando vuelvan a tener un consumidor real y
+haya fixtures/requests simulados para ese camino.
 
 ### 8e. Ambigüedad de promedios (deuda vieja, documentada)
 Hay una ambigüedad histórica en cómo se arma el diccionario de promedios (`prom`):
@@ -410,8 +456,10 @@ tener que leer 11.000 líneas. Cada extracción que hagas acerca ese objetivo.
   documentá.**
 - Lo fácil ya se hizo; lo que queda pide inyección de dependencias o separar lógica
   de presentación. El motor de ordenamiento, el constructor del estado LPF y la preparación determinística
-  de cargas ya están extraídos. El próximo trabajo seguro es separar parsing de fetch en
-  los proveedores que todavía hacen red, usando fixtures locales; no crear una API ni un
-  adaptador Opta hasta tener un consumidor real.
+  de cargas ya están extraídos. Las URLs HTML genéricas también quedaron separadas en
+  3.8.14, la ventana ESPN quedó fuera de Streamlit en 3.8.15 y la secuencia de resultados de FutbolArgentino.com en 3.8.16. Football-data y Apify
+  están confirmados como ramas deshabilitadas: no invertir trabajo ahí hasta que se
+  reactiven. El próximo paso debe salir de una dependencia activa y comprobable; no
+  crear una API ni un adaptador Opta hasta tener un consumidor real.
 - No reescribas, no cambies el stack, no abstraigas de más.
 - Ante la duda, la respuesta segura es **hacer menos y verificar más**.
