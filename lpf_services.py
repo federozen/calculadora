@@ -294,9 +294,12 @@ def calculate_objective_floor(payload: Mapping[str, object]) -> dict[str, object
     floor = piso_por_corte(base, rest, matches, team, cutoff, clave=key, nombre=name)
     result = asdict(floor)
     result["minimum_possible"] = floor.minimo_posible
-    result["exact_guarantee"] = _floor_exact_guarantee(floor)
+    result["minimum_guarantee"] = _floor_exact_guarantee(floor)
+    result["safe_total"] = floor.piso
+    # Alias técnicos del contrato v1: se conservan para no romper consumidores.
+    result["exact_guarantee"] = result["minimum_guarantee"]
     result["conservative_reference"] = _floor_conservative_reference(floor)
-    result["safe_value"] = floor.piso
+    result["safe_value"] = result["safe_total"]
     result["floor"] = floor.piso  # alias legado del contrato v1
     result["reading"] = floor.lectura()
     return _envelope("objective_floor", result)
@@ -400,9 +403,12 @@ def _snapshot_query_scope(
 def _objective_result(floor: object) -> dict[str, object]:
     result = asdict(floor)  # type: ignore[arg-type]
     result["minimum_possible"] = floor.minimo_posible  # type: ignore[attr-defined]
-    result["exact_guarantee"] = _floor_exact_guarantee(floor)  # type: ignore[attr-defined]
+    result["minimum_guarantee"] = _floor_exact_guarantee(floor)  # type: ignore[attr-defined]
+    result["safe_total"] = floor.piso  # type: ignore[attr-defined]
+    # Alias técnicos del contrato v1: se conservan para no romper consumidores.
+    result["exact_guarantee"] = result["minimum_guarantee"]
     result["conservative_reference"] = _floor_conservative_reference(floor)  # type: ignore[attr-defined]
-    result["safe_value"] = floor.piso  # type: ignore[attr-defined]
+    result["safe_value"] = result["safe_total"]
     result["reading"] = floor.lectura()  # type: ignore[attr-defined]
     return result
 

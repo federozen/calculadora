@@ -12,8 +12,10 @@ SCENARIOS = (ROOT / "lpf_scenarios.py").read_text(encoding="utf-8")
 def test_interfaz_usa_tres_conceptos_editoriales_distintos():
     assert "🎯 Puntos por objetivo" in MAIN
     assert "Mínimo posible" in MAIN
-    assert "Garantía exacta" in MAIN
-    assert "Referencia conservadora" in MAIN
+    assert "Total seguro" in MAIN
+    assert "Mínimo que asegura" in MAIN
+    assert "Garantía exacta" not in MAIN
+    assert "Referencia conservadora" not in MAIN
     assert "Puntaje que asegura" not in MAIN
     assert "Seguro (conservador)" not in MAIN
     assert "puntaje seguro (conservador)" not in MAIN.lower()
@@ -39,3 +41,15 @@ def test_promedios_no_etiquetan_piso_techo_en_tabla_visible():
     assert '"Mínimo final": round(d["piso"], 3)' in MAIN
     assert '"Máximo final": round(d["techo"], 3)' in MAIN
     assert '"Piso": round(d["piso"], 3)' not in MAIN
+
+
+def test_narrativa_explica_que_maximos_individuales_no_son_simultaneos():
+    assert "Eso no significa que todos puedan hacerlo al mismo tiempo" in MAIN
+    assert "máximos individuales son incompatibles entre sí" in MAIN
+    assert "por eso no suma esos máximos individuales como si pudieran darse todos juntos" in MAIN
+
+
+def test_total_seguro_explica_que_puede_no_ser_el_minimo():
+    assert "Todavía no sabemos si" in MAIN
+    assert "es el menor total que asegura" in MAIN
+    assert "Puede que alcance con menos" in MAIN or "Puede alcanzar con menos" in MAIN

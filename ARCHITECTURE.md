@@ -86,22 +86,24 @@ Los objetivos "quedar por encima de un corte" comparten estructura: un conjunto 
 equipos (`base`) y un corte (`corte`). Por eso una sola función, `piso_por_corte`,
 resuelve playoffs (zona, corte 8), Libertadores (tabla reducida, corte de plazas)
 y Sudamericana (reducida, corte ampliado). El descenso es el caso espejo y combina
-dos tablas: la Anual (exacta cuando entra en ventana) y los promedios (referencia conservadora por cocientes).
+dos tablas: la Anual (exacta cuando entra en ventana) y los promedios (total seguro por cocientes).
 
 Para cada objetivo se devuelven tres números con significado distinto:
 
 - **Mínimo posible:** menor puntaje con el que *todavía existe* una combinación
   favorable (desempate a favor).
-- **Garantía exacta:** menor puntaje comprobado que asegura el objetivo sin depender de otros resultados ni de desempates (desempate en contra).
-- **Referencia conservadora:** total seguro para ventanas grandes; si se alcanza asegura el objetivo, pero puede pedir puntos de más que la garantía exacta.
+- **Total seguro:** total suficiente para ventanas grandes; si se alcanza asegura el objetivo, pero puede pedir puntos de más.
+- **Mínimo que asegura:** menor puntaje comprobado que asegura el objetivo sin depender de otros resultados ni de desempates (desempate en contra).
 
 
 ## Frontera de servicios de cálculo
 
 `lpf_services.py` es una capa de aplicación fina y JSON-safe. No hace red, no conoce
 Streamlit ni proveedores y no contiene fórmulas propias: valida/traduce payloads y
-delega en `lpf_standings`, `lpf_scenarios` y `lpf_pisos`. Una futura API HTTP debe
-llamar esta capa en vez de importar `calculadora_futbol_argentino.py`.
+delega en `lpf_standings`, `lpf_scenarios` y `lpf_pisos`. `lpf_snapshot.py` agrega una
+foto canónica autocontenida de competencia construida desde `lpf_state`, para que una
+misma entrada pueda alimentar varias consultas sin reconstruir datos por fuera. Una
+futura API HTTP debe llamar estas capas en vez de importar `calculadora_futbol_argentino.py`.
 
 `lpf_version.py` contiene la única versión del motor y puede importarse desde cualquier
 interfaz sin disparar UI. El contrato externo se versiona de forma independiente con
@@ -109,7 +111,7 @@ interfaz sin disparar UI. El contrato externo se versiona de forma independiente
 
 La arquitectura objetivo queda:
 
-`proveedor -> transporte -> adaptador -> loading/state -> motores -> services -> Streamlit/API`
+`proveedor -> transporte -> adaptador -> loading/state -> snapshot -> motores/services -> Streamlit/API`
 
 Streamlit puede seguir llamando motores directamente mientras se migra gradualmente;
 la existencia de `services` no obliga a reescribir la UI.

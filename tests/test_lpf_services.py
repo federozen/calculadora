@@ -123,6 +123,8 @@ def test_objective_floor_service_matches_direct_engine():
     expected = asdict(direct)
     expected["caminos"] = [list(row) for row in expected["caminos"]]
     expected["minimum_possible"] = direct.minimo_posible
+    expected["minimum_guarantee"] = direct.garantia_exacta
+    expected["safe_total"] = direct.piso
     expected["exact_guarantee"] = direct.garantia_exacta
     expected["conservative_reference"] = direct.referencia_conservadora
     expected["safe_value"] = direct.piso
@@ -214,6 +216,8 @@ def test_competition_batch_objective_matches_direct_engine():
     })
     result = response["result"]["queries"][0]["result"]
     assert result["minimum_possible"] == direct.minimo_posible
+    assert result["minimum_guarantee"] == direct.garantia_exacta
+    assert result["safe_total"] == direct.piso
     assert result["exact_guarantee"] == direct.garantia_exacta
     assert result["conservative_reference"] == direct.referencia_conservadora
     assert result["safe_value"] == direct.piso
@@ -245,6 +249,8 @@ def test_competition_batch_descent_combines_annual_and_average_history():
     })
     result = response["result"]["queries"][0]["result"]
     assert result["safe_value"] == direct.piso
+    assert result["minimum_guarantee"] == direct.garantia_exacta
+    assert result["safe_total"] == direct.piso
     assert result["exact_guarantee"] == direct.garantia_exacta
     assert result["conservative_reference"] == direct.referencia_conservadora
 

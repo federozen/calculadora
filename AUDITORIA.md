@@ -8,8 +8,8 @@ La aplicación evita llamar "piso" a números distintos:
 
 - **Corte actual:** puntos que tiene hoy el último clasificado.
 - **Mínimo posible:** menor puntaje con el que existe una combinación favorable (incluye ganar un desempate).
-- **Garantía exacta:** menor puntaje comprobado con el que un equipo entra sin depender de otros resultados ni de desempates.
-- **Referencia conservadora:** total seguro que puede pedir puntos de más cuando todavía no se calcula el mínimo exacto.
+- **Mínimo que asegura:** menor puntaje comprobado con el que un equipo entra sin depender de otros resultados ni de desempates.
+- **Total seguro:** total que asegura el objetivo pero puede pedir puntos de más cuando todavía no se calcula el mínimo exacto.
 - **Corte estimado:** rango probable de la simulación; nunca se presenta como
   certeza.
 
@@ -18,7 +18,7 @@ La aplicación evita llamar "piso" a números distintos:
 | Nivel | Qué significa | De dónde sale |
 | --- | --- | --- |
 | **Exacto** | Puntos, PJ, techo, rango por resultados, escenarios factibles y escalera por optimización. | `lpf_scenarios` (MILP) y `lpf_pisos` en ventanas de hasta ocho fechas. |
-| **Referencia conservadora** | Total seguro cuando el cálculo exacto completo no se activa. Puede pedir algún punto de más; nunca declara una clasificación falsa. | `lpf_exact` (`safe_guarantee_line`, `safe_average_guarantee_points`). |
+| **Total seguro** | Total que asegura cuando el cálculo exacto completo no se activa. Puede pedir algún punto de más; nunca declara una clasificación falsa. | `lpf_exact` (`safe_guarantee_line`, `safe_average_guarantee_points`). |
 | **Estimado** | Monte Carlo, dificultad, corte probable, impacto de otras canchas. | Simulación con semilla fija, siempre rotulada. |
 
 ## Reglas de datos
@@ -46,7 +46,7 @@ Las pruebas viven en `tests/` y cubren, entre otras cosas:
   los resultados posibles y se verifica que el mínimo posible es realmente
   alcanzable y que la garantía es el menor puntaje que asegura el objetivo en
   todos los desenlaces (con desempate adverso). También chequea invariantes
-  (`puntos_hoy ≤ mínimo ≤ techo`, `garantía ≥ mínimo`) y que la referencia conservadora nunca sea menor que la garantía exacta real.
+  (`puntos_hoy ≤ mínimo ≤ techo`, `garantía ≥ mínimo`) y que el total seguro nunca sea menor que el mínimo que asegura real.
 - Comparación del optimizador contra enumeración exhaustiva en casos pequeños.
 - Postergados, Tabla Anual derivada, escalera exacta y ventanas dobles.
 

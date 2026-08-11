@@ -39,7 +39,7 @@ de una fecha y puntos por objetivo. El punto de entrada es
 determinístico y validado.* El modelo de lenguaje (cuando está activo) sólo
 interpreta la consulta del usuario y redacta; **nunca** calcula. No rompas esto.
 
-**Regla editorial:** no usar **“cota”**, **“piso seguro”**, **“piso ajustado”**, **“puntaje que asegura”** ni **“seguro (conservador)”** como etiquetas de cara al usuario. Usar siempre **mínimo posible**, **garantía exacta** y **referencia conservadora**. La referencia conservadora también asegura si se alcanza, pero puede pedir puntos de más; la garantía exacta es el menor total comprobado. Distinguí siempre: *corte actual*, *mínimo posible* (desempate a favor), *garantía exacta* (desempate en contra), *referencia conservadora* y *estimación* (siempre rotulada como tal).
+**Regla editorial:** no usar **“cota”**, **“piso seguro”**, **“piso ajustado”**, **“garantía exacta”**, **“referencia conservadora”**, **“puntaje que asegura”** ni **“seguro (conservador)”** como etiquetas de cara al usuario. Usar siempre **mínimo posible**, **total seguro** y **mínimo que asegura**. El **total seguro** es suficiente si se alcanza, pero puede pedir puntos de más: todavía no sabemos si es el menor. El **mínimo que asegura** es el menor total comprobado. Distinguí siempre: *corte actual*, *mínimo posible* (desempate a favor), *total seguro*, *mínimo que asegura* (desempate en contra) y *estimación* (siempre rotulada como tal).
 
 ---
 
@@ -75,10 +75,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.10` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.11` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
 - Archivo principal: **~10.600 líneas** (arrancó en ~12.780).
-- **147 pruebas**, todas verdes. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- **151 pruebas**, todas verdes en 3.8.11. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar

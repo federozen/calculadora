@@ -1,3 +1,14 @@
+## 3.8.11 · 2026-08-10
+
+### Narrativa: Total seguro y Mínimo que asegura
+
+- Se reemplazan en toda la interfaz y las narraciones las etiquetas visibles **“referencia conservadora”** y **“garantía exacta”** por conceptos más directos: **total seguro** y **mínimo que asegura**.
+- **Total seguro**: sabemos que alcanza si se llega a esa marca, pero todavía no sabemos si es el menor total que asegura.
+- **Mínimo que asegura**: el motor exacto comprobó que ningún total alcanzable menor garantiza el objetivo.
+- El bloque de rivales deja de concatenar máximos individuales en un párrafo: los lista uno por línea y explica que esos máximos no pueden darse todos simultáneamente por los cruces entre rivales.
+- La API agrega `minimum_guarantee` y `safe_total` como alias editoriales, sin romper las claves técnicas existentes del contrato v1.
+- No cambia ninguna fórmula, umbral ni resultado matemático.
+
 ## 3.8.10 · 2026-08-10
 
 ### Compatibilidad de despliegues parciales en Puntos por objetivo

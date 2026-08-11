@@ -210,9 +210,10 @@ def test_valor_seguro_prioriza_referencia_si_el_objetivo_global_no_es_exacto():
         piso_exacto=24, piso_conservador=27, exacto=False,
     )
     assert p.garantia_exacta is None
+    assert p.minimo_que_asegura is None
     assert p.referencia_conservadora == 27
     assert p.piso == 27
-    assert "Referencia conservadora: 27 puntos" in p.lectura()
+    assert "Total seguro: 27 puntos" in p.lectura()
 
 
 def test_valor_seguro_muestra_garantia_cuando_el_calculo_global_es_exacto():
@@ -221,9 +222,10 @@ def test_valor_seguro_muestra_garantia_cuando_el_calculo_global_es_exacto():
         piso_exacto=25, piso_conservador=27, exacto=True,
     )
     assert p.garantia_exacta == 25
+    assert p.minimo_que_asegura == 25
     assert p.referencia_conservadora is None
     assert p.piso == 25
-    assert "Garantía exacta: con 25 puntos" in p.lectura()
+    assert "Mínimo que asegura: con 25 puntos" in p.lectura()
 
 
 def test_no_descenso_no_declara_salvado_si_promedios_aun_exigen_puntos(monkeypatch):
@@ -269,3 +271,25 @@ def test_no_descenso_es_exacto_si_anual_manda_y_promedios_ya_quedan_cubiertos(mo
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+def test_promedio_totales_reproduce_la_formula_que_usaba_streamlit():
+    from lpf_pisos import promedio_totales
+
+    anual = {
+        "A": {"pts": 12, "pj": 6},
+        "B": {"pts": 9, "pj": 6},
+        "C": {"pts": 7, "pj": 6},
+    }
+    zonas = {"A": {
+        "A": {"pts": 0, "pj": 5},
+        "B": {"pts": 0, "pj": 4},
+        "C": {"pts": 0, "pj": 6},
+    }}
+    previas = {"A": (30, 20), "B": [24, 20]}
+    assert promedio_totales(anual, zonas, previas) == {
+        "A": (42, 25),
+        "B": (33, 24),
+        "C": (7, 6),
+    }
+    assert promedio_totales(anual, zonas, {}) is None

@@ -6,11 +6,11 @@ significado distinto y sin mezclarlos:
 
 - **Mínimo posible:** el menor puntaje final con el que *todavía existe* una
   combinación de resultados que logra el objetivo. No es una garantía.
-- **Garantía exacta:** el menor puntaje que asegura el objetivo sin depender de
+- **Mínimo que asegura:** el menor puntaje que asegura el objetivo sin depender de
   otros resultados ni de desempates. Sale del optimizador exacto.
-- **Referencia conservadora:** un número seguro para ventanas grandes, cuando el
-  motor exacto todavía no se activa. Si se alcanza, el objetivo queda asegurado,
-  pero puede pedir algún punto de más que la garantía exacta.
+- **Total seguro:** un total que sabemos que alcanza cuando la ventana todavía es
+  demasiado grande para buscar el mínimo exacto. Puede pedir puntos de más: es
+  seguro, pero todavía no sabemos si es el menor que asegura.
 
 Todos los objetivos de tipo "quedar por encima de un corte" (playoffs y las dos
 copas) comparten la misma estructura: un conjunto de equipos y un corte. Por eso
@@ -94,12 +94,17 @@ class PisoObjetivo:
 
     @property
     def garantia_exacta(self) -> int | None:
-        """Menor total comprobado que asegura el objetivo, si el cálculo global es exacto."""
+        """Alias interno histórico del mínimo que asegura, si el cálculo global es exacto."""
         return self.piso_exacto if self.exacto else None
 
     @property
+    def minimo_que_asegura(self) -> int | None:
+        """Menor total comprobado que asegura el objetivo."""
+        return self.garantia_exacta
+
+    @property
     def referencia_conservadora(self) -> int | None:
-        """Número seguro disponible cuando la garantía global todavía no es exacta."""
+        """Alias interno histórico del total seguro disponible antes del mínimo exacto."""
         if self.exacto:
             return None
         if self.piso_conservador is not None:
@@ -125,14 +130,14 @@ class PisoObjetivo:
             return f"Sin chances: aun ganando todo llega a {self.techo} y no alcanza."
         piso = self.piso
         if piso is None:
-            return "En carrera; la garantía exacta se calcula cuando entra en la ventana final."
+            return f"En carrera; el mínimo que asegura se calcula con {VENTANA_EXACTA} partidos restantes o menos."
         faltan = max(0, piso - self.puntos_hoy)
         cola = "" if faltan == 0 else f" (le faltan {faltan})"
         if self.exacto:
-            return f"Garantía exacta: con {piso} puntos asegura {self.nombre}{cola}."
+            return f"Mínimo que asegura: con {piso} puntos asegura {self.nombre}{cola}."
         return (
-            f"Referencia conservadora: {piso} puntos{cola}. Si llega a ese total, asegura "
-            f"{self.nombre}; el mínimo exacto puede ser menor."
+            f"Total seguro: {piso} puntos{cola}. Si llega a ese total, asegura {self.nombre}. "
+            "Todavía no sabemos si ése es el menor total que asegura; puede alcanzar con menos."
         )
 
 
@@ -207,7 +212,7 @@ def piso_por_corte(
     matches = _matches_del_pool(pend, pool)
     games_left = int(rest.get(team, 0))
 
-    # Referencia conservadora: siempre disponible. safe_guarantee_line devuelve el mayor
+    # Total seguro: siempre disponible. safe_guarantee_line devuelve el mayor
     # puntaje con el que `corte` rivales todavía pueden igualar al equipo; sumar uno
     # garantiza terminar por encima de ese grupo.
     try:
@@ -258,7 +263,7 @@ def piso_no_descenso(
     En la LPF se baja por dos vías: el último de la Tabla Anual y el peor promedio.
     Para estar salvado hay que estarlo en **las dos** tablas, así que manda la
     exigencia más alta. La parte anual se resuelve con el motor exacto (en el tramo
-    final) y la de promedios con una referencia conservadora por cocientes.
+    final) y la de promedios con un total seguro por cocientes.
     """
     nombre = "no descender"
     if team not in anual:
@@ -284,13 +289,13 @@ def piso_no_descenso(
             )
             if extra is not None:
                 piso_prom = _pts(anual, team) + int(extra)
-                detalle_prom = "Incluye la exigencia por promedios (referencia conservadora por cocientes)."
+                detalle_prom = "Incluye la exigencia por promedios (total seguro por cocientes)."
         except Exception:
             piso_prom = None
 
     # Combinar: para no descender hay que quedar a salvo en las dos tablas.
-    # La Anual puede tener garantía exacta; promedios aporta una referencia
-    # conservadora. Si esa referencia exige más que la garantía anual, el objetivo
+    # La Anual puede tener un mínimo exacto; promedios aporta un total
+    # seguro. Si esa referencia exige más que la garantía anual, el objetivo
     # global deja de ser exacto y manda el mayor total seguro.
     prom_disponible = bool(prom_totales and team in prom_totales)
     annual_safe = parte_anual.piso
@@ -323,7 +328,7 @@ def piso_no_descenso(
         and piso_prom is not None
         and piso_prom <= parte_anual.piso_exacto
     ):
-        # La garantía exacta de la Anual ya supera la exigencia conservadora de
+        # El mínimo exacto de la Anual ya supera la exigencia segura de
         # promedios. Como cualquier total menor falla la Anual en algún escenario,
         # ese mismo número es también el mínimo exacto del objetivo combinado.
         resultado.piso_exacto = parte_anual.piso_exacto
@@ -425,9 +430,12 @@ def tabla_pisos_objetivo(
             "Restan": int(rest.get(e, 0)),
             "Techo": p.techo,
             "Mínimo posible": p.minimo_posible,
-            "Garantía exacta": p.garantia_exacta,
-            "Referencia conservadora": p.referencia_conservadora,
-            "Cálculo": "Exacto" if p.exacto else "Conservador",
+            "Mínimo que asegura": p.minimo_que_asegura,
+            "Total seguro": p.referencia_conservadora,
+            "Tipo de dato": (
+                "Mínimo exacto" if p.minimo_que_asegura is not None
+                else ("Total seguro" if p.referencia_conservadora is not None else "—")
+            ),
             "Estado": {"in": "Adentro", "out": "Afuera", "pelea": "En carrera"}.get(p.estado, p.estado),
         })
     return filas

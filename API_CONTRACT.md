@@ -24,7 +24,7 @@ Todas las operaciones devuelven:
 ```json
 {
   "contract_version": "1",
-  "calculation_version": "3.8.10",
+  "calculation_version": "3.8.11",
   "calculation": "standings",
   "result": {}
 }
@@ -107,7 +107,7 @@ Función: `calculate_objective_floor(payload)`.
 }
 ```
 
-Además de los campos internos históricos de `PisoObjetivo`, la salida publica `minimum_possible`, `exact_guarantee`, `conservative_reference` y `safe_value`. `floor` se conserva sólo como alias legado del contrato v1 y apunta al valor seguro vigente. `reading` devuelve la lectura editorial con los mismos términos que Streamlit.
+Además de los campos internos históricos de `PisoObjetivo`, la salida publica los nombres editoriales `minimum_possible`, `safe_total` y `minimum_guarantee`. `safe_total` es el valor que sabemos que asegura el objetivo; `minimum_guarantee` sólo aparece cuando el motor comprobó que ése es el menor total que asegura. Por compatibilidad con el contrato v1 se conservan `exact_guarantee`, `conservative_reference`, `safe_value` y `floor`. `reading` devuelve la lectura editorial con los mismos términos que Streamlit.
 
 
 ## 5. Foto canónica de competencia

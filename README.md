@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.10
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.11
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -7,8 +7,17 @@ La versión vigente siempre está en `lpf_version.__version__` (única fuente de
 La versión 3 prioriza tres objetivos:
 
 1. **Base coherente:** Zonas, Tabla Anual, promedios, fixture y resultados se reconcilian antes de habilitar una cuenta.
-2. **Explicación honesta:** distingue hechos exactos, garantía exacta, referencia conservadora y estimaciones.
+2. **Explicación honesta:** distingue hechos exactos, mínimo posible, total seguro, mínimo que asegura y estimaciones.
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
+
+## Novedad 3.8.11 · Total seguro vs. mínimo que asegura
+
+- La interfaz y todas las narraciones dejan de usar **“garantía exacta”** y **“referencia conservadora”** como etiquetas visibles.
+- **Total seguro** significa: si el equipo llega a esa marca, el objetivo queda asegurado, pero todavía puede existir un total menor que también lo asegure.
+- **Mínimo que asegura** significa: el motor exacto comprobó que es el menor total alcanzable que asegura el objetivo en todos los escenarios compatibles.
+- Antes de la ventana exacta se muestra el **total seguro** y se dice expresamente que todavía no sabemos si es el menor. Con ocho partidos restantes o menos se busca el **mínimo que asegura**.
+- Los máximos individuales de rivales se muestran uno por línea y se aclara que no todos pueden alcanzarlos simultáneamente por los cruces entre sí.
+- La API agrega los alias editoriales `minimum_guarantee` y `safe_total`; mantiene `exact_guarantee`, `conservative_reference`, `safe_value` y `floor` por compatibilidad.
 
 ## Corrección 3.8.10 · Compatibilidad de actualización parcial
 
@@ -21,12 +30,12 @@ La UI y la fachada de servicios toleran temporalmente objetos `PisoObjetivo` de 
 - El batch cubre puntos por objetivo, escalera exacta, rango de puesto y descenso combinado Anual + promedios.
 - La fórmula que arma los totales de promedios salió de Streamlit y quedó en `lpf_pisos.promedio_totales`, compartida por UI y futura API.
 - No se agregó servidor HTTP ni SDK de Opta. Un futuro adaptador Opta sólo debe producir la entrada normalizada para esta misma foto.
-- Suite actual: **147 pruebas**.
+- Suite de esa versión: **147 pruebas**.
 
 ## Novedad 3.8.8 · Nombres editoriales unificados
 
-- Toda la app usa **mínimo posible**, **garantía exacta** y **referencia conservadora** para no mezclar números con significados distintos.
-- La referencia conservadora asegura si se alcanza, pero puede pedir puntos de más; la garantía exacta es el menor total comprobado.
+- Desde 3.8.11, la app usa **mínimo posible**, **total seguro** y **mínimo que asegura** para no mezclar números con significados distintos.
+- El total seguro asegura si se alcanza, pero puede pedir puntos de más; el mínimo que asegura es el menor total comprobado.
 - Promedios muestra **Mínimo final** (si pierde todo) y **Máximo final** (si gana todo), en lugar de “piso/techo”.
 - Se corrigió el objetivo combinado de no descenso para que Anual y promedios se evalúen juntos antes de declarar al equipo salvado.
 - Suite de esa versión: **140 pruebas**.
@@ -75,7 +84,7 @@ La UI y la fachada de servicios toleran temporalmente objetos `PisoObjetivo` de 
 
 - Nuevo espacio **Puntos por objetivo**, la puerta de entrada por defecto: en una sola pantalla responde cuántos puntos necesita cada equipo para cada meta.
 - El módulo `lpf_pisos.py` unifica el cálculo del piso de playoffs, Libertadores, Sudamericana y no descender. Los tres primeros son el mismo problema —quedar por encima de un corte en un conjunto de equipos— y se resuelven con la misma función.
-- Para cada objetivo informa tres números que no se mezclan: **mínimo posible** (existe una combinación favorable), **garantía exacta** (menor total comprobado que asegura sin depender de nadie ni de desempates) y **referencia conservadora** (total seguro para ventanas grandes que puede pedir puntos de más).
+- Para cada objetivo informa tres números que no se mezclan: **mínimo posible** (existe una combinación favorable), **total seguro** (sabemos que alcanza, aunque puede pedir puntos de más) y **mínimo que asegura** (menor total comprobado que asegura sin depender de nadie ni de desempates).
 - "No descender" combina Tabla Anual y promedios y toma la exigencia segura más alta de las dos vías.
 - Validado por fuerza bruta en `tests/test_lpf_pisos.py`.
 
@@ -168,11 +177,11 @@ La aplicación separa con nombres claros cuatro referencias distintas:
 
 - **Corte actual:** puntos que tiene hoy el último clasificado.
 - **Mínimo posible:** menor puntaje con el que existe una combinación favorable.
-- **Garantía exacta:** menor total comprobado con el que entra sin depender de otros resultados ni desempates.
-- **Referencia conservadora:** total seguro antes de la ventana exacta; si se alcanza, asegura, aunque puede pedir puntos de más.
+- **Total seguro:** una marca que sabemos que alcanza, aunque puede pedir puntos de más.
+- **Mínimo que asegura:** menor total comprobado con el que entra sin depender de otros resultados ni desempates.
 - **Corte estimado:** rango probable de la simulación; nunca se presenta como certeza.
 
-Cuando a un equipo le quedan más de ocho partidos, el informe usa una **referencia conservadora**. Apenas entra en sus últimos ocho partidos, el Radar habilita el optimizador exacto, busca la **garantía exacta** y arma la escalera de puntajes. En un torneo de 16 fechas, sin postergados, esto ocurre desde la Fecha 9. El umbral se aplica **por equipo y por partidos restantes**, así que los postergados propios sí pueden retrasarlo.
+Cuando a un equipo le quedan más de ocho partidos, el informe usa un **total seguro**. Apenas entra en sus últimos ocho partidos, el Radar habilita el optimizador exacto, busca el **mínimo que asegura** y arma la escalera de puntajes. En un torneo de 16 fechas, sin postergados, esto ocurre desde la Fecha 9. El umbral se aplica **por equipo y por partidos restantes**, así que los postergados propios sí pueden retrasarlo.
 
 ## Datos y fuente de verdad
 
