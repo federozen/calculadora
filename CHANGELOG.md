@@ -1,3 +1,10 @@
+## 3.8.27 · 2026-08-11
+
+- Nuevo `lpf_simulation.py` con las primitivas Monte Carlo puras usadas por la LPF: simulación de posición/puntos por zona, suma de puntos sobre pendientes y máscara de cumplimiento de objetivos.
+- `_sim_zone_rank_points` / `_sim_zone_pos` quedan como wrappers de compatibilidad que sólo aportan la fuerza calculada por `lpf_form`; `_sim_lpf_add` y `_obj_bool` pasan a ser aliases del módulo puro.
+- Equivalencia exacta contra 3.8.26: 500/500 casos del núcleo de zona, 500/500 del wrapper, 800/800 matrices de puntos y 900/900 máscaras de objetivos.
+- La suite sube de 229 a **234 pruebas**. `LPF_RUNTIME_API` sube de 9 a **10** y `lpf_simulation.py` entra al conjunto crítico para detectar deploys parciales.
+
 ## 3.8.26 · 2026-08-11
 
 ### Forma y fuerza de simulación fuera de Streamlit

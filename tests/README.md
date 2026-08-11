@@ -5,7 +5,7 @@ enumeran todos los desenlaces posibles y se comparan, resultado por resultado,
 contra lo que dicen los solucionadores. Es la evidencia de que "los números
 siempre salen de Python y están validados".
 
-La suite actual contiene **229 pruebas**.
+La suite actual contiene **234 pruebas**.
 
 | Archivo | Qué cubre |
 | --- | --- |
@@ -32,6 +32,7 @@ La suite actual contiene **229 pruebas**.
 | `test_lpf_schedule.py` | Agenda/Previa: prioridad de fuentes horarias, compatibilidad legacy, jornada vs. postergados, orden por calendario real, agrupación por día y hora argentina. |
 | `test_lpf_result_updates.py` | Aplicación manual de resultados: no muta la entrada, ignora duplicados/no pendientes, calcula cambios de posiciones y conserva equivalencia con 3.8.21. |
 | `test_lpf_form.py` | Forma, rachas y fuerza regularizada: casos dirigidos, equivalencia aleatoria con 3.8.25 y ausencia de dependencias de Streamlit/red. |
+| `test_lpf_simulation.py` | Monte Carlo puro: posición/puntos por zona, suma de puntos, objetivos, reproducibilidad y ausencia de dependencias de Streamlit/red. |
 | `test_lpf_qualification.py` | Tabla Anual, plazas y contexto de copas: prioridad Apertura/Anual directa, reordenamientos, clasificados fijos, vivos de Copa Argentina, etiqueta de actualización y equivalencia histórica. |
 
 Convenio de desempates (verificado en las pruebas):
@@ -50,3 +51,5 @@ python -m pytest -q
 ```
 
 - `test_lpf_table_selection.py`: prioridad/fallback puro de zonas y Tabla Anual entre proveedores y respaldos.
+
+La extracción de `lpf_simulation.py` se verificó además contra 3.8.26 en 500 casos de zona + 500 wrappers, 800 matrices globales y 900 máscaras de objetivos.

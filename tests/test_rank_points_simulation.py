@@ -6,6 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
+from lpf_simulation import simulate_zone_rank_points
+
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "calculadora_futbol_argentino.py"
 ORIGINAL = ROOT / "_original_referencia" / "calculadora_futbol_argentino_ORIGINAL.py"
@@ -19,6 +21,7 @@ def _extract_functions(path: Path, names: set[str]):
         "np": np,
         "_LPF_PDRAW": 0.26,
         "_LPF_LOCALIA": 1.22,
+        "_simulate_zone_rank_points_core": simulate_zone_rank_points,
         "_fuerza_lpf": lambda base, _played: {
             team: 0.8 + (idx + 1) * 0.13 for idx, team in enumerate(base)
         },

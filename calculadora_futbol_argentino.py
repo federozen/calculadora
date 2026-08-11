@@ -11,7 +11,7 @@ from lpf_version import __version__
 import streamlit as st
 from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
-_REQUIRED_RUNTIME_API = 9
+_REQUIRED_RUNTIME_API = 10
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -73,6 +73,11 @@ from lpf_form import (
     result_letter as _form_result_letter,
     team_form as _team_form,
     team_streak as _team_streak,
+)
+from lpf_simulation import (
+    objective_mask as _obj_bool,
+    simulate_point_additions as _sim_lpf_add,
+    simulate_zone_rank_points as _simulate_zone_rank_points_core,
 )
 from lpf_qualification import (
     allocate_cup_slots, annual_base as _qualification_annual_base,
@@ -6579,47 +6584,12 @@ def lpf_previa_fecha_narrativa(
 
 def _sim_zone_rank_points(base, rest, pend, target, n, seed, forced=None,
                           pdraw=_LPF_PDRAW, loc=_LPF_LOCALIA, jugados=None):
-    """Devuelve posición y puntos finales simulados del equipo objetivo.
-
-    La pareja de arrays permite condicionar una lectura por puesto sin tratar todos
-    los puntajes matemáticamente alcanzables como si fueran igual de probables.
-    """
-    rng = np.random.default_rng(seed)
-    eqs = list(base.keys()); idx = {e: i for i, e in enumerate(eqs)}
-    s = _fuerza_lpf(base, jugados)
-    pts = np.tile(np.array([base[e]["pts"] for e in eqs], float), (n, 1))
-    dg0 = np.array([float(base[e].get("dg", 0)) for e in eqs])
-    forced = dict(forced or {})
-    consumidos = {e: 0 for e in eqs}
-    # 1) resultados forzados (deterministas), aplicados a los que estén en la zona
-    for (a, b), o in forced.items():
-        for e in (a, b):
-            if e in idx:
-                consumidos[e] += 1
-        if o == "L" and a in idx: pts[:, idx[a]] += 3
-        elif o == "V" and b in idx: pts[:, idx[b]] += 3
-        elif o == "E":
-            if a in idx: pts[:, idx[a]] += 1
-            if b in idx: pts[:, idx[b]] += 1
-    # 2) cruces intra-zona pendientes (no forzados): simulados con localía
-    en_fix = {e: 0 for e in eqs}
-    for (a, b) in pend:
-        if a in idx and b in idx and (a, b) not in forced:
-            en_fix[a] += 1; en_fix[b] += 1
-            pa = (1 - pdraw) * (s[a] * loc) / (s[a] * loc + s[b])
-            u = rng.random(n); ga = u < pa; gb = u >= pa + pdraw
-            pts[:, idx[a]] += np.where(ga, 3, np.where(gb, 0, 1))
-            pts[:, idx[b]] += np.where(gb, 3, np.where(ga, 0, 1))
-    # 3) el resto (interzonales + lo no cargado) contra rival promedio
-    for e in eqs:
-        extra = max(0, rest.get(e, 0) - en_fix[e] - consumidos[e])
-        if extra:
-            pa = (1 - pdraw) * s[e] / (s[e] + 1.0)
-            u = rng.random((n, extra))
-            pts[:, idx[e]] += np.where(u < pa, 3, np.where(u < pa + pdraw, 1, 0)).sum(axis=1)
-    key = pts + dg0[None, :] * 1e-4 + rng.random((n, len(eqs))) * 1e-7
-    pos = np.argsort(np.argsort(-key, axis=1), axis=1) + 1
-    return pos[:, idx[target]], pts[:, idx[target]].astype(int)
+    """Devuelve posición y puntos finales simulados del equipo objetivo."""
+    return _simulate_zone_rank_points_core(
+        base, rest, pend, target, n, seed,
+        strength=_fuerza_lpf(base, jugados),
+        forced=forced, pdraw=pdraw, loc=loc,
+    )
 
 
 def _sim_zone_pos(base, rest, pend, target, n, seed, forced=None,
@@ -6630,6 +6600,7 @@ def _sim_zone_pos(base, rest, pend, target, n, seed, forced=None,
         pdraw=pdraw, loc=loc, jugados=jugados,
     )
     return positions
+
 
 def lpf_arbol_sim(equipo, Z, rest, pend, top=_LPF_TOP_OCTAVOS, seed=17, jugados=None):
     """Árbol por simulación: cómo cambian las chances de entrar a octavos (top 8
@@ -7179,78 +7150,6 @@ def _lpf_ctx(Z, rest, apertura, camps, extras, prom, n_anual=1, n_prom=1):
                 tomados=P["tomados"], orden=P["orden"], equipos=equipos, zona_de=zona_de,
                 zpts=zpts, zdg=zdg, apts=apts, adg=adg, prom=prom or {}, rest=rest,
                 n_anual=n_anual, n_prom=n_prom)
-
-def _sim_lpf_add(equipos, pend, s, n, seed, forced=None, pdraw=_LPF_PDRAW, loc=_LPF_LOCALIA):
-    """Matriz (n, len(equipos)) de puntos que suma cada equipo en los pendientes,
-    simulando todos los partidos reales del fixture. `forced`: {(l,v): 'L'|'E'|'V'}."""
-    rng = np.random.default_rng(seed)
-    idx = {e: i for i, e in enumerate(equipos)}
-    add = np.zeros((n, len(equipos)))
-    forced = forced or {}
-    for (a, b) in pend:
-        if a not in idx or b not in idx:
-            continue
-        ia, ib = idx[a], idx[b]; f = forced.get((a, b))
-        if f == "L": add[:, ia] += 3
-        elif f == "V": add[:, ib] += 3
-        elif f == "E": add[:, ia] += 1; add[:, ib] += 1
-        else:
-            pa = (1 - pdraw) * (s[a] * loc) / (s[a] * loc + s[b]); u = rng.random(n)
-            ga = u < pa; gb = u >= pa + pdraw
-            add[:, ia] += np.where(ga, 3, np.where(gb, 0, 1))
-            add[:, ib] += np.where(gb, 3, np.where(ga, 0, 1))
-    return add, idx
-
-def _rank_pos(key):
-    """Posición (1=mejor) por fila para una matriz de 'llaves' (mayor = mejor)."""
-    return (-key).argsort(1).argsort(1) + 1
-
-def _obj_bool(objetivo, X, add, idx, ctx):
-    """Array booleano (n,): en cada torneo simulado, ¿X logra el objetivo?"""
-    n = add.shape[0]
-    if objetivo == "playoffs":
-        lab = ctx["zona_de"].get(X)
-        if not lab:
-            return np.zeros(n, bool)
-        zt = list(ctx["Z"][lab])
-        # El epsilon estable representa los criterios todavía no cargados (fair play/sorteo)
-        # y evita que dos equipos ocupen a la vez la misma posición simulada.
-        eps = np.arange(len(zt), dtype=float) * 1e-8
-        key = np.array([ctx["zpts"][e] + ctx["zdg"][e] * 1e-4 for e in zt])[None, :] + eps + add[:, [idx[e] for e in zt]]
-        xj = zt.index(X)
-        return ((key > key[:, xj:xj + 1]).sum(1) + 1) <= 8
-    if objetivo in ("libertadores", "sudamericana", "al_menos_sudamericana"):
-        red = ctx["reducida"]
-        if X not in red:
-            return np.zeros(n, bool)
-        eps = np.arange(len(red), dtype=float) * 1e-8
-        key = np.array([ctx["apts"][e] + ctx["adg"][e] * 1e-4 for e in red])[None, :] + eps + add[:, [idx[e] for e in red]]
-        xj = red.index(X)
-        rank = (key > key[:, xj:xj + 1]).sum(1) + 1
-        if objetivo == "libertadores":
-            return rank <= ctx["n_lib"]
-        if objetivo == "al_menos_sudamericana":
-            return rank <= ctx["n_lib"] + 6
-        return (rank > ctx["n_lib"]) & (rank <= ctx["n_lib"] + 6)
-    if objetivo == "descenso":
-        prom = ctx["prom"]; rest = ctx["rest"]
-        pteams = [e for e in ctx["equipos"] if e in prom]
-        if pteams:
-            num = np.array([prom[e][0] for e in pteams], float)[None, :] + add[:, [idx[e] for e in pteams]]
-            den = np.array([prom[e][1] + rest.get(e, 0) for e in pteams], float)[None, :]
-            promedio = num / den
-            prom_last = np.array(pteams)[promedio.argmin(1)]
-        else:
-            prom_last = np.array([""] * n)
-        at = [e for e in ctx["equipos"] if e in ctx["apts"]]
-        eps = np.arange(len(at), dtype=float) * 1e-8
-        akey = np.array([ctx["apts"][e] + ctx["adg"][e] * 1e-4 for e in at])[None, :] + eps + add[:, [idx[e] for e in at]]
-        order = akey.argsort(1)  # ascendente: peor primero
-        anual_last = np.array(at)[order[:, 0]]
-        anual_2last = np.array(at)[order[:, 1]]
-        anual_releg = np.where(anual_last == prom_last, anual_2last, anual_last)
-        return (prom_last == X) | (anual_releg == X)
-    return np.zeros(n, bool)
 
 def _objetivo_lpf(q):
     z = _zlow(q)
