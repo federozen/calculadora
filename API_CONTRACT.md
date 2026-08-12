@@ -25,7 +25,7 @@ Todas las operaciones devuelven:
 ```json
 {
   "contract_version": "1",
-  "calculation_version": "3.8.30",
+  "calculation_version": "3.8.31",
   "calculation": "standings",
   "result": {}
 }
@@ -116,7 +116,7 @@ Además de los campos internos históricos de `PisoObjetivo`, la salida publica 
 Función: `prepare_competition_snapshot(payload)`. Recibe datos ya normalizados y usa
 `lpf_state.build_lpf_state`; no crea una segunda verdad paralela. La salida reúne en
 un único objeto `zones`, `annual`, `opening`, `played`, `pending`, `remaining`,
-`previous_averages`, `fixture`, `rules` y `audit`.
+`previous_averages`, `fixture`, `rules` y `audit`. `previous_averages` contiene **sólo temporadas anteriores** (`points/played`); los totales de promedio se reconstruyen con la Tabla Anual vigente dentro del motor.
 
 Entrada conceptual:
 

@@ -14,7 +14,7 @@ from lpf_clubs import canon_base
 from lpf_reconcile import _validate_lpf_tables
 from lpf_text import _fmt_num_es
 
-LPF_RUNTIME_API = 12
+LPF_RUNTIME_API = 13
 
 
 def select_lpf_tables(

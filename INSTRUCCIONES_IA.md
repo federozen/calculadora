@@ -82,10 +82,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.30` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.31` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
 - Archivo principal: **~10.060 líneas** (arrancó en ~12.780).
-- **247 pruebas**, todas verdes en 3.8.30. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- **255 pruebas**, todas verdes en 3.8.31. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -138,8 +138,9 @@ ciclos); respétalo. De más básico a más compuesto:
 | `lpf_fixture_sources.py` | Fuentes de fixture y `expected_played_count` (ya existía). | — |
 | `lpf_schedule.py` | Agenda/calendario puros para Previa: hora argentina, jornada/postergados, orden real y ventanas temporales. | lpf_clubs |
 | `lpf_result_updates.py` | Aplicación pura de marcadores confirmados y cambios de posiciones para la carga manual. | lpf_standings |
+| `lpf_averages.py` | Contrato puro de promedios: distingue antecedentes previos de totales acumulados y usa la Tabla Anual como fuente de puntos/PJ 2026. | lpf_clubs |
 | `lpf_form.py` | Forma reciente, rachas y fuerza regularizada para simulaciones; el Apertura entra por parámetro. | numpy |
-| `lpf_simulation.py` | Constructor explícito de contexto y primitivas Monte Carlo: Anual/cupos, posición/puntos por zona, suma de puntos y máscaras de objetivos. | numpy, lpf_qualification |
+| `lpf_simulation.py` | Constructor explícito de contexto y primitivas Monte Carlo: Anual/cupos, promedios, posición/puntos por zona, suma de puntos y máscaras de objetivos. | numpy, lpf_averages, lpf_qualification |
 | `lpf_qualification.py` | Tabla Anual autoritativa, plazas internacionales y contexto de copas sin sesión. | lpf_clubs, lpf_data_quality, lpf_standings, lpf_text |
 | `lpf_data_quality.py` | Reportes de calidad de datos (ya existía). | lpf_models |
 | `lpf_state.py` | Constructor y revalidador puros del estado LPF canónico: Apertura, Anual autoritativa, pendientes y auditoría. Todos los valores de sesión entran por parámetro. | lpf_clubs, lpf_data_quality, lpf_models |
@@ -372,7 +373,7 @@ wrapper sólo persiste esos valores. Se comparó contra 3.8.18 en siete escenari
 equivalencia exacta de reporte y efectos de sesión.
 
 El nivel interno fue **2** desde 3.8.16, subió a **3** en 3.8.19 por la nueva función de `lpf_state`, a **4** en 3.8.21 por `lpf_schedule.py`, a **5** en 3.8.22 porque la Mesa de redacción requiere `lpf_result_updates.py` y a **6** en 3.8.23 porque la app importa `lpf_qualification.py` para Anual/cupos, a **7** en 3.8.24 porque también importa sus helpers de contexto de copas y a **8** en 3.8.25 porque la UI importa `lpf_scenarios.can_finish_exact_rank_by_points` y a **9** en 3.8.26 al incorporar `lpf_form.py` como dependencia activa de las simulaciones y a **10** en 3.8.27 al extraer `lpf_simulation.py` como frontera Monte Carlo pura y a **11** en 3.8.28 porque el wrapper importa su constructor explícito de contexto y a **12** en 3.8.29 al unificar `lpf_competitive_context.py` con el kernel y la fuerza canónicos. El archivo principal también comprueba explícitamente que `lpf_runtime.py` tenga el nivel requerido antes de importar módulos sensibles. Los paquetes de actualización deben reemplazar los módulos críticos juntos; no bajes ese nivel sólo para reducir el ZIP.
-En 3.8.30 sólo se reordenó la navegación visible de **Accesos principales**; no cambió ningún contrato interno y el runtime sigue en **12**.
+En 3.8.30 sólo se reordenó la navegación visible de **Accesos principales**; no cambió ningún contrato interno y el runtime siguió en **12**. En 3.8.31 el nivel sube a **13** porque `lpf_averages.py` pasa a ser dependencia crítica de pisos, snapshots y simulación de descenso.
 
 Football-data y Apify siguen definidos por compatibilidad histórica, pero sus ramas
 de UI están actualmente deshabilitadas con `and False`. No los extraigas ni reactives
@@ -435,11 +436,10 @@ Se congeló una foto real del 11/08/2026 20:28 ART con 59 partidos completados. 
 
 La mediana condicionada a un puesto debe publicar el tamaño de muestra. `lpf_simulation.summarize_rank_condition` marca como inestable una muestra menor a 100 corridas; la UI debe advertirlo. No ocultes ese aviso aunque la mediana “parezca razonable”.
 
-### 8e. Ambigüedad de promedios (deuda vieja, documentada)
-Hay una ambigüedad histórica en cómo se arma el diccionario de promedios (`prom`):
-en algunos lugares se trata como "totales acumulados" y en otros como "temporadas
-previas". `lpf_pisos.promedio_totales` concentra esa combinación y el wrapper Streamlit sólo aporta las previas cargadas. Si unificás la
-representación, hacelo con pruebas que cubran ambos usos.
+### 8e. Promedios: contrato explícito — corregido en 3.8.31
+`lpf_averages.py` separa dos conceptos que antes compartían el nombre ambiguo `prom`: `previous_averages` contiene sólo temporadas anteriores y `average_totals` contiene esos antecedentes más la Tabla Anual 2026 vigente. La Tabla Anual aporta tanto puntos como PJ de 2026; las zonas sólo sirven de respaldo si una foto legacy no trae PJ.
+
+La corrección se auditó contra las fotos internas sincronizadas: **30/30 equipos** reproducen exactamente los totales Pts/PJ publicados. La fórmula anterior usaba PJ del Clausura junto con puntos de Apertura+Clausura y fallaba 30/30 denominadores. `lpf_pisos.promedio_totales` queda como wrapper de compatibilidad y `lpf_simulation` construye `average_totals` antes de evaluar descenso. No vuelvas a pasar temporadas previas directamente a un consumidor que espere totales.
 
 ---
 
@@ -517,7 +517,7 @@ tener que leer 11.000 líneas. Cada extracción que hagas acerca ese objetivo.
 - Lo fácil ya se hizo; lo que queda pide inyección de dependencias o separar lógica
   de presentación. El motor de ordenamiento, el constructor del estado LPF y la preparación determinística
   de cargas ya están extraídos. Las URLs HTML genéricas también quedaron separadas en
-  3.8.14, la ventana ESPN quedó fuera de Streamlit en 3.8.15 y la secuencia de resultados de FutbolArgentino.com en 3.8.16, la agenda/alcance de la Previa en 3.8.21, la aplicación manual de resultados en 3.8.22, la Anual/cupos en 3.8.23, el contexto de copas en 3.8.24, la forma/fuerza de simulación en 3.8.26, las primitivas Monte Carlo en 3.8.27, el contexto explícito de simulación en 3.8.28 y la auditoría/unificación probabilística en 3.8.29. Football-data y Apify
+  3.8.14, la ventana ESPN quedó fuera de Streamlit en 3.8.15 y la secuencia de resultados de FutbolArgentino.com en 3.8.16, la agenda/alcance de la Previa en 3.8.21, la aplicación manual de resultados en 3.8.22, la Anual/cupos en 3.8.23, el contexto de copas en 3.8.24, la forma/fuerza de simulación en 3.8.26, las primitivas Monte Carlo en 3.8.27, el contexto explícito de simulación en 3.8.28 y la auditoría/unificación probabilística en 3.8.29 y el contrato explícito de promedios en 3.8.31. Football-data y Apify
   están confirmados como ramas deshabilitadas: no invertir trabajo ahí hasta que se
   reactiven. El próximo paso debe salir de una dependencia activa y comprobable; no
   crear una API ni un adaptador Opta hasta tener un consumidor real.

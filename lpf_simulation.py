@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from lpf_averages import combine_average_totals, normalize_previous_averages
 from lpf_qualification import allocate_cup_slots, annual_base
 
-LPF_RUNTIME_API = 12
+LPF_RUNTIME_API = 13
 
 DEFAULT_DRAW_PROBABILITY = 0.26
 DEFAULT_HOME_ADVANTAGE = 1.22
@@ -89,7 +90,7 @@ def build_simulation_context(
     opening,
     camps,
     extras,
-    averages,
+    previous_averages,
     *,
     direct_annual=None,
     opening_rounds,
@@ -116,6 +117,8 @@ def build_simulation_context(
         extras=extras or ("", ""),
         copa_replacement=copa_replacement or "",
     )
+    previous = normalize_previous_averages(previous_averages)
+    average_totals = combine_average_totals(annual, previous, zones=zones) or {}
     teams = [team for base in zones.values() for team in base]
     zone_of = {team: label for label, base in zones.items() for team in base}
     zone_points = {team: zones[zone_of[team]][team]["pts"] for team in teams}
@@ -139,7 +142,10 @@ def build_simulation_context(
         "zdg": zone_goal_difference,
         "apts": annual_points,
         "adg": annual_goal_difference,
-        "prom": averages or {},
+        "previous_averages": previous,
+        "average_totals": average_totals,
+        # Alias legacy: históricamente ``ctx["prom"]`` se consumía como totales.
+        "prom": average_totals,
         "rest": remaining,
         "n_anual": n_annual,
         "n_prom": n_average,
@@ -293,7 +299,7 @@ def objective_mask(objective, team, additions, idx, context):
         return (rank > context["n_lib"]) & (rank <= context["n_lib"] + 6)
 
     if objective == "descenso":
-        averages = context["prom"]
+        averages = context.get("average_totals") or context.get("prom") or {}
         remaining = context["rest"]
         average_teams = [other for other in context["equipos"] if other in averages]
         if average_teams:

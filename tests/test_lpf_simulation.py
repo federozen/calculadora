@@ -128,7 +128,9 @@ def test_contexto_de_simulacion_recibe_anual_y_reemplazo_explicitamente():
     assert context["anual"]["River Plate"]["pts"] == 28
     assert context["n_lib"] == 4
     assert "Boca Juniors" in context["tomados"]
-    assert context["prom"]["River Plate"] == (80, 60)
+    assert context["previous_averages"]["River Plate"] == (80, 60)
+    assert context["average_totals"]["River Plate"] == (108, 80)
+    assert context["prom"]["River Plate"] == (108, 80)  # alias legacy = totales, no previas
 
 
 def test_contexto_de_simulacion_puede_usar_anual_directa_sin_apertura():
@@ -171,3 +173,45 @@ def test_main_delega_el_armado_del_contexto_al_modulo_puro():
     assert "_build_simulation_context_core" in calls
     assert "lpf_anual_base" not in calls
     assert "lpf_plazas_copas" not in calls
+
+
+def test_contexto_de_descenso_suma_la_temporada_actual_a_las_previas():
+    from lpf_simulation import build_simulation_context
+
+    zones = {
+        "A": {"A": _row(6, 4), "B": _row(4, 4)},
+        "B": {"C": _row(3, 4), "D": _row(2, 4)},
+    }
+    opening = {team: _row(20, 16) for team in ("A", "B", "C", "D")}
+    previous = {team: (80, 60) for team in ("A", "B", "C", "D")}
+    context = build_simulation_context(
+        zones,
+        {team: 12 for team in ("A", "B", "C", "D")},
+        opening,
+        ("", "", ""),
+        ("", ""),
+        previous,
+        direct_annual={},
+        opening_rounds=16,
+    )
+    assert context["previous_averages"]["A"] == (80, 60)
+    assert context["average_totals"]["A"] == (106, 80)
+    assert context["prom"] == context["average_totals"]
+
+
+def test_descenso_prefiere_totales_explicitos_y_no_el_alias_legacy():
+    import numpy as np
+    from lpf_simulation import objective_mask
+
+    additions = np.zeros((3, 3), dtype=float)
+    idx = {"A": 0, "B": 1, "C": 2}
+    context = {
+        "equipos": ["A", "B", "C"],
+        "average_totals": {"A": (100, 10), "B": (10, 10), "C": (20, 10)},
+        # Si el motor leyera este alias conflictivo, A aparecería último por promedio.
+        "prom": {"A": (0, 10), "B": (10, 10), "C": (20, 10)},
+        "rest": {"A": 0, "B": 0, "C": 0},
+        "apts": {"A": 100, "B": 90, "C": 80},
+        "adg": {"A": 0, "B": 0, "C": 0},
+    }
+    assert objective_mask("descenso", "A", additions, idx, context).tolist() == [False, False, False]

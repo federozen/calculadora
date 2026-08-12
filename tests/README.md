@@ -5,7 +5,7 @@ enumeran todos los desenlaces posibles y se comparan, resultado por resultado,
 contra lo que dicen los solucionadores. Es la evidencia de que "los números
 siempre salen de Python y están validados".
 
-La suite actual contiene **247 pruebas**.
+La suite actual contiene **255 pruebas**.
 
 | Archivo | Qué cubre |
 | --- | --- |
@@ -16,6 +16,7 @@ La suite actual contiene **247 pruebas**.
 | `test_lpf_intents.py` | Ruteo de intención del chat: consultas → `{"intent": ...}`. |
 | `test_lpf_clubs.py` | Canonicalización de clubes: alias y variantes → nombre canónico. |
 | `test_lpf_parsers.py` | Parsers de tablas pegadas: listas, promedios, fixture y Anual. |
+| `test_lpf_averages.py` | Promedios: formatos legacy/JSON, aliases, separación previas→totales y uso de PJ de la Tabla Anual en vez de PJ sólo del Clausura. |
 | `test_lpf_state.py` | Estado canónico: constructor/revalidador puros sin Streamlit, prioridad de Apertura, migración de sesiones, derivación y alertas de procedencia. |
 | `test_lpf_loading.py` | Preparación de carga sin I/O: canonicalización de resultados, carga offline, actualización automática, avance de standings, reconstrucción anual y rechazo de fotos insuficientes. |
 | `test_lpf_provider_adapters.py` | Fixtures locales de ESPN/FutbolArgentino.com: standings, zonas, scoreboards, estados, deduplicación y metadatos sin red. |

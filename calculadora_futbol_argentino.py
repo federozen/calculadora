@@ -11,7 +11,7 @@ from lpf_version import __version__
 import streamlit as st
 from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
-_REQUIRED_RUNTIME_API = 12
+_REQUIRED_RUNTIME_API = 13
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -7156,14 +7156,14 @@ def lpf_previa_equipo_texto(equipo, Z, rest, pend, anual, prom, fecha=None,
     frame.attrs["reusable_line"] = reusable
     return "\n\n".join(lines), frame
 
-def _lpf_ctx(Z, rest, apertura, camps, extras, prom, n_anual=1, n_prom=1):
+def _lpf_ctx(Z, rest, apertura, camps, extras, previous_averages, n_anual=1, n_prom=1):
     """Wrapper de sesión del contexto puro compartido por las simulaciones."""
     estado = st.session_state.get("ESTADO") or {}
     opening = apertura or estado.get("apertura") or st.session_state.get("LPF_APERTURA") or {}
     direct = estado.get("anual_directo") or st.session_state.get("LPF_ANUAL") or {}
     replacement = st.session_state.get("LPF_COPA_ARG_REEMPLAZO", "")
     return _build_simulation_context_core(
-        Z, rest, opening, camps, extras, prom,
+        Z, rest, opening, camps, extras, previous_averages,
         direct_annual=direct, opening_rounds=LPF_APERTURA_PJ,
         copa_replacement=replacement, n_annual=n_anual, n_average=n_prom,
     )
@@ -7201,9 +7201,9 @@ _OBJ_NOMBRE = {
 
 def _lpf_riesgo_descenso(X, ctx, margen=6):
     """True si X está entre los últimos `margen` de promedios o de la anual (hoy)."""
-    prom = ctx["prom"]
-    if X in prom:
-        pr = sorted(prom, key=lambda e: prom[e][0] / prom[e][1])   # peor primero
+    average_totals = ctx.get("average_totals") or ctx.get("prom") or {}
+    if X in average_totals:
+        pr = sorted(average_totals, key=lambda e: average_totals[e][0] / average_totals[e][1])   # peor primero
         if X in pr[:margen]:
             return True, pr
     at = sorted(ctx["apts"], key=lambda e: (ctx["apts"][e], ctx["adg"][e]))  # peor primero

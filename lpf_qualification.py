@@ -13,7 +13,7 @@ from lpf_data_quality import sum_opening_and_zones, validate_annual
 from lpf_standings import liga_tabla_df
 from lpf_text import _zlow
 
-LPF_RUNTIME_API = 12
+LPF_RUNTIME_API = 13
 
 
 def annual_base(

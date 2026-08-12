@@ -6,30 +6,20 @@ serializable. No hace red, no conoce Streamlit y no calcula fórmulas nuevas: us
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 12
+LPF_RUNTIME_API = 13
 SNAPSHOT_SCHEMA_VERSION = "1"
 
 
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from lpf_pisos import promedio_totales
+from lpf_averages import combine_average_totals, previous_averages_json
 from lpf_state import build_lpf_state
 
 
 def _average_rows(previous: Mapping[str, object] | None) -> dict[str, dict[str, int]]:
-    """Normaliza antecedentes de promedios al esquema JSON ``points/played``."""
-    out: dict[str, dict[str, int]] = {}
-    for team, raw in (previous or {}).items():
-        if isinstance(raw, Mapping):
-            pts = int(raw.get("pts", raw.get("points", 0)))
-            pj = int(raw.get("pj", raw.get("played", 0)))
-        elif isinstance(raw, (tuple, list)) and len(raw) >= 2:
-            pts, pj = int(raw[0]), int(raw[1])
-        else:
-            continue
-        out[str(team)] = {"points": pts, "played": pj}
-    return out
+    """Normaliza antecedentes al contrato JSON-safe compartido."""
+    return previous_averages_json(previous)
 
 
 def build_competition_snapshot(
@@ -127,4 +117,4 @@ def snapshot_average_totals(snapshot: Mapping[str, object]) -> dict[str, tuple[i
     previous = snapshot.get("previous_averages")
     if not isinstance(annual, Mapping) or not isinstance(zones, Mapping) or not isinstance(previous, Mapping):
         return None
-    return promedio_totales(annual, zones, previous)
+    return combine_average_totals(annual, previous, zones=zones)

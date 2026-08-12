@@ -273,7 +273,7 @@ if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
 
 
-def test_promedio_totales_reproduce_la_formula_que_usaba_streamlit():
+def test_promedio_totales_combina_anual_con_previas_sin_perder_pj_del_apertura():
     from lpf_pisos import promedio_totales
 
     anual = {
@@ -288,8 +288,8 @@ def test_promedio_totales_reproduce_la_formula_que_usaba_streamlit():
     }}
     previas = {"A": (30, 20), "B": [24, 20]}
     assert promedio_totales(anual, zonas, previas) == {
-        "A": (42, 25),
-        "B": (33, 24),
+        "A": (42, 26),
+        "B": (33, 26),
         "C": (7, 6),
     }
     assert promedio_totales(anual, zonas, {}) is None

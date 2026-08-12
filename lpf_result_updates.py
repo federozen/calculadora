@@ -11,7 +11,7 @@ from typing import Any
 
 from lpf_standings import liga_tabla_df
 
-LPF_RUNTIME_API = 12
+LPF_RUNTIME_API = 13
 
 
 def _update_stats(stats: dict[str, Any], gf: int, ga: int) -> None:

@@ -6,7 +6,7 @@ archivo principal.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 12
+LPF_RUNTIME_API = 13
 
 import io
 import re

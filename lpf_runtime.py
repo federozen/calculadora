@@ -9,31 +9,32 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-LPF_RUNTIME_API = 12
+LPF_RUNTIME_API = 13
 
 # Sólo módulos cuyo contrato cruza capas y cuya mezcla de versiones puede romper
 # el arranque o la UI. El nivel se incrementa únicamente cuando cambia ese contrato.
 CRITICAL_COMPONENTS = (
-    "lpf_http.py",
-    "competition_html_adapters.py",
-    "lpf_models.py",
-    "lpf_standings.py",
-    "lpf_result_updates.py",
-    "lpf_form.py",
-    "lpf_simulation.py",
-    "lpf_competitive_context.py",
-    "lpf_scenarios.py",
-    "lpf_exact.py",
-    "lpf_pisos.py",
-    "lpf_state.py",
-    "lpf_loading.py",
-    "lpf_provider_adapters.py",
-    "lpf_table_selection.py",
-    "lpf_table_backup.py",
-    "lpf_snapshot.py",
-    "lpf_services.py",
-    "lpf_schedule.py",
-    "lpf_qualification.py",
+    'lpf_http.py',
+    'competition_html_adapters.py',
+    'lpf_models.py',
+    'lpf_standings.py',
+    'lpf_result_updates.py',
+    'lpf_averages.py',
+    'lpf_form.py',
+    'lpf_simulation.py',
+    'lpf_competitive_context.py',
+    'lpf_scenarios.py',
+    'lpf_exact.py',
+    'lpf_pisos.py',
+    'lpf_state.py',
+    'lpf_loading.py',
+    'lpf_provider_adapters.py',
+    'lpf_table_selection.py',
+    'lpf_table_backup.py',
+    'lpf_snapshot.py',
+    'lpf_services.py',
+    'lpf_schedule.py',
+    'lpf_qualification.py',
 )
 
 

@@ -1,3 +1,14 @@
+## 3.8.31 · 2026-08-12
+
+### Promedios: previas y totales dejan de mezclarse
+
+- Se agrega `lpf_averages.py`, contrato puro que distingue **temporadas previas** (`previous_averages`) de **totales acumulados de promedio** (`average_totals`).
+- Se corrige `promedio_totales`: los puntos y PJ de 2026 salen de la Tabla Anual autoritativa. Las zonas quedan sólo como respaldo para fotos legacy sin PJ; ya no se combinan puntos de Apertura+Clausura con un denominador que cuente únicamente el Clausura.
+- Auditoría contra las dos fotos internas sincronizadas (Tabla Anual + Promedios): la nueva combinación reproduce **30/30** totales Pts/PJ de la fuente; la fórmula anterior fallaba el denominador en **30/30**. Ejemplos: Boca 159/90 (antes 159/74), River 152/90 (antes 152/74), Aldosivi 42/49 (antes 42/33).
+- `lpf_simulation.build_simulation_context` recibe explícitamente antecedentes previos y construye los totales antes de evaluar descenso. `objective_mask` usa `average_totals`; `ctx["prom"]` queda sólo como alias legacy de esos totales.
+- Los snapshots reutilizan el mismo normalizador JSON-safe, con nombres de clubes canonicalizados.
+- Suite: **255 pruebas**. `LPF_RUNTIME_API` sube de 12 a **13** y `lpf_averages.py` entra al núcleo crítico.
+
 ## 3.8.30 · 2026-08-11
 
 ### Accesos principales: Puntos por objetivo al final

@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.30
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.31
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -11,6 +11,14 @@ La versión 3 prioriza tres objetivos:
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
 
+
+## Novedad 3.8.31 · Promedios con contrato explícito
+
+- Nuevo `lpf_averages.py`: separa **antecedentes de temporadas previas** de **totales acumulados usados para el promedio**.
+- Se corrige un error de denominador: la temporada 2026 toma tanto puntos como PJ de la Tabla Anual; los PJ del Clausura ya no reemplazan los PJ anuales.
+- La foto interna sincronizada valida la corrección en **30/30 equipos**. Boca, por ejemplo, queda en 159 puntos / 90 PJ, igual que la fuente, no 159/74.
+- El Monte Carlo de descenso recibe previas y construye `average_totals` antes de simular; la vista exacta, snapshots y simulación comparten ahora la misma frontera.
+- `LPF_RUNTIME_API` sube a **13**. Suite: **255 pruebas**.
 
 ## Novedad 3.8.30 · Orden de Accesos principales
 
@@ -154,7 +162,7 @@ La versión 3 prioriza tres objetivos:
 
 - Streamlit comprueba al arrancar que los módulos críticos pertenecen al mismo nivel de compatibilidad antes de importarlos.
 - Si detecta un archivo viejo o faltante, se detiene con un mensaje claro que enumera qué módulos hay que actualizar, en vez de terminar más adelante con un `NameError` o `AttributeError`.
-- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.30`) para verificar rápidamente qué commit tomó Streamlit Cloud.
+- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.31`) para verificar rápidamente qué commit tomó Streamlit Cloud.
 - Este cambio no toca ninguna fórmula ni resultado. Suite: **154 pruebas**.
 
 ## Novedad 3.8.11 · Total seguro vs. mínimo que asegura
