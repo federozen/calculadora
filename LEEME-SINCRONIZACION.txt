@@ -1,0 +1,5 @@
+Sincronizacion del nucleo LPF 3.8.29
+
+Copiar TODOS los archivos .py de este paquete a la raiz del repositorio, reemplazando los existentes.
+Version esperada: 3.8.29
+Runtime interno esperado: 12
