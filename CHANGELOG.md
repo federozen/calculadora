@@ -1,3 +1,22 @@
+## 3.8.36 · 2026-08-12
+
+### Consistencia del solver exacto en las últimas fechas
+
+- `lpf_scenarios.point_ladder` descarta antes del límite/solver los partidos donde ninguno de los dos equipos pertenece a la tabla calculada.
+- Los cruces interzonales se mantienen cuando tocan a un club de la tabla; sólo se eliminan partidos matemáticamente irrelevantes.
+- Corrige la contradicción potencial entre **Puntos por objetivo** y **Radar/Escenarios**: con las últimas ocho fechas, el fixture global suma 120 partidos pero una zona sólo depende de 64; el solver ya no se desactiva por los 56 partidos de la otra zona.
+- Se agregan regresiones para el límite del MILP y para preservar interzonales. Suite: **274 pruebas**. `LPF_RUNTIME_API` permanece en **14**.
+
+## 3.8.35 · 2026-08-12
+
+### Últimas fechas: tablero de definición y navegación más simple
+
+- Se elimina **Chat libre** de `Accesos principales`; el chat guiado/libre, su explorador y el simulador rápido quedan integrados en **Mesa de redacción → Consultas y chat**.
+- Se conserva compatibilidad de sesión: si `workspace_nav` todavía apunta a `💬 Chat libre`, se migra automáticamente a `🗞️ Mesa de redacción`.
+- **Visualizaciones → Últimas fechas** agrega una foto matemática de la zona, gráfico de puntos actuales + margen disponible, calendario comparado y un bloque de condicionales por equipo.
+- El condicional del próximo partido reutiliza la Previa exacta; la escalera por puntaje reutiliza `point_ladder`; el impacto de la otra cancha reutiliza el Monte Carlo canónico y queda rotulado como **ESTIMADO**.
+- No se modifica la matemática ni el contrato interno. Suite: **272 pruebas**. `LPF_RUNTIME_API` permanece en **14**.
+
 ## 3.8.34 · 2026-08-12
 
 ### Previa por equipo: cálculo y narrativa fuera de Streamlit

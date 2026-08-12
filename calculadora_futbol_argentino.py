@@ -8228,6 +8228,78 @@ def _rd_publication(team, objective, mode, exact_text, Z, annual, rest):
     return f"# {title}\n\n{deck}\n\n{exact_text}\n\n— Cuentas determinísticas con el fixture LPF 2026; las estimaciones se publican por separado."
 
 
+def render_chat_workspace(E):
+    """Chat guiado/libre embebido dentro de Mesa de redacción."""
+    modo = "🤖 con Claude" if (st.session_state.LLM_ON and str(st.session_state.LLM_KEY).strip()) else "🔤 por palabras clave"
+    st.subheader(f"Consultas y chat · {modo}")
+    ui_caption(
+        "Usalo para preguntas excepcionales o para pedir una salida redactada. "
+        "Las cuentas siguen saliendo del motor determinístico; el LLM sólo interpreta y redacta."
+    )
+
+    grupos = _tour_grupos()
+    if len(grupos) > 1:
+        ui_caption(
+            f"✅ Tenés **{len(grupos)} grupos** cargados ({', '.join(grupos)}). "
+            "Podés preguntar por cualquier equipo y el motor cambia de grupo automáticamente."
+        )
+
+    if "chat" not in st.session_state:
+        st.session_state.chat = [{"role": "assistant", "blocks": [("md", BIENVENIDA)]}]
+
+    catalog_click = _render_chat_explorer(E)
+    st.divider()
+
+    for index, msg in enumerate(st.session_state.chat):
+        with st.chat_message(msg["role"], avatar="⚽" if msg["role"] == "assistant" else None):
+            render_blocks(msg["blocks"], prefix=f"m{index}")
+
+    equipos_chat = E.get("equipos") or []
+    jugados_chat = E.get("jugados") or []
+    pendientes_chat = E.get("pendientes") or []
+    escenarios_chat = E.get("esc")
+    if escenarios_chat is not None and pendientes_chat:
+        abrir_simulador = st.toggle(
+            "Abrir simulador rápido de resultados", value=False, key="newsroom_chat_sim_toggle"
+        )
+        if abrir_simulador:
+            with st.expander("🎮 Simulador rápido: ¿qué pasa si…?", expanded=True):
+                fixed = {}
+                for index, (local, visitor) in enumerate(pendientes_chat, 1):
+                    option = ui_selectbox(
+                        f"{local} vs {visitor}",
+                        ["— sin definir", f"Gana {local}", "Empate", f"Gana {visitor}"],
+                        key=f"newsroom_sim_{index}",
+                    )
+                    if option == f"Gana {local}":
+                        fixed[index] = "L"
+                    elif option == "Empate":
+                        fixed[index] = "E"
+                    elif option == f"Gana {visitor}":
+                        fixed[index] = "V"
+                if fixed:
+                    jugados_sim, _rem = aplicar_resultados(equipos_chat, jugados_chat, pendientes_chat, fixed)
+                    ui_dataframe(tabla(equipos_chat, jugados_sim), use_container_width=True, hide_index=True)
+                    ui_markdown(
+                        previa_condicional_texto(
+                            equipos_chat, jugados_chat, pendientes_chat, escenarios_chat, fixed
+                        )
+                    )
+                else:
+                    ui_caption("Elegí al menos un resultado para ver el efecto.")
+
+    prompt = st.chat_input("Escribí una pregunta o elegí una opción del explorador…", key="newsroom_chat_input")
+    consulta = prompt or catalog_click
+    if consulta:
+        st.session_state.chat.append({"role": "user", "blocks": [("md", consulta)]})
+        try:
+            bloques = responder(consulta)
+        except Exception as exc:
+            bloques = [("error", f"Tuve un problema procesando esa consulta: {exc}")]
+        st.session_state.chat.append({"role": "assistant", "blocks": bloques})
+        st.rerun()
+
+
 def render_newsroom(E):
     Z = E.get("zonas_lpf") or {}
     if len(Z) < 2:
@@ -8273,8 +8345,8 @@ def render_newsroom(E):
                 ui_caption(_d)
     ui_caption("EXACTO = cuenta determinística y verificable · ESTIMADO = simulación Monte Carlo rotulada como tal")
 
-    report_tab, preview_tab, load_tab, rules_tab = st.tabs(
-        ["Informe por equipo", "Previa de la fecha", "Cargar resultados", "Reglas y auditoría"])
+    report_tab, preview_tab, chat_tab, load_tab, rules_tab = st.tabs(
+        ["Informe por equipo", "Previa de la fecha", "Consultas y chat", "Cargar resultados", "Reglas y auditoría"])
 
     with report_tab:
         col_team, col_obj, col_mode = st.columns([1.4, 1, 0.8])
@@ -8523,6 +8595,9 @@ def render_newsroom(E):
         with st.expander("Cruces de octavos si terminara hoy"):
             ui_markdown(lpf_cruces_texto(Z))
 
+    with chat_tab:
+        render_chat_workspace(E)
+
     with load_tab:
         ui_markdown("#### Carga rápida y recálculo inmediato")
         ui_caption("Marcá sólo los partidos terminados. El marcador actualiza Zona, Tabla Anual, promedios, forma y pendientes.")
@@ -8739,6 +8814,7 @@ def _render_point_ladder(team, base, rest, pending, cutoff, title):
 
 
 def render_definition_radar(E):
+    """Tablero de definición para las últimas fechas de cada zona."""
     Z = E.get("zonas_lpf") or {}
     rest = E.get("rest") or {}
     pending = E.get("pendientes") or []
@@ -8747,23 +8823,31 @@ def render_definition_radar(E):
         return
     min_left = min((v for v in rest.values() if v is not None), default=0)
     max_left = max(rest.values(), default=0)
+    ui_markdown("## Últimas fechas · tablero de definición")
+    ui_caption(
+        "Combina estado matemático, calendario y condicionales. Los rangos y la escalera son EXACTOS; "
+        "el impacto de resultados ajenos se muestra aparte como ESTIMADO."
+    )
     if min_left > VENTANA_EXACTA:
-        ui_info(f"El Radar exacto se activa por equipo cuando le quedan {VENTANA_EXACTA} fechas o menos. Hoy el mínimo es {min_left} partidos.")
+        ui_info(
+            f"El tablero exacto se activa por equipo cuando le quedan {VENTANA_EXACTA} fechas o menos. "
+            f"Hoy el mínimo es {min_left} partidos."
+        )
         return
     if max_left > VENTANA_EXACTA:
         ui_caption(
             f"Algunos equipos todavía tienen hasta {max_left} partidos (postergados): para esos se "
-            "muestra un total seguro hasta que entre en la ventana exacta. El resto ya usa el motor exacto."
+            "muestra un total seguro hasta que entren en la ventana exacta. El resto ya usa el motor exacto."
         )
     lab = ui_selectbox("Zona", sorted(Z), key="radar_zone")
     base = Z[lab]
-    if st.button("Calcular Radar exacto", type="primary", use_container_width=True):
+    ordered = list(liga_tabla_df(base)["Equipo"])
+    if st.button("Calcular tablero exacto", type="primary", use_container_width=True):
         radar = []
         progress = st.progress(0.0, text="Calculando mínimos exactos y caminos…")
-        ordered = list(liga_tabla_df(base)["Equipo"])
         for index, team in enumerate(ordered):
             team_left = int(rest.get(team, 0))
-            pos = ordered.index(team) + 1
+            pos = index + 1
             ceiling = int(base[team]["pts"]) + 3 * team_left
             state = _liga_in_out(team, base, rest, 8)
             minimum = guarantee = None
@@ -8794,28 +8878,125 @@ def render_definition_radar(E):
             progress.progress((index + 1) / len(ordered), text=f"Calculando {team}…")
         progress.empty()
         st.session_state.RADAR_CACHE = {"zone": lab, "rows": radar}
+
     cache = st.session_state.get("RADAR_CACHE") or {}
-    if cache.get("zone") == lab:
-        ui_dataframe(pd.DataFrame(cache["rows"]), use_container_width=True, hide_index=True, height=560)
+    if cache.get("zone") != lab:
+        ui_caption("Calculá el tablero para ver posibilidades, gráficos y condicionales de esta zona.")
+        return
 
-        fmap = _lpf_fecha_de(pending)
-        rounds = sorted({f for f in fmap.values() if f is not None})[:6]
-        fixture_rows = []
-        for team in list(liga_tabla_df(base)["Equipo"]):
-            row = {"Equipo": team}
-            for rnd in rounds:
-                matches = [match for match, f in fmap.items() if f == rnd and team in match]
-                labels = []
-                for local, visitor in matches:
-                    rival = visitor if local == team else local
-                    labels.append(("L" if local == team else "V") + " · " + rival)
-                row[f"F{rnd}"] = " / ".join(labels) or "—"
-            fixture_rows.append(row)
-        ui_markdown("### Calendario comparado")
-        ui_dataframe(pd.DataFrame(fixture_rows), use_container_width=True, hide_index=True, height=560)
-        ui_caption("L = local · V = visitante. Los postergados conservan su fecha original en la auditoría.")
+    radar_frame = pd.DataFrame(cache["rows"])
+    ui_markdown("### Foto matemática de la definición")
+    ui_dataframe(radar_frame, use_container_width=True, hide_index=True, height=560)
 
+    chart_frame = radar_frame[["Equipo", "PTS", "Techo"]].copy()
+    chart_frame["Puntos todavía disponibles"] = chart_frame["Techo"] - chart_frame["PTS"]
+    ui_markdown("#### Puntos actuales y margen que queda")
+    st.bar_chart(chart_frame.set_index("Equipo")[["PTS", "Puntos todavía disponibles"]])
+    ui_caption(
+        "El segundo valor no es una proyección: son los puntos que todavía están matemáticamente disponibles "
+        "para cada equipo."
+    )
 
+    fmap = _lpf_fecha_de(pending)
+    rounds = sorted({f for f in fmap.values() if f is not None})[:6]
+    fixture_rows = []
+    for team in ordered:
+        row = {"Equipo": team}
+        for rnd in rounds:
+            matches = [match for match, f in fmap.items() if f == rnd and team in match]
+            labels = []
+            for local, visitor in matches:
+                rival = visitor if local == team else local
+                labels.append(("L" if local == team else "V") + " · " + rival)
+            row[f"F{rnd}"] = " / ".join(labels) or "—"
+        fixture_rows.append(row)
+    ui_markdown("### Calendario comparado")
+    ui_dataframe(pd.DataFrame(fixture_rows), use_container_width=True, hide_index=True, height=560)
+    ui_caption("L = local · V = visitante. Los postergados conservan su fecha original en la auditoría.")
+
+    ui_markdown("### Condicionales de un equipo")
+    team_focus = ui_selectbox("Equipo bajo la lupa", ordered, key="radar_team_focus")
+    focus_row = radar_frame.loc[radar_frame["Equipo"] == team_focus].iloc[0]
+    current = int(focus_row["PTS"])
+    team_left = int(focus_row["Restan"])
+    ceiling = int(focus_row["Techo"])
+    guarantee = focus_row.get("Mínimo que asegura")
+    safe_total = focus_row.get("Total seguro")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Puntos", current)
+    c2.metric("Partidos restantes", team_left)
+    c3.metric("Techo", ceiling)
+    c4.metric(
+        "Objetivo de referencia",
+        int(guarantee) if pd.notna(guarantee) else int(safe_total) if pd.notna(safe_total) else "—",
+        help="Mínimo que asegura si ya fue probado exactamente; si no, total seguro conservador.",
+    )
+
+    annual = lpf_anual_base(Z, E.get("apertura") or {})
+    preview_text, preview_frame = lpf_previa_equipo_texto(
+        team_focus, Z, rest, pending, annual, st.session_state.get("PROMEDIOS") or {},
+        scope="next_team_match", objective="Playoffs",
+    )
+    if preview_text:
+        with st.expander("Lectura del próximo partido", expanded=False):
+            ui_markdown(preview_text)
+    if preview_frame is not None and not preview_frame.empty:
+        zone_frame = preview_frame[preview_frame["Tabla"].str.contains("Playoffs")].copy()
+        if not zone_frame.empty:
+            ui_markdown("#### Si gana, empata o pierde")
+            ui_dataframe(zone_frame, use_container_width=True, hide_index=True)
+            result_col = next((col for col in zone_frame.columns if str(col).startswith("Si ")), None)
+            if result_col:
+                rank_chart = zone_frame[[result_col, "Mejor puesto", "Peor puesto"]].copy()
+                rank_chart["Mejor puesto"] = rank_chart["Mejor puesto"].str.replace("º", "", regex=False).astype(int)
+                rank_chart["Peor puesto"] = rank_chart["Peor puesto"].str.replace("º", "", regex=False).astype(int)
+                st.bar_chart(rank_chart.set_index(result_col))
+                ui_caption("En puestos, una barra menor es mejor. El intervalo muestra la incertidumbre del desempate futuro.")
+
+    if 0 < team_left <= VENTANA_EXACTA:
+        if st.button(
+            "Abrir escalera exacta de puntos",
+            use_container_width=True,
+            key=f"radar_ladder_{lab}_{team_focus}",
+        ):
+            _render_point_ladder(
+                team_focus, base, rest, pending, 8,
+                f"{team_focus} · posibilidades exactas por puntaje final",
+            )
+    elif team_left > VENTANA_EXACTA:
+        ui_info(
+            f"La escalera exacta de {team_focus} se habilita cuando le queden {VENTANA_EXACTA} partidos o menos."
+        )
+
+    if st.button(
+        "Calcular qué resultados ajenos lo condicionan en la fecha",
+        use_container_width=True,
+        key=f"radar_other_{lab}_{team_focus}",
+    ):
+        with st.spinner("Midiendo el impacto de cada resultado ajeno…"):
+            other_text, other_frame = lpf_otros_resultados_sim(
+                team_focus, Z, rest, pending, jugados=E.get("jugados") or [], scope="official_round"
+            )
+        st.session_state.RADAR_OTHER_CACHE = {
+            "zone": lab, "team": team_focus, "text": other_text, "frame": other_frame
+        }
+    other_cache = st.session_state.get("RADAR_OTHER_CACHE") or {}
+    if other_cache.get("zone") == lab and other_cache.get("team") == team_focus:
+        if other_cache.get("text"):
+            ui_markdown(other_cache["text"])
+        other_frame = other_cache.get("frame")
+        if isinstance(other_frame, pd.DataFrame) and not other_frame.empty:
+            ui_dataframe(other_frame, use_container_width=True, hide_index=True)
+            if "Diferencia" in other_frame.columns:
+                impact = other_frame[["Partido", "Diferencia"]].copy()
+                impact["Impacto (pp)"] = pd.to_numeric(
+                    impact["Diferencia"].astype("string").str.replace(" pp", "", regex=False).str.replace(",", ".", regex=False),
+                    errors="coerce",
+                )
+                impact = impact.dropna(subset=["Impacto (pp)"]).set_index("Partido")[["Impacto (pp)"]]
+                if not impact.empty:
+                    st.bar_chart(impact)
+                    ui_caption("ESTIMADO · diferencia entre el mejor y el peor desenlace de cada partido ajeno.")
 
 
 def _scenario_window_games(pending, scope="official_round"):
@@ -9146,7 +9327,7 @@ def render_visualizations_workspace(E):
     team = ui_selectbox("Equipo", teams, index=teams.index("River Plate") if "River Plate" in teams else 0, key="viz_team")
     lab = lpf_zona_de_equipo(team, Z)
     tab_team, tab_zone, tab_comp, tab_round, tab_other, tab_radar = st.tabs([
-        "Equipo", "Zona", "Copas y descenso", "Próximo partido", "La otra cancha", "Radar final"
+        "Equipo", "Zona", "Copas y descenso", "Próximo partido", "La otra cancha", "Últimas fechas"
     ])
 
     with tab_team:
@@ -9366,7 +9547,7 @@ def render_guided_workspace(E):
     if task == "Comparar con otro equipo":
         other = ui_selectbox("Segundo equipo", [x for x in teams if x != team], key="guide_other")
 
-    ui_caption("El Chat libre queda como complemento para preguntas excepcionales. Las consultas habituales están reunidas en este panel.")
+    ui_caption("Las consultas habituales están reunidas en este panel. Para preguntas excepcionales o redacción libre, usá **Mesa de redacción → Consultas y chat**.")
     rest = E.get("rest") or {}
     pending = E.get("pendientes") or []
     annual = lpf_anual_base(Z, E.get("apertura") or {})
@@ -9515,11 +9696,12 @@ _WORKSPACES = [
     "🎯 Escenarios",
     "🗞️ Mesa de redacción",
     "📊 Visualizaciones",
-    "💬 Chat libre",
     "🧪 Datos y auditoría",
     "🎯 Puntos por objetivo",
 ]
-if st.session_state.get("workspace_nav") not in _WORKSPACES:
+if st.session_state.get("workspace_nav") == "💬 Chat libre":
+    st.session_state["workspace_nav"] = "🗞️ Mesa de redacción"
+elif st.session_state.get("workspace_nav") not in _WORKSPACES:
     st.session_state["workspace_nav"] = _WORKSPACES[0]
 
 
@@ -9748,50 +9930,3 @@ if _workspace == "📊 Visualizaciones":
 if _workspace == "🧪 Datos y auditoría":
     render_data_audit(st.session_state.ESTADO)
     st.stop()
-
-
-# ─── CHAT ────────────────────────────────────────────────────────────────────────
-modo = "🤖 con Claude" if (st.session_state.LLM_ON and str(st.session_state.LLM_KEY).strip()) else "🔤 por palabras clave"
-st.subheader(f"💬 Chat guiado + libre · {modo}")
-
-_gs_tot = _tour_grupos()
-if len(_gs_tot) > 1:
-    ui_caption(f"✅ Tenés **{len(_gs_tot)} grupos** cargados ({', '.join(_gs_tot)}). "
-               "Preguntá por **cualquier** equipo: si es de otro grupo, cambio solo. "
-               "Probá «¿en qué zona está Belgrano?».")
-
-if "chat" not in st.session_state:
-    st.session_state.chat = [{"role": "assistant", "blocks": [("md", BIENVENIDA)]}]
-
-catalog_click = _render_chat_explorer(E)
-st.divider()
-
-for _mi, msg in enumerate(st.session_state.chat):
-    with st.chat_message(msg["role"], avatar="⚽" if msg["role"] == "assistant" else None):
-        render_blocks(msg["blocks"], prefix=f"m{_mi}")
-
-if esc is not None and pendientes:
-    with st.expander("🎮 Simulador: ¿qué pasa si…?  (elegí resultados y mirá cómo queda)"):
-        _fixed = {}
-        for _i, (_l, _v) in enumerate(pendientes, 1):
-            _opt = ui_selectbox(f"{_l} vs {_v}", ["— sin definir", f"Gana {_l}", "Empate", f"Gana {_v}"], key=f"sim{_i}")
-            if _opt == f"Gana {_l}":   _fixed[_i] = "L"
-            elif _opt == "Empate":     _fixed[_i] = "E"
-            elif _opt == f"Gana {_v}": _fixed[_i] = "V"
-        if _fixed:
-            _jugsim, _rem = aplicar_resultados(equipos, jugados, pendientes, _fixed)
-            ui_dataframe(tabla(equipos, _jugsim), use_container_width=True, hide_index=True)
-            ui_markdown(previa_condicional_texto(equipos, jugados, pendientes, esc, _fixed))
-        else:
-            ui_caption("Elegí al menos un resultado para ver el efecto.")
-
-prompt = st.chat_input("Escribí una pregunta propia o elegí una opción en el explorador de arriba…")
-consulta = prompt or catalog_click
-if consulta:
-    st.session_state.chat.append({"role": "user", "blocks": [("md", consulta)]})
-    try:
-        bloques = responder(consulta)
-    except Exception as e:
-        bloques = [("error", f"Tuve un problema procesando esa consulta: {e}")]
-    st.session_state.chat.append({"role": "assistant", "blocks": bloques})
-    st.rerun()

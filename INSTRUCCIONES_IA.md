@@ -83,10 +83,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.34` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.36` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
-- Archivo principal: **~10.060 líneas** (arrancó en ~12.780).
-- **269 pruebas**, todas verdes en 3.8.34. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- Archivo principal: **~9.930 líneas** (arrancó en ~12.780).
+- **274 pruebas**, todas verdes en 3.8.36. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -470,6 +470,18 @@ La CI instala `.[dev]` desde `pyproject.toml`, usa Python 3.11 y permisos de só
 `lpf_preview.py` concentra el texto y la tabla exacta de la Previa por equipo. Recibe la ventana de `lpf_schedule`, los partidos que quedan abiertos, la Tabla Anual, `n_anual` y el contexto de copas ya resuelto; no importa Streamlit ni red. `lpf_previa_equipo_texto` queda como adaptador de sesión/agenda.
 
 La extracción se comparó directamente contra 3.8.33 en Playoffs, Descenso y Copas, incluyendo Markdown, DataFrame y `attrs`, sin diferencias. No vuelvas a mover fallbacks de sesión al módulo puro: cualquier dato nuevo de UI debe resolverse antes y entrar por parámetro. `LPF_RUNTIME_API` sube a **14** y el módulo pasa a ser crítico. Suite: **269 pruebas**.
+
+### 8i. Últimas fechas y chat editorial — resuelto en 3.8.35
+
+El chat deja de ser un workspace principal y se embebe dentro de **Mesa de redacción → Consultas y chat**. No dupliques esa UI ni vuelvas a agregar un segundo botón de Chat libre: el objetivo es que las consultas libres sean una herramienta editorial, no una navegación paralela.
+
+`render_definition_radar` pasa a ser el tablero de **Últimas fechas**. Reutiliza los motores existentes: Previa exacta para G/E/P, `point_ladder` para la escalera por puntaje y `lpf_otros_resultados_sim` para el impacto estimado de la otra cancha. No agregues fórmulas nuevas a esta vista; si cambia un cálculo, debe cambiar primero en su motor fuente. `LPF_RUNTIME_API` sigue en **14** porque sólo cambió la composición de UI. Suite: **272 pruebas**.
+
+### 8j. Solver exacto filtra partidos ajenos — resuelto en 3.8.36
+
+`point_ladder` recibe a menudo el fixture global aunque calcule una sola zona. Antes, partidos entre dos equipos de la otra zona inflaban `len(matches)` y podían apagar el MILP por límite aun cuando no movían ningún punto de la tabla. El motor ahora elimina sólo esos partidos totalmente ajenos y conserva cualquier interzonal que toque un equipo de `base`.
+
+No vuelvas a filtrar por "ambos equipos dentro" porque eso borraría interzonales reales. La regla correcta es: **conservar el partido si al menos uno de sus equipos pertenece a la tabla calculada**. Esto alinea Puntos por objetivo, Escenarios, servicios y Radar sin cambiar firmas. `LPF_RUNTIME_API` sigue en **14**. Suite: **274 pruebas**.
 
 ---
 

@@ -18,7 +18,7 @@ el modelo de lenguaje, cuando está activo, sólo interpreta la consulta y redac
 | `lpf_table_backup.py` | Serialización, persistencia atómica y recuperación del último respaldo válido de zonas + Anual. Conoce JSON/filesystem, pero no Streamlit ni proveedores. |
 | `competition_html_adapters.py` | Parsers puros de URLs genéricas del modo avanzado: HTML ya descargado → tabla textual o matriz de jugados/pendientes. |
 | `lpf_state.py` | Construcción y revalidación puras del estado canónico LPF: selecciona/deriva Apertura, migra fotos viejas, arma auditoría, Anual autoritativa, pendientes y metadatos sin leer Streamlit. |
-| `lpf_scenarios.py` | Optimización exacta (MILP con `scipy.optimize.milp`): escalera de puntajes, rangos y ventanas con postergados. |
+| `lpf_scenarios.py` | Optimización exacta (MILP con `scipy.optimize.milp`): escalera de puntajes, rangos y ventanas con postergados; filtra partidos totalmente ajenos a la tabla pero conserva interzonales. |
 | `lpf_exact.py` | Núcleo determinístico y garantías conservadoras (línea segura, promedios). Validado por fuerza bruta. |
 | `lpf_pisos.py` | **Puntos por objetivo.** Unifica mínimo posible, total seguro y mínimo que asegura para playoffs, copas y descenso. Reutiliza `lpf_scenarios` y `lpf_exact`; Python puro. |
 | `lpf_competition_narratives.py` | Relatos de zonas, Libertadores, Sudamericana y descenso. |
@@ -120,6 +120,15 @@ Para cada objetivo se devuelven tres números con significado distinto:
 - **Total seguro:** total suficiente para ventanas grandes; si se alcanza asegura el objetivo, pero puede pedir puntos de más.
 - **Mínimo que asegura:** menor puntaje comprobado que asegura el objetivo sin depender de otros resultados ni de desempates (desempate en contra).
 
+
+
+### Composición editorial de la UI (3.8.35)
+
+**Mesa de redacción** concentra también las consultas libres: el explorador y el chat ya no son un workspace paralelo. Esto evita duplicar navegación sin mover el motor de preguntas ni las cuentas determinísticas.
+
+**Visualizaciones → Últimas fechas** es una composición de motores existentes, no un motor nuevo: la tabla de definición usa estados/rangos exactos; G/E/P reutiliza `lpf_preview`; la escalera reutiliza `point_ladder`; y la otra cancha reutiliza el Monte Carlo canónico, rotulado como ESTIMADO. Cualquier cambio matemático debe hacerse en esos módulos fuente y no dentro de la vista.
+
+Desde 3.8.36, `point_ladder` normaliza el fixture contra la tabla que recibe: un partido se conserva si **al menos uno** de sus equipos pertenece a `base`. Esto evita que una zona pague el costo MILP de la otra zona sin perder los interzonales que sí suman puntos.
 
 
 ### Verificación y empaquetado de releases

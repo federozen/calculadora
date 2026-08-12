@@ -267,3 +267,42 @@ def test_exact_result_scenarios_vs_fuerza_bruta():
             assert row["worst_rank"] == b_worst, f"{row['result']} worst {row['worst_rank']} != {b_worst}"
             assert row["can_enter"] == b_enter, f"{row['result']} can_enter {row['can_enter']} != {b_enter}"
             assert row["can_fail"] == b_fail, f"{row['result']} can_fail {row['can_fail']} != {b_fail}"
+
+
+def test_point_ladder_ignora_partidos_totalmente_ajenos_a_la_tabla_para_el_limite():
+    """Otra zona no debe apagar el solver exacto por inflar artificialmente el MILP."""
+    base = {
+        "A": {"pts": 4},
+        "B": {"pts": 5},
+        "C": {"pts": 3},
+        "D": {"pts": 2},
+    }
+    relevant = [("A", "X"), ("B", "C"), ("D", "Y")]
+    unrelated = [(f"U{i}", f"V{i}") for i in range(20)]
+
+    expected = point_ladder(base, relevant, "A", 1, max_matches=3)
+    got = point_ladder(base, relevant + unrelated, "A", 1, max_matches=3)
+
+    assert expected["available"] is True
+    assert got == expected
+
+
+def test_point_ladder_conserva_interzonales_que_tocan_un_equipo_de_la_tabla():
+    """Un rival externo se filtra sólo si ninguno de los dos equipos pertenece a la tabla."""
+    base = {
+        "A": {"pts": 4},
+        "B": {"pts": 5},
+        "C": {"pts": 3},
+        "D": {"pts": 2},
+    }
+    with_cross_zone = point_ladder(
+        base,
+        [("A", "Interzonal"), ("B", "C")],
+        "A",
+        1,
+        max_matches=2,
+    )
+    without_cross_zone = point_ladder(base, [("B", "C")], "A", 1, max_matches=2)
+
+    assert with_cross_zone["minimum_possible"] == 7
+    assert without_cross_zone["minimum_possible"] is None

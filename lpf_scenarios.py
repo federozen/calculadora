@@ -59,6 +59,20 @@ def _normalize_matches(matches: Iterable[tuple[str, str]]) -> tuple[tuple[str, s
     return tuple(out)
 
 
+def _matches_relevant_to_base(
+    base: Mapping[str, object],
+    matches: Iterable[tuple[str, str]],
+) -> tuple[tuple[str, str], ...]:
+    """Conserva sólo partidos capaces de mover la tabla ``base``.
+
+    Los cruces contra equipos externos (por ejemplo, un interzonal) sí importan
+    porque suman puntos a un club de la tabla. Un partido entre dos equipos que no
+    pertenecen a ``base`` no puede alterar ninguna posición y sólo agranda el MILP.
+    """
+    teams = set(base)
+    return tuple(match for match in _normalize_matches(matches) if match[0] in teams or match[1] in teams)
+
+
 def _build_model(
     base: Mapping[str, object],
     matches: Sequence[tuple[str, str]],
@@ -75,7 +89,7 @@ def _build_model(
         return SolverResult(False, message="equipo desconocido")
     teams = list(base)
     rivals = [t for t in teams if t != team]
-    matches = list(matches)
+    matches = list(_matches_relevant_to_base(base, matches))
     fixed = dict(fixed or {})
     m, r = len(matches), len(rivals)
     nvars = 3 * m + r
@@ -329,7 +343,7 @@ def point_ladder(
     max_rows: int = 8,
     max_matches: int = 100,
 ) -> dict[str, object]:
-    matches = _normalize_matches(matches)
+    matches = _matches_relevant_to_base(base, matches)
     current = _points(base[team])
     games_left = sum(team in match for match in matches)
     reachable = reachable_point_totals(current, games_left)

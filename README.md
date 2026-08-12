@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.34
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.36
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -11,6 +11,21 @@ La versión 3 prioriza tres objetivos:
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
 
+
+## Novedad 3.8.36 · Escalera exacta coherente entre pantallas
+
+- Se corrige una inconsistencia del tramo final: `point_ladder` ya no cuenta partidos entre dos equipos ajenos a la tabla que está resolviendo.
+- Los **interzonales se conservan** si uno de sus equipos pertenece a la zona, porque sí pueden modificar sus puntos.
+- Con ocho fechas por jugar el fixture LPF tiene 120 partidos globales, pero sólo 64 pueden mover una zona: antes Radar/Escenarios podían apagar el solver por superar el límite de 110 mientras Puntos por objetivo sí calculaba; ahora todos comparten la misma lectura.
+- No cambia la firma del motor ni el runtime interno. `LPF_RUNTIME_API` permanece en **14**. Suite: **274 pruebas**.
+
+## Novedad 3.8.35 · Últimas fechas más visuales y chat dentro de Mesa de redacción
+
+- **Chat libre** deja de ocupar un acceso principal: toda su funcionalidad queda dentro de **Mesa de redacción → Consultas y chat**. Las sesiones viejas que apuntaban a Chat libre migran automáticamente a Mesa de redacción.
+- **Visualizaciones → Últimas fechas** pasa a funcionar como un tablero de definición: tabla exacta por zona, gráfico de puntos actuales + margen disponible y calendario comparado.
+- Para un equipo elegido muestra el condicional **gana / empata / pierde** del próximo partido, con mejor/peor puesto y gráfico del rango.
+- Dentro de la ventana exacta se puede abrir la **escalera exacta por puntaje final**; además hay un cálculo opcional ESTIMADO de qué resultados ajenos de la fecha modifican más su chance de playoffs.
+- No cambia ninguna fórmula del motor. `LPF_RUNTIME_API` permanece en **14**. Suite: **272 pruebas**.
 
 ## Novedad 3.8.34 · Previa por equipo fuera del monolito
 
@@ -178,7 +193,7 @@ La versión 3 prioriza tres objetivos:
 
 - Streamlit comprueba al arrancar que los módulos críticos pertenecen al mismo nivel de compatibilidad antes de importarlos.
 - Si detecta un archivo viejo o faltante, se detiene con un mensaje claro que enumera qué módulos hay que actualizar, en vez de terminar más adelante con un `NameError` o `AttributeError`.
-- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.34`) para verificar rápidamente qué commit tomó Streamlit Cloud.
+- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.36`) para verificar rápidamente qué commit tomó Streamlit Cloud.
 - Este cambio no toca ninguna fórmula ni resultado. Suite: **154 pruebas**.
 
 ## Novedad 3.8.11 · Total seguro vs. mínimo que asegura

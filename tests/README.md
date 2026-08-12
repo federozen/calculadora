@@ -5,7 +5,7 @@ enumeran todos los desenlaces posibles y se comparan, resultado por resultado,
 contra lo que dicen los solucionadores. Es la evidencia de que "los números
 siempre salen de Python y están validados".
 
-La suite actual contiene **269 pruebas**.
+La suite actual contiene **274 pruebas**.
 
 | Archivo | Qué cubre |
 | --- | --- |
@@ -60,3 +60,7 @@ python -m pytest -q
 La extracción de `lpf_simulation.py` se verificó además contra 3.8.26 en 500 casos de zona + 500 wrappers, 800 matrices globales y 900 máscaras de objetivos. En 3.8.28, el constructor de contexto se comparó además contra `_lpf_ctx` de 3.8.27 en 500 estados con fallbacks de Apertura/Anual/Copa Argentina.
 
 En 3.8.29 se congeló una foto real del Clausura 2026 al 11/08 20:28 ART para auditar 59 partidos completados, comparar el modelo canónico contra el camino editorial legado y verificar interzonales/muestras condicionadas. No se recalibraron parámetros con esa muestra.
+
+En 3.8.35 se agregaron regresiones de navegación/UI que fijan que **Chat libre** no vuelva a aparecer como workspace independiente y que el tablero de **Últimas fechas** reutilice Previa, escalera exacta y motor de la otra cancha en vez de duplicar fórmulas.
+
+En 3.8.36 se agregaron regresiones para que `point_ladder` ignore partidos totalmente ajenos a la tabla sin perder interzonales; así Puntos por objetivo, Escenarios y Radar usan el mismo conjunto matemáticamente relevante en el tramo final.
