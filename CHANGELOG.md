@@ -1,3 +1,11 @@
+## 3.8.30 · 2026-08-11
+
+### Accesos principales: Puntos por objetivo al final
+
+- Se reordena únicamente la navegación superior de **Accesos principales**: **Puntos por objetivo** pasa al último lugar y **Panel por equipo** queda primero.
+- No cambian cálculos, destinos, claves de navegación ni el contrato interno; `LPF_RUNTIME_API` permanece en **12**.
+- Se agrega una regresión estática para fijar el orden solicitado. Suite: **247 pruebas**.
+
 ## 3.8.29 · 2026-08-11
 
 ### Auditoría probabilística y unificación del modelo

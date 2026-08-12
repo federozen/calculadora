@@ -78,3 +78,11 @@ def test_busqueda_de_puesto_separa_estimacion_de_extremos_matematicos():
     assert "Mejor puesto con esos puntos" not in MAIN
     assert "Peor puesto con esos puntos" not in MAIN
     assert '"¿Puede ser ese puesto?": "Sí"' not in MAIN
+
+def test_accesos_principales_deja_puntos_por_objetivo_al_final():
+    block = re.search(r"_WORKSPACES = \[(.*?)\]", MAIN, flags=re.DOTALL)
+    assert block is not None
+    labels = re.findall(r'"([^"\n]+)"', block.group(1))
+    assert labels[-1] == "🎯 Puntos por objetivo"
+    assert labels[0] == "🧭 Panel por equipo"
+

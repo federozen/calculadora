@@ -82,10 +82,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.29` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.30` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
 - Archivo principal: **~10.060 líneas** (arrancó en ~12.780).
-- **246 pruebas**, todas verdes en 3.8.29. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- **247 pruebas**, todas verdes en 3.8.30. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -372,6 +372,7 @@ wrapper sólo persiste esos valores. Se comparó contra 3.8.18 en siete escenari
 equivalencia exacta de reporte y efectos de sesión.
 
 El nivel interno fue **2** desde 3.8.16, subió a **3** en 3.8.19 por la nueva función de `lpf_state`, a **4** en 3.8.21 por `lpf_schedule.py`, a **5** en 3.8.22 porque la Mesa de redacción requiere `lpf_result_updates.py` y a **6** en 3.8.23 porque la app importa `lpf_qualification.py` para Anual/cupos, a **7** en 3.8.24 porque también importa sus helpers de contexto de copas y a **8** en 3.8.25 porque la UI importa `lpf_scenarios.can_finish_exact_rank_by_points` y a **9** en 3.8.26 al incorporar `lpf_form.py` como dependencia activa de las simulaciones y a **10** en 3.8.27 al extraer `lpf_simulation.py` como frontera Monte Carlo pura y a **11** en 3.8.28 porque el wrapper importa su constructor explícito de contexto y a **12** en 3.8.29 al unificar `lpf_competitive_context.py` con el kernel y la fuerza canónicos. El archivo principal también comprueba explícitamente que `lpf_runtime.py` tenga el nivel requerido antes de importar módulos sensibles. Los paquetes de actualización deben reemplazar los módulos críticos juntos; no bajes ese nivel sólo para reducir el ZIP.
+En 3.8.30 sólo se reordenó la navegación visible de **Accesos principales**; no cambió ningún contrato interno y el runtime sigue en **12**.
 
 Football-data y Apify siguen definidos por compatibilidad histórica, pero sus ramas
 de UI están actualmente deshabilitadas con `and False`. No los extraigas ni reactives

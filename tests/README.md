@@ -5,7 +5,7 @@ enumeran todos los desenlaces posibles y se comparan, resultado por resultado,
 contra lo que dicen los solucionadores. Es la evidencia de que "los números
 siempre salen de Python y están validados".
 
-La suite actual contiene **246 pruebas**.
+La suite actual contiene **247 pruebas**.
 
 | Archivo | Qué cubre |
 | --- | --- |

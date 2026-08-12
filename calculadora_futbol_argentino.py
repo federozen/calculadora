@@ -9774,13 +9774,13 @@ with st.sidebar:
 
 
 _WORKSPACES = [
-    "🎯 Puntos por objetivo",
     "🧭 Panel por equipo",
     "🎯 Escenarios",
     "🗞️ Mesa de redacción",
     "📊 Visualizaciones",
     "💬 Chat libre",
     "🧪 Datos y auditoría",
+    "🎯 Puntos por objetivo",
 ]
 if st.session_state.get("workspace_nav") not in _WORKSPACES:
     st.session_state["workspace_nav"] = _WORKSPACES[0]
