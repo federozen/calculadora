@@ -9,7 +9,7 @@ una futura API o un adaptador de proveedor (por ejemplo Opta) sin duplicar lógi
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 13
+LPF_RUNTIME_API = 14
 
 
 import pandas as pd

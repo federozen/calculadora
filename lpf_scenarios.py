@@ -5,7 +5,7 @@ los empates en puntos se tratan de forma favorable o desfavorable según la preg
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 13
+LPF_RUNTIME_API = 14
 
 
 from dataclasses import dataclass

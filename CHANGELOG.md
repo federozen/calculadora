@@ -1,3 +1,33 @@
+## 3.8.34 · 2026-08-12
+
+### Previa por equipo: cálculo y narrativa fuera de Streamlit
+
+- Se agrega `lpf_preview.py`, módulo puro que recibe ventana de calendario, partidos abiertos, Tabla Anual, número de descensos y contexto de copas ya resueltos, y devuelve el Markdown y DataFrame de escenarios.
+- `lpf_previa_equipo_texto` queda reducido a un adaptador de UI: aporta agenda/sesión y delega; ya no contiene `exact_result_scenarios` ni construcción de DataFrames.
+- Equivalencia directa contra 3.8.33 en tres rutas activas (Playoffs, Descenso y Copas): texto completo, filas y atributos de exportación idénticos.
+- Se agregan regresiones de pureza, objetivos visibles, descenso y frontera del wrapper.
+- Suite: **269 pruebas**. `LPF_RUNTIME_API` sube de 13 a **14** y `lpf_preview.py` entra al núcleo crítico.
+
+## 3.8.33 · 2026-08-12
+
+### CI automática: tests, linter y release guard antes del deploy
+
+- Se agrega `.github/workflows/ci.yml`, ejecutado en cada `push` y `pull_request`.
+- El workflow instala `.[dev]` y corre `python -m pytest -q`, `python -m ruff check --select F,E9 *.py tests/*.py tools/*.py` y `python tools/release.py check`.
+- La CI usa permisos `contents: read`, timeout de 15 minutos y `concurrency` con cancelación de corridas anteriores de la misma referencia.
+- Se agregan regresiones que fijan esos comandos y prohíben `continue-on-error`, para que una falla de tests/linter/release bloquee efectivamente el check.
+- Suite: **264 pruebas**. `LPF_RUNTIME_API` permanece en **13** porque no cambia ningún contrato interno de ejecución.
+
+## 3.8.32 · 2026-08-12
+
+### Releases verificables y empaquetado seguro
+
+- Se agrega `tools/release.py`, un guard estático que comprueba `lpf_version.py`, el runtime requerido por el archivo principal, todos los `CRITICAL_COMPONENTS`, la metadata de `pyproject.toml`, README/CHANGELOG y la sintaxis Python.
+- El mismo comando construye el ZIP completo, el paquete de sincronización de núcleo y un incremental opcional. El incremental incluye siempre bootstrap + núcleo crítico completos aunque esos archivos no hayan cambiado respecto de la base.
+- Se corrige la metadata histórica de `pyproject.toml`, que todavía declaraba 3.8.1; desde ahora debe coincidir con la versión canónica.
+- Se agregan regresiones que demuestran que un paquete incremental no puede omitir `lpf_runtime.py`, `lpf_version.py`, el archivo principal ni un componente crítico.
+- Suite: **261 pruebas**. `LPF_RUNTIME_API` permanece en **13** porque no cambia ningún contrato interno de ejecución.
+
 ## 3.8.31 · 2026-08-12
 
 ### Promedios: previas y totales dejan de mezclarse

@@ -5,7 +5,7 @@ enumeran todos los desenlaces posibles y se comparan, resultado por resultado,
 contra lo que dicen los solucionadores. Es la evidencia de que "los números
 siempre salen de Python y están validados".
 
-La suite actual contiene **255 pruebas**.
+La suite actual contiene **269 pruebas**.
 
 | Archivo | Qué cubre |
 | --- | --- |
@@ -17,6 +17,7 @@ La suite actual contiene **255 pruebas**.
 | `test_lpf_clubs.py` | Canonicalización de clubes: alias y variantes → nombre canónico. |
 | `test_lpf_parsers.py` | Parsers de tablas pegadas: listas, promedios, fixture y Anual. |
 | `test_lpf_averages.py` | Promedios: formatos legacy/JSON, aliases, separación previas→totales y uso de PJ de la Tabla Anual en vez de PJ sólo del Clausura. |
+| `test_lpf_preview.py` | Previa por equipo: módulo puro, normalización de objetivo, tabla exportable, descenso explícito y wrapper Streamlit reducido a adaptador. |
 | `test_lpf_state.py` | Estado canónico: constructor/revalidador puros sin Streamlit, prioridad de Apertura, migración de sesiones, derivación y alertas de procedencia. |
 | `test_lpf_loading.py` | Preparación de carga sin I/O: canonicalización de resultados, carga offline, actualización automática, avance de standings, reconstrucción anual y rechazo de fotos insuficientes. |
 | `test_lpf_provider_adapters.py` | Fixtures locales de ESPN/FutbolArgentino.com: standings, zonas, scoreboards, estados, deduplicación y metadatos sin red. |
@@ -30,6 +31,8 @@ La suite actual contiene **255 pruebas**.
 | `test_lpf_pisos.py` | Puntos por objetivo: mínimo posible y garantía por objetivo, invariantes y combinación de tablas en el descenso. |
 | `test_lpf_table_backup.py` | Respaldo de tablas: payload JSON, escritura atómica, prioridad sesión→disco, vencimiento, formato legacy y recuperación sin Streamlit. |
 | `test_lpf_runtime.py` | Compatibilidad de deploy: nivel requerido por el archivo principal, módulos sincronizados, detección de un archivo viejo y chequeo antes de los imports sensibles. |
+| `test_release_tools.py` | Guard de release: versión/runtime/metadata sincronizados y paquetes incremental/sync que incluyen siempre el núcleo crítico completo. |
+| `test_ci_workflow.py` | CI de GitHub: push/PR, permisos mínimos y ejecución obligatoria de pytest, Ruff y release guard. |
 | `test_lpf_schedule.py` | Agenda/Previa: prioridad de fuentes horarias, compatibilidad legacy, jornada vs. postergados, orden por calendario real, agrupación por día y hora argentina. |
 | `test_lpf_result_updates.py` | Aplicación manual de resultados: no muta la entrada, ignora duplicados/no pendientes, calcula cambios de posiciones y conserva equivalencia con 3.8.21. |
 | `test_lpf_form.py` | Forma, rachas y fuerza regularizada: casos dirigidos, equivalencia aleatoria con 3.8.25 y ausencia de dependencias de Streamlit/red. |

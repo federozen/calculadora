@@ -15,7 +15,7 @@ from collections.abc import Mapping
 
 from lpf_clubs import canon_club
 
-LPF_RUNTIME_API = 13
+LPF_RUNTIME_API = 14
 
 
 def _pair(raw: object) -> tuple[int, int] | None:

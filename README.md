@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.31
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.34
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -10,6 +10,22 @@ La versión 3 prioriza tres objetivos:
 2. **Explicación honesta:** distingue hechos exactos, mínimo posible, total seguro, mínimo que asegura y estimaciones.
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
+
+
+## Novedad 3.8.34 · Previa por equipo fuera del monolito
+
+- Nuevo `lpf_preview.py`: construye el texto y la tabla exacta de la Previa por equipo sin leer Streamlit ni red.
+- `lpf_previa_equipo_texto` queda como adaptador corto: resuelve agenda, `n_anual` y contexto de copas desde sesión y delega en el módulo puro.
+- Se verificó equivalencia exacta contra 3.8.33 en Playoffs, Descenso y Copas, comparando Markdown, DataFrame y atributos de exportación.
+- `LPF_RUNTIME_API` sube a **14** y `lpf_preview.py` entra al núcleo crítico. Suite: **269 pruebas**.
+
+
+## Novedad 3.8.32 · Releases verificables y paquetes sincronizados
+
+- Nuevo `tools/release.py`: valida de forma estática la versión, el runtime requerido por la app, todos los componentes críticos, `pyproject.toml`, README, CHANGELOG y la sintaxis Python antes de empaquetar.
+- El constructor genera siempre un ZIP completo, un ZIP de **sincronización de núcleo** y, si recibe una versión base, un incremental que incluye el núcleo completo aunque sólo haya cambiado un archivo de UI o documentación.
+- `pyproject.toml` deja de quedar congelado en 3.8.1: desde esta versión su metadata también debe coincidir con `lpf_version.__version__`.
+- El runtime interno no cambia: sigue en **13** porque no se modificó ningún contrato de la app. Suite: **261 pruebas**.
 
 
 ## Novedad 3.8.31 · Promedios con contrato explícito
@@ -162,7 +178,7 @@ La versión 3 prioriza tres objetivos:
 
 - Streamlit comprueba al arrancar que los módulos críticos pertenecen al mismo nivel de compatibilidad antes de importarlos.
 - Si detecta un archivo viejo o faltante, se detiene con un mensaje claro que enumera qué módulos hay que actualizar, en vez de terminar más adelante con un `NameError` o `AttributeError`.
-- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.31`) para verificar rápidamente qué commit tomó Streamlit Cloud.
+- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.34`) para verificar rápidamente qué commit tomó Streamlit Cloud.
 - Este cambio no toca ninguna fórmula ni resultado. Suite: **154 pruebas**.
 
 ## Novedad 3.8.11 · Total seguro vs. mínimo que asegura

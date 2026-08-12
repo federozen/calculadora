@@ -61,6 +61,7 @@ pip install pytest ruff --break-system-packages
 python -m pytest -q                                   # todas deben pasar
 python -m ruff check --select F,E9 *.py tests/*.py    # "All checks passed!"
 python -m py_compile calculadora_futbol_argentino.py lpf_*.py
+python tools/release.py check
 ```
 
 ### Evitar deploys con archivos mezclados
@@ -82,10 +83,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.31` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.34` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
 - Archivo principal: **~10.060 líneas** (arrancó en ~12.780).
-- **255 pruebas**, todas verdes en 3.8.31. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- **269 pruebas**, todas verdes en 3.8.34. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -137,6 +138,7 @@ ciclos); respétalo. De más básico a más compuesto:
 | `lpf_standings.py` | Motor puro de tabla: estadísticas, desempates, orden, posiciones, tabla y clasificador in/out/pelea. Los criterios entran como parámetro. | — (pandas) |
 | `lpf_fixture_sources.py` | Fuentes de fixture y `expected_played_count` (ya existía). | — |
 | `lpf_schedule.py` | Agenda/calendario puros para Previa: hora argentina, jornada/postergados, orden real y ventanas temporales. | lpf_clubs |
+| `lpf_preview.py` | Previa pura por equipo: Markdown + tabla de escenarios desde ventana/contexto explícitos, sin sesión. | pandas, lpf_display, lpf_scenarios, lpf_standings |
 | `lpf_result_updates.py` | Aplicación pura de marcadores confirmados y cambios de posiciones para la carga manual. | lpf_standings |
 | `lpf_averages.py` | Contrato puro de promedios: distingue antecedentes previos de totales acumulados y usa la Tabla Anual como fuente de puntos/PJ 2026. | lpf_clubs |
 | `lpf_form.py` | Forma reciente, rachas y fuerza regularizada para simulaciones; el Apertura entra por parámetro. | numpy |
@@ -441,6 +443,34 @@ La mediana condicionada a un puesto debe publicar el tamaño de muestra. `lpf_si
 
 La corrección se auditó contra las fotos internas sincronizadas: **30/30 equipos** reproducen exactamente los totales Pts/PJ publicados. La fórmula anterior usaba PJ del Clausura junto con puntos de Apertura+Clausura y fallaba 30/30 denominadores. `lpf_pisos.promedio_totales` queda como wrapper de compatibilidad y `lpf_simulation` construye `average_totals` antes de evaluar descenso. No vuelvas a pasar temporadas previas directamente a un consumidor que espere totales.
 
+
+### 8f. Releases verificables — resuelto en 3.8.32
+
+`tools/release.py` elimina el armado manual de paquetes. `check` valida que la versión canónica, `pyproject.toml`, el runtime requerido por Streamlit y todos los componentes críticos estén sincronizados; también compila estáticamente los `.py` y exige que README/CHANGELOG publiquen la versión vigente.
+
+Para construir artefactos:
+
+```bash
+python tools/release.py check
+python tools/release.py build --output-dir /mnt/data --base-dir /ruta/a/la/version/anterior
+```
+
+El comando `build` genera siempre el ZIP completo y `sincronizacion-nucleo-X.Y.Z.zip`. Si recibe `--base-dir`, genera además el incremental y **fuerza** dentro de ese ZIP `calculadora_futbol_argentino.py`, `lpf_version.py`, `lpf_runtime.py` y todos los `CRITICAL_COMPONENTS`, aunque no hayan cambiado. Si detecta un archivo eliminado, no arma un incremental engañoso: obliga a usar el ZIP completo.
+
+No vuelvas a armar estos ZIP con listas manuales. `LPF_RUNTIME_API` permanece en 13 en 3.8.32 porque esta mejora no cambia contratos de la app.
+
+### 8g. CI automática — resuelto en 3.8.33
+
+`.github/workflows/ci.yml` ejecuta en cada push/PR tres barreras obligatorias: suite completa, Ruff (`F,E9`) y `tools/release.py check`. No uses `continue-on-error` en esos pasos ni los conviertas en avisos opcionales: el objetivo es impedir que un commit con runtime/versión mezclados o una regresión llegue al deploy.
+
+La CI instala `.[dev]` desde `pyproject.toml`, usa Python 3.11 y permisos de sólo lectura. No agrega dependencias al runtime de Streamlit. `LPF_RUNTIME_API` sigue en **13** porque este cambio es exclusivamente de entrega. Suite: **264 pruebas**.
+
+### 8h. Previa por equipo pura — resuelto en 3.8.34
+
+`lpf_preview.py` concentra el texto y la tabla exacta de la Previa por equipo. Recibe la ventana de `lpf_schedule`, los partidos que quedan abiertos, la Tabla Anual, `n_anual` y el contexto de copas ya resuelto; no importa Streamlit ni red. `lpf_previa_equipo_texto` queda como adaptador de sesión/agenda.
+
+La extracción se comparó directamente contra 3.8.33 en Playoffs, Descenso y Copas, incluyendo Markdown, DataFrame y `attrs`, sin diferencias. No vuelvas a mover fallbacks de sesión al módulo puro: cualquier dato nuevo de UI debe resolverse antes y entrar por parámetro. `LPF_RUNTIME_API` sube a **14** y el módulo pasa a ser crítico. Suite: **269 pruebas**.
+
 ---
 
 ## 9. Reglas de oro (no las rompas)
@@ -517,7 +547,7 @@ tener que leer 11.000 líneas. Cada extracción que hagas acerca ese objetivo.
 - Lo fácil ya se hizo; lo que queda pide inyección de dependencias o separar lógica
   de presentación. El motor de ordenamiento, el constructor del estado LPF y la preparación determinística
   de cargas ya están extraídos. Las URLs HTML genéricas también quedaron separadas en
-  3.8.14, la ventana ESPN quedó fuera de Streamlit en 3.8.15 y la secuencia de resultados de FutbolArgentino.com en 3.8.16, la agenda/alcance de la Previa en 3.8.21, la aplicación manual de resultados en 3.8.22, la Anual/cupos en 3.8.23, el contexto de copas en 3.8.24, la forma/fuerza de simulación en 3.8.26, las primitivas Monte Carlo en 3.8.27, el contexto explícito de simulación en 3.8.28 y la auditoría/unificación probabilística en 3.8.29 y el contrato explícito de promedios en 3.8.31. Football-data y Apify
+  3.8.14, la ventana ESPN quedó fuera de Streamlit en 3.8.15 y la secuencia de resultados de FutbolArgentino.com en 3.8.16, la agenda/alcance de la Previa en 3.8.21, la aplicación manual de resultados en 3.8.22, la Anual/cupos en 3.8.23, el contexto de copas en 3.8.24, la forma/fuerza de simulación en 3.8.26, las primitivas Monte Carlo en 3.8.27, el contexto explícito de simulación en 3.8.28 y la auditoría/unificación probabilística en 3.8.29 y el contrato explícito de promedios en 3.8.31. Desde 3.8.32 los releases se validan y empaquetan con `tools/release.py`, evitando listas manuales de núcleo; desde 3.8.33 GitHub ejecuta además tests, Ruff y ese guard automáticamente en cada push/PR; en 3.8.34 la Previa por equipo se extrae a `lpf_preview.py`, dejando en Streamlit sólo agenda y sesión. Football-data y Apify
   están confirmados como ramas deshabilitadas: no invertir trabajo ahí hasta que se
   reactiven. El próximo paso debe salir de una dependencia activa y comprobable; no
   crear una API ni un adaptador Opta hasta tener un consumidor real.
