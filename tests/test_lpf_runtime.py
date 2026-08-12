@@ -42,6 +42,7 @@ def test_main_chequea_runtime_antes_de_importar_modulos_sensibles():
     qualification_import_pos = text.index("from lpf_qualification import")
     form_import_pos = text.index("from lpf_form import")
     simulation_import_pos = text.index("from lpf_simulation import")
+    competitive_context_import_pos = text.index("from lpf_competitive_context import")
     assert check_pos < required_pos < stop_pos < pisos_import_pos
     assert check_pos < required_pos < stop_pos < http_import_pos
     assert check_pos < required_pos < stop_pos < schedule_import_pos
@@ -49,5 +50,6 @@ def test_main_chequea_runtime_antes_de_importar_modulos_sensibles():
     assert check_pos < required_pos < stop_pos < qualification_import_pos
     assert check_pos < required_pos < stop_pos < form_import_pos
     assert check_pos < required_pos < stop_pos < simulation_import_pos
-    assert "_REQUIRED_RUNTIME_API = 11" in text
+    assert check_pos < required_pos < stop_pos < competitive_context_import_pos
+    assert "_REQUIRED_RUNTIME_API = 12" in text
     assert 'Motor de cálculo · v{__version__}' in text

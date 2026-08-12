@@ -1,3 +1,16 @@
+## 3.8.29 · 2026-08-11
+
+### Auditoría probabilística y unificación del modelo
+
+- Se auditaron los caminos probabilísticos activos con una foto real de Fecha 4 (59 partidos completados antes de Talleres–Lanús) y se confirmó que convivían dos modelos distintos dentro de la app.
+- `lpf_simulation.match_outcome_probabilities` pasa a ser el kernel canónico: 26% de empate y factor local 1,22. Previa, Monte Carlo y `lpf_competitive_context` comparten la misma fórmula.
+- `lpf_competitive_context` acepta una fuerza explícita y la UI le pasa la fuerza de `lpf_form` (Apertura + Clausura + forma reciente), en vez de usar una regularización paralela.
+- `simulate_zone_rank_points` simula ahora los interzonales contra el rival real —incluida su fuerza y localía— cuando está disponible, en lugar de convertirlos en un partido contra rival promedio.
+- En la foto auditada, el backtest secuencial del modelo canónico dio log-loss **1,037** frente a **1,057** del modelo editorial anterior. No se recalibraron parámetros con sólo cuatro fechas: la muestra queda como control, no como entrenamiento.
+- **Puntos y puesto final** informa el número de corridas condicionadas y advierte cuando son menos de 100; así una mediana basada en pocos casos no se presenta con la misma estabilidad que una muestra amplia.
+- Se agrega `tests/fixtures/lpf_2026_fecha4_probability_audit.json` y pruebas de normalización/sensibilidad, backtest, cupos de playoffs, interzonales y consistencia entre los dos caminos de simulación.
+- La suite sube de 237 a **246 pruebas**. `LPF_RUNTIME_API` sube de 11 a **12** y `lpf_competitive_context.py` entra al conjunto crítico.
+
 ## 3.8.28 · 2026-08-11
 
 ### Contexto de simulación sin dependencias ocultas de sesión

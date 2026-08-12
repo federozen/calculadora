@@ -11,7 +11,7 @@ from lpf_version import __version__
 import streamlit as st
 from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
-_REQUIRED_RUNTIME_API = 11
+_REQUIRED_RUNTIME_API = 12
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -76,9 +76,11 @@ from lpf_form import (
 )
 from lpf_simulation import (
     build_simulation_context as _build_simulation_context_core,
+    match_outcome_probabilities as _match_outcome_probabilities,
     objective_mask as _obj_bool,
     simulate_point_additions as _sim_lpf_add,
     simulate_zone_rank_points as _simulate_zone_rank_points_core,
+    summarize_rank_condition as _summarize_rank_condition,
 )
 from lpf_qualification import (
     allocate_cup_slots, annual_base as _qualification_annual_base,
@@ -2724,7 +2726,7 @@ def lpf_zona_de_equipo(e, Z):
             return lab
     return None
 
-def lpf_playoffs_texto(equipo, Z, rest, pend=None):
+def lpf_playoffs_texto(equipo, Z, rest, pend=None, jugados=None):
     """Informe de playoffs con proyección, total seguro y mínimo exacto separados."""
     lab = lpf_zona_de_equipo(equipo, Z)
     if not lab:
@@ -2743,7 +2745,7 @@ def lpf_playoffs_texto(equipo, Z, rest, pend=None):
     estado = _liga_in_out(equipo, base, rest, k)
     strength_base = {name: row for zona in (Z or {}).values() for name, row in zona.items()}
     contexto, historial = _armar_contexto_competitivo(
-        equipo, base, pend, k, "playoffs", strength_base=strength_base
+        equipo, base, pend, k, "playoffs", strength_base=strength_base, jugados=jugados
     )
     if estado == "in":
         titular = f"{equipo} ya está clasificado a los octavos."
@@ -3067,7 +3069,7 @@ def _fmt_entero_es(value):
         return "0"
 
 
-def _armar_contexto_competitivo(equipo, base, pend, k, objetivo, strength_base=None):
+def _armar_contexto_competitivo(equipo, base, pend, k, objetivo, strength_base=None, jugados=None):
     """Construye la capa viva de tabla + fixture y la referencia histórica.
 
     Si la simulación falla, el mínimo que asegura sigue disponible: esta capa es
@@ -3077,7 +3079,11 @@ def _armar_contexto_competitivo(equipo, base, pend, k, objetivo, strength_base=N
         return None, None
     try:
         seed = 20260804 + {"playoffs": 11, "libertadores": 23, "sudamericana": 37}.get(objetivo, 0)
-        contexto = competition_context(base, pend, equipo, k, strength_base=strength_base, simulations=6000, seed=seed)
+        model_strength = _fuerza_lpf(strength_base, jugados) if strength_base else None
+        contexto = competition_context(
+            base, pend, equipo, k, strength_base=strength_base, strength=model_strength,
+            simulations=6000, seed=seed,
+        )
     except Exception:
         contexto = None
     try:
@@ -3208,11 +3214,14 @@ def _contexto_competitivo_bloque(equipo, nombre_obj, objetivo, contexto, histori
                 "una garantía."
             )
         if projection.get("model_note") and objetivo != "sudamericana":
+            params = projection.get("model_parameters") or {}
+            draw_pct = round(100 * float(params.get("draw_probability", _LPF_PDRAW)))
+            local_factor = float(params.get("home_advantage", _LPF_LOCALIA))
             L.append(
-                "**Cómo se arma la proyección.** El modelo pondera el rendimiento actual, ajustado por la cantidad "
-                "de partidos jugados; incorpora una ventaja moderada para el local y utiliza un 27% de probabilidad "
-                "de empate. La diferencia de gol actual sirve como referencia para posibles desempates, pero no se "
-                "inventa una diferencia futura exacta."
+                "**Cómo se arma la proyección.** Usa la misma fuerza del simulador principal —rendimiento actual, "
+                "antecedente del Apertura y forma reciente cuando hay resultados— y el mismo modelo de partido: "
+                f"**{draw_pct}% de empate** y factor local **{local_factor:.2f}**. La diferencia de gol actual sirve "
+                "como referencia para posibles desempates, pero no se inventa una diferencia futura exacta."
             )
 
     if historial:
@@ -3529,7 +3538,7 @@ def _escenario_maximo_copas_bloque(equipo, base_red, rest, pend, k_lib, k_sud, m
     )
     return L
 
-def lpf_copas_necesita_texto(equipo, Z, rest, apertura=None, camps=("", "", ""), extras=("", ""), pend=None):
+def lpf_copas_necesita_texto(equipo, Z, rest, apertura=None, camps=("", "", ""), extras=("", ""), pend=None, jugados=None):
     """Informe de copas por la Tabla General: conclusión arriba, cada número con su
     porqué al lado, los rivales una sola vez y la letra chica al final."""
     if len((Z or {})) < 2:
@@ -3554,11 +3563,16 @@ def lpf_copas_necesita_texto(equipo, Z, rest, apertura=None, camps=("", "", ""),
     e_lib = _liga_in_out(equipo, base_red, rest, k_lib)
     e_sud = _liga_in_out(equipo, base_red, rest, k_sud)
     pts_e = base_red[equipo]["pts"]; gx = rest.get(equipo, 0)
+    clausura_strength_base = {
+        name: row for zone in (Z or {}).values() for name, row in zone.items()
+    }
     contexto_lib, historial_lib = _armar_contexto_competitivo(
-        equipo, base_red, pend, k_lib, "libertadores", strength_base=anual
+        equipo, base_red, pend, k_lib, "libertadores",
+        strength_base=clausura_strength_base, jugados=jugados,
     )
     contexto_sud, historial_sud = _armar_contexto_competitivo(
-        equipo, base_red, pend, k_sud, "sudamericana", strength_base=anual
+        equipo, base_red, pend, k_sud, "sudamericana",
+        strength_base=clausura_strength_base, jugados=jugados,
     )
 
     projection_lib = (contexto_lib or {}).get("projection") or {}
@@ -6251,11 +6265,8 @@ def _lpf_tipo_de(games=None):
     return {(g["l"], g["v"]): (g["tipo"], g.get("zona")) for g in games}
 
 def _lpf_prob_partido(l, v, s, pdraw=_LPF_PDRAW, loc=_LPF_LOCALIA):
-    """(p_local, p_empate, p_visita) con el modelo del simulador. Suman 1."""
-    wa = s.get(l, 1.0) * loc; wb = s.get(v, 1.0)
-    pa = (1 - pdraw) * wa / (wa + wb)
-    pb = (1 - pdraw) - pa
-    return max(0.0, pa), pdraw, max(0.0, pb)
+    """(p_local, p_empate, p_visita) con el kernel canónico del simulador."""
+    return _match_outcome_probabilities(s.get(l, 1.0), s.get(v, 1.0), pdraw, loc)
 
 def lpf_previa_fecha_sim(Z, rest, pend, jugados=None, fecha=None):
     """Previa de la PRÓXIMA fecha por jugar: para cada partido, probabilidad
@@ -6584,21 +6595,21 @@ def lpf_previa_fecha_narrativa(
     )
 
 def _sim_zone_rank_points(base, rest, pend, target, n, seed, forced=None,
-                          pdraw=_LPF_PDRAW, loc=_LPF_LOCALIA, jugados=None):
+                          pdraw=_LPF_PDRAW, loc=_LPF_LOCALIA, jugados=None, strength_base=None):
     """Devuelve posición y puntos finales simulados del equipo objetivo."""
     return _simulate_zone_rank_points_core(
         base, rest, pend, target, n, seed,
-        strength=_fuerza_lpf(base, jugados),
+        strength=_fuerza_lpf(strength_base or base, jugados),
         forced=forced, pdraw=pdraw, loc=loc,
     )
 
 
 def _sim_zone_pos(base, rest, pend, target, n, seed, forced=None,
-                  pdraw=_LPF_PDRAW, loc=_LPF_LOCALIA, jugados=None):
+                  pdraw=_LPF_PDRAW, loc=_LPF_LOCALIA, jugados=None, strength_base=None):
     """Array (n,) con la posición final de ``target`` dentro de su zona."""
     positions, _points_final = _sim_zone_rank_points(
         base, rest, pend, target, n, seed, forced=forced,
-        pdraw=pdraw, loc=loc, jugados=jugados,
+        pdraw=pdraw, loc=loc, jugados=jugados, strength_base=strength_base,
     )
     return positions
 
@@ -6611,12 +6622,16 @@ def lpf_arbol_sim(equipo, Z, rest, pend, top=_LPF_TOP_OCTAVOS, seed=17, jugados=
     if not lab or equipo not in Z.get(lab, {}):
         return None, None
     base = Z[lab]
+    strength_base = {name: row for zone in (Z or {}).values() for name, row in zone.items()}
     mios = [(row["match"], row["round"]) for row in lpf_partidos_equipo_ordenados(equipo, pend)]
     if not mios:
         return None, None
     n = 12000 if len(pend) <= 30 else 5000
     def chance(forced):
-        pos = _sim_zone_pos(base, rest, pend, equipo, n, seed, forced=forced, jugados=jugados)
+        pos = _sim_zone_pos(
+            base, rest, pend, equipo, n, seed, forced=forced, jugados=jugados,
+            strength_base=strength_base,
+        )
         return 100.0 * float((pos <= top).mean())
     base_ch = chance(None)
     (l, v), fx = mios[0]
@@ -6657,6 +6672,7 @@ def lpf_otros_resultados_sim(equipo, Z, rest, pend, top=_LPF_TOP_OCTAVOS, jugado
     if not lab or equipo not in Z.get(lab, {}):
         return None, None
     base = Z[lab]
+    strength_base = {name: row for zone in (Z or {}).values() for name, row in zone.items()}
     window = _lpf_scope_games(equipo, pend, scope=scope, fecha=fecha)
     all_games = list(window["games"])
     games = [(l, v) for l, v in all_games if equipo not in (l, v) and (l in base or v in base)]
@@ -6665,7 +6681,10 @@ def lpf_otros_resultados_sim(equipo, Z, rest, pend, top=_LPF_TOP_OCTAVOS, jugado
 
     n = 30000
     def chance(forced):
-        pos = _sim_zone_pos(base, rest, pend, equipo, n, seed, forced=forced, jugados=jugados)
+        pos = _sim_zone_pos(
+            base, rest, pend, equipo, n, seed, forced=forced, jugados=jugados,
+            strength_base=strength_base,
+        )
         return 100.0 * float((pos <= top).mean())
 
     base_ch = chance(None)
@@ -7384,7 +7403,7 @@ def _router_lpf(acc, E):
         return [("warning", "No pude reconstruir la Tabla Anual desde el Apertura fijo y las zonas. Abrí **Datos y auditoría** y tocá **Reconciliar toda la base**.")]
     if intent == "copas":
         if equipo:
-            return [("md", lpf_copas_necesita_texto(equipo, Z, rest, ap, (c1, c2, c3), (xl, xs), pend)),
+            return [("md", lpf_copas_necesita_texto(equipo, Z, rest, ap, (c1, c2, c3), (xl, xs), pend, jugados=jugados)),
                     ("df", lpf_anual_df(Z, ap), "Tabla General 2026")]
         _obj = _objetivo_lpf(q)
         _alive = E.get("copa_arg_vivos") or []
@@ -7467,9 +7486,9 @@ def _router_lpf(acc, E):
         if any(w in qn for w in ("descenso", "descender", "promedio", "bajar", "salvar", "permanencia")):
             return [("md", lpf_descenso_texto(Z, rest, ap, prev, na, npro, equipo, pend))]
         if any(w in qn for w in ("libertadores", "sudamericana", "copa")):
-            return [("md", lpf_copas_necesita_texto(equipo, Z, rest, ap, (c1, c2, c3), (xl, xs), pend))]
+            return [("md", lpf_copas_necesita_texto(equipo, Z, rest, ap, (c1, c2, c3), (xl, xs), pend, jugados=jugados))]
         lab = lpf_zona_de_equipo(equipo, Z)
-        out = [("md", lpf_playoffs_texto(equipo, Z, rest, pend))]
+        out = [("md", lpf_playoffs_texto(equipo, Z, rest, pend, jugados=jugados))]
         if lab:
             out.append(("df", liga_maxmin_df(Z[lab], rest), f"Zona {lab}: puntos máximos posibles"))
         return out
@@ -8556,12 +8575,14 @@ def render_newsroom(E):
 
         ui_markdown("#### EXACTO · Qué se sabe y qué necesita")
         if objective == "Playoffs":
-            exact = lpf_playoffs_texto(team, Z, rest, pending)
+            exact = lpf_playoffs_texto(team, Z, rest, pending, jugados=E.get("jugados") or [])
             base = Z[lab]
             cutoff = 8
         elif objective in ("Libertadores", "Al menos Sudamericana"):
-            exact = lpf_copas_necesita_texto(team, Z, rest, E.get("apertura") or {},
-                                              (c1, c2, c3), (xl, xs), pending)
+            exact = lpf_copas_necesita_texto(
+                team, Z, rest, E.get("apertura") or {}, (c1, c2, c3), (xl, xs), pending,
+                jugados=E.get("jugados") or [],
+            )
             allocation = lpf_plazas_copas(Z, E.get("apertura") or {}, (c1, c2, c3), (xl, xs))
             base = {name: annual[name] for name in allocation["reducida"]}
             cutoff = allocation["n_tabla_lib"] + (0 if objective == "Libertadores" else 6)
@@ -9235,18 +9256,22 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
                 simulated_rank, simulated_points = _sim_zone_rank_points(
                     base, rest, pending, team, simulations, 3825 + int(target_rank),
                     jugados=E.get("jugados") or [],
+                    strength_base={name: row for zone in Z.values() for name, row in zone.items()},
                 )
-            mask = simulated_rank == int(target_rank)
-            rank_points = simulated_points[mask]
-            if len(rank_points):
-                median = float(np.median(rank_points))
-                q25, q75 = np.quantile(rank_points, [0.25, 0.75])
-                rank_probability = 100.0 * float(mask.mean())
-                counts = pd.Series(rank_points).value_counts().sort_index()
+            rank_summary = _summarize_rank_condition(
+                simulated_rank, simulated_points, int(target_rank), min_samples=100
+            )
+            if rank_summary["samples"]:
+                median = float(rank_summary["median"])
+                q25 = float(rank_summary["q25"])
+                q75 = float(rank_summary["q75"])
+                rank_probability = 100.0 * float(rank_summary["probability"])
                 distribution = pd.DataFrame({
-                    "Puntos finales": counts.index.astype(int),
-                    f"Frecuencia entre los casos {int(target_rank)}º (%)": (100 * counts.values / len(rank_points)).round(1),
-                    "Simulaciones": counts.values.astype(int),
+                    "Puntos finales": [row["final_points"] for row in rank_summary["distribution"]],
+                    f"Frecuencia entre los casos {int(target_rank)}º (%)": [
+                        round(100 * float(row["frequency"]), 1) for row in rank_summary["distribution"]
+                    ],
+                    "Simulaciones": [row["samples"] for row in rank_summary["distribution"]],
                 })
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Mediana estimada", _fmt_num_es(median))
@@ -9254,14 +9279,22 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
                 c3.metric(f"Chance estimada de terminar {int(target_rank)}º", f"{rank_probability:.1f}%")
                 ui_dataframe(distribution, use_container_width=True, hide_index=True)
                 ui_caption(
-                    f"ESTIMACIÓN · {simulations:,} simulaciones. La mediana se calcula sólo entre las corridas donde {team} termina "
-                    f"{int(target_rank)}º; no es la mediana de los puntajes matemáticamente posibles. El rango 50% central deja "
-                    "afuera los extremos menos frecuentes.".replace(",", ".")
+                    f"ESTIMACIÓN · {_fmt_entero_es(simulations)} simulaciones. El resumen usa "
+                    f"**{_fmt_entero_es(rank_summary['samples'])} casos** en los que {team} terminó exactamente "
+                    f"{int(target_rank)}º; no es la mediana de los puntajes matemáticamente posibles: pondera sólo "
+                    "la frecuencia de esas corridas. El rango 50% central deja afuera los extremos menos frecuentes."
                 )
+                if not rank_summary["stable"]:
+                    ui_warning(
+                        f"Muestra condicionada chica: sólo {_fmt_entero_es(rank_summary['samples'])} de "
+                        f"{_fmt_entero_es(simulations)} simulaciones terminaron con {team} {int(target_rank)}º. "
+                        "La mediana y el rango pueden moverse si cambia la semilla; leelos como una orientación, "
+                        "no como una estimación estable."
+                    )
             else:
                 ui_warning(
-                    f"En {simulations:,} simulaciones {team} no terminó {int(target_rank)}º. Eso no demuestra que sea imposible; "
-                    "indica que el modelo no encontró ese puesto con frecuencia suficiente en esta muestra.".replace(",", ".")
+                    f"En {_fmt_entero_es(simulations)} simulaciones {team} no terminó {int(target_rank)}º. Eso no demuestra que sea imposible; "
+                    "indica que el modelo no encontró ese puesto con frecuencia suficiente en esta muestra."
                 )
 
         show_math = st.checkbox(
@@ -9336,7 +9369,10 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
         if st.button("Calcular distribución estimada de posiciones", use_container_width=True,
                      key=f"scenario_distribution_{team}"):
             with st.spinner("Simulando el resto del torneo…"):
-                positions = _sim_zone_pos(base, rest, pending, team, int(n), seed=43, jugados=E.get("jugados") or [])
+                positions = _sim_zone_pos(
+                    base, rest, pending, team, int(n), seed=43, jugados=E.get("jugados") or [],
+                    strength_base={name: row for zone in Z.values() for name, row in zone.items()},
+                )
             counts = pd.Series(positions).value_counts().sort_index()
             frame = pd.DataFrame({"Puesto": counts.index.astype(int), "Probabilidad %": (100 * counts.values / int(n)).round(1)})
             st.bar_chart(frame.set_index("Puesto"))
@@ -9623,11 +9659,11 @@ def render_guided_workspace(E):
             ui_dataframe(_preview_frame, use_container_width=True, hide_index=True)
         with st.expander(f"Qué necesita para {objective.lower()}", expanded=False):
             if objective == "Playoffs":
-                ui_markdown(lpf_playoffs_texto(team, Z, rest, pending))
+                ui_markdown(lpf_playoffs_texto(team, Z, rest, pending, jugados=E.get("jugados") or []))
             elif objective in ("Libertadores", "Al menos Sudamericana"):
                 ui_markdown(lpf_copas_necesita_texto(
                     team, Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""),
-                    E.get("intl") or ("", ""), pending
+                    E.get("intl") or ("", ""), pending, jugados=E.get("jugados") or []
                 ))
             else:
                 ui_markdown(lpf_descenso_texto(
@@ -9680,9 +9716,9 @@ def render_guided_workspace(E):
         if frame is not None: ui_dataframe(frame, use_container_width=True, hide_index=True)
     elif task == "Qué necesita para alcanzar el objetivo":
         if objective == "Playoffs":
-            ui_markdown(lpf_playoffs_texto(team, Z, rest, pending))
+            ui_markdown(lpf_playoffs_texto(team, Z, rest, pending, jugados=E.get("jugados") or []))
         elif objective in ("Libertadores", "Al menos Sudamericana"):
-            ui_markdown(lpf_copas_necesita_texto(team, Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""), E.get("intl") or ("", ""), pending))
+            ui_markdown(lpf_copas_necesita_texto(team, Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""), E.get("intl") or ("", ""), pending, jugados=E.get("jugados") or []))
         else:
             ui_markdown(lpf_descenso_texto(Z, rest, E.get("apertura") or {}, previous, E.get("n_anual", 1), E.get("n_prom", 1), team, pending))
     elif task == "Qué resultados ajenos le convienen":

@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.28
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.29
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -11,6 +11,14 @@ La versión 3 prioriza tres objetivos:
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
 
+
+## Novedad 3.8.29 · Auditoría del modelo probabilístico
+
+- Se detectó y corrigió una inconsistencia activa: **“Realidad y proyección”** usaba 27% de empate, localía 1,08 y una fuerza distinta, mientras el Monte Carlo principal usaba 26%, localía 1,22 y `lpf_form`. Ahora ambos usan el mismo kernel y la misma fuerza canónica.
+- La simulación de zona ya respeta el **rival interzonal real y su localía** cuando el fixture/fortaleza están disponibles; antes ese partido podía caer al respaldo de “rival promedio”.
+- La vista **Puntos y puesto final** informa cuántas corridas sostienen la mediana condicionada y advierte si son menos de 100.
+- Auditoría congelada con la foto real del Clausura al 11/08/2026 20:28 ART (59 partidos, Talleres–Lanús pendiente): el modelo canónico tuvo log-loss 1,037 frente a 1,057 del modelo alternativo. La muestra es chica y **no se usó para recalibrar parámetros**.
+- `LPF_RUNTIME_API` sube a **12** e incorpora `lpf_competitive_context.py` al núcleo crítico. Suite: **246 pruebas**.
 
 ## Novedad 3.8.28 · Contexto Monte Carlo explícito
 
@@ -140,7 +148,7 @@ La versión 3 prioriza tres objetivos:
 
 - Streamlit comprueba al arrancar que los módulos críticos pertenecen al mismo nivel de compatibilidad antes de importarlos.
 - Si detecta un archivo viejo o faltante, se detiene con un mensaje claro que enumera qué módulos hay que actualizar, en vez de terminar más adelante con un `NameError` o `AttributeError`.
-- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.28`) para verificar rápidamente qué commit tomó Streamlit Cloud.
+- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.29`) para verificar rápidamente qué commit tomó Streamlit Cloud.
 - Este cambio no toca ninguna fórmula ni resultado. Suite: **154 pruebas**.
 
 ## Novedad 3.8.11 · Total seguro vs. mínimo que asegura

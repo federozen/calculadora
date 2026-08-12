@@ -82,10 +82,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.28` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.29` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
-- Archivo principal: **~10.125 líneas** (arrancó en ~12.780).
-- **237 pruebas**, todas verdes en 3.8.28. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- Archivo principal: **~10.060 líneas** (arrancó en ~12.780).
+- **246 pruebas**, todas verdes en 3.8.29. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -371,7 +371,7 @@ datos por parámetro y devuelve Apertura seleccionado, Anual autoritativa y repo
 wrapper sólo persiste esos valores. Se comparó contra 3.8.18 en siete escenarios con
 equivalencia exacta de reporte y efectos de sesión.
 
-El nivel interno fue **2** desde 3.8.16, subió a **3** en 3.8.19 por la nueva función de `lpf_state`, a **4** en 3.8.21 por `lpf_schedule.py`, a **5** en 3.8.22 porque la Mesa de redacción requiere `lpf_result_updates.py` y a **6** en 3.8.23 porque la app importa `lpf_qualification.py` para Anual/cupos, a **7** en 3.8.24 porque también importa sus helpers de contexto de copas y a **8** en 3.8.25 porque la UI importa `lpf_scenarios.can_finish_exact_rank_by_points` y a **9** en 3.8.26 al incorporar `lpf_form.py` como dependencia activa de las simulaciones y a **10** en 3.8.27 al extraer `lpf_simulation.py` como frontera Monte Carlo pura y a **11** en 3.8.28 porque el wrapper importa su constructor explícito de contexto. El archivo principal también comprueba explícitamente que `lpf_runtime.py` tenga el nivel requerido antes de importar módulos sensibles. Los paquetes de actualización deben reemplazar los módulos críticos juntos; no bajes ese nivel sólo para reducir el ZIP.
+El nivel interno fue **2** desde 3.8.16, subió a **3** en 3.8.19 por la nueva función de `lpf_state`, a **4** en 3.8.21 por `lpf_schedule.py`, a **5** en 3.8.22 porque la Mesa de redacción requiere `lpf_result_updates.py` y a **6** en 3.8.23 porque la app importa `lpf_qualification.py` para Anual/cupos, a **7** en 3.8.24 porque también importa sus helpers de contexto de copas y a **8** en 3.8.25 porque la UI importa `lpf_scenarios.can_finish_exact_rank_by_points` y a **9** en 3.8.26 al incorporar `lpf_form.py` como dependencia activa de las simulaciones y a **10** en 3.8.27 al extraer `lpf_simulation.py` como frontera Monte Carlo pura y a **11** en 3.8.28 porque el wrapper importa su constructor explícito de contexto y a **12** en 3.8.29 al unificar `lpf_competitive_context.py` con el kernel y la fuerza canónicos. El archivo principal también comprueba explícitamente que `lpf_runtime.py` tenga el nivel requerido antes de importar módulos sensibles. Los paquetes de actualización deben reemplazar los módulos críticos juntos; no bajes ese nivel sólo para reducir el ZIP.
 
 Football-data y Apify siguen definidos por compatibilidad histórica, pero sus ramas
 de UI están actualmente deshabilitadas con `and False`. No los extraigas ni reactives
@@ -423,6 +423,16 @@ La extracción se comparó directamente contra 3.8.25 en 1.000 casos de forma/ra
 `lpf_simulation.build_simulation_context` concentra el armado estable que antes hacía `_lpf_ctx`: resuelve la Anual con fotos explícitas, reparte cupos con un reemplazo de Copa Argentina explícito y prepara `zona_de`, puntos/DG base, promedios y restantes. No lee sesión ni red.
 
 `_lpf_ctx` conserva la firma histórica porque muchos call-sites de UI la usan, pero su único trabajo es resolver los fallbacks de Apertura, Anual directa y reemplazo de Copa Argentina desde la sesión y pasarlos al constructor puro. La equivalencia se verificó contra 3.8.27 en 500 estados dirigidos/aleatorios sin diferencias. Una futura API debe llamar al constructor puro con datos del snapshot, no emular `session_state`.
+
+### 8d decies. Auditoría probabilística — corregido en 3.8.29
+
+La app debe tener **un solo modelo probabilístico activo**. `lpf_simulation.match_outcome_probabilities` es el kernel canónico: 26% de empate y factor local 1,22. La fuerza canónica sale de `lpf_form.estimate_team_strength`. `lpf_competitive_context` puede conservar su regularización vieja sólo como fallback de compatibilidad si se lo llama aislado; los caminos activos de Streamlit deben pasarle la fuerza canónica explícita.
+
+La auditoría de Fecha 4 encontró además que la simulación de una zona ignoraba el rival real en los interzonales y luego completaba ese partido contra un “rival promedio”. Desde 3.8.29, `simulate_zone_rank_points` procesa cualquier pendiente que afecte a la zona y usa la fuerza/localía del rival externo cuando está disponible. No reviertas esto para recuperar equivalencia con 3.8.28: es una corrección funcional respaldada por pruebas.
+
+Se congeló una foto real del 11/08/2026 20:28 ART con 59 partidos completados. El backtest secuencial dio log-loss 1,037 para el modelo canónico y 1,057 para el camino editorial anterior. **No calibres parámetros con esa muestra**: cuatro fechas son insuficientes. El próximo ajuste de 26%/1,22 requiere un backtest histórico amplio y separado de cualquier refactor.
+
+La mediana condicionada a un puesto debe publicar el tamaño de muestra. `lpf_simulation.summarize_rank_condition` marca como inestable una muestra menor a 100 corridas; la UI debe advertirlo. No ocultes ese aviso aunque la mediana “parezca razonable”.
 
 ### 8e. Ambigüedad de promedios (deuda vieja, documentada)
 Hay una ambigüedad histórica en cómo se arma el diccionario de promedios (`prom`):
@@ -506,7 +516,7 @@ tener que leer 11.000 líneas. Cada extracción que hagas acerca ese objetivo.
 - Lo fácil ya se hizo; lo que queda pide inyección de dependencias o separar lógica
   de presentación. El motor de ordenamiento, el constructor del estado LPF y la preparación determinística
   de cargas ya están extraídos. Las URLs HTML genéricas también quedaron separadas en
-  3.8.14, la ventana ESPN quedó fuera de Streamlit en 3.8.15 y la secuencia de resultados de FutbolArgentino.com en 3.8.16, la agenda/alcance de la Previa en 3.8.21, la aplicación manual de resultados en 3.8.22, la Anual/cupos en 3.8.23, el contexto de copas en 3.8.24, la forma/fuerza de simulación en 3.8.26, las primitivas Monte Carlo en 3.8.27 y el contexto explícito de simulación en 3.8.28. Football-data y Apify
+  3.8.14, la ventana ESPN quedó fuera de Streamlit en 3.8.15 y la secuencia de resultados de FutbolArgentino.com en 3.8.16, la agenda/alcance de la Previa en 3.8.21, la aplicación manual de resultados en 3.8.22, la Anual/cupos en 3.8.23, el contexto de copas en 3.8.24, la forma/fuerza de simulación en 3.8.26, las primitivas Monte Carlo en 3.8.27, el contexto explícito de simulación en 3.8.28 y la auditoría/unificación probabilística en 3.8.29. Football-data y Apify
   están confirmados como ramas deshabilitadas: no invertir trabajo ahí hasta que se
   reactiven. El próximo paso debe salir de una dependencia activa y comprobable; no
   crear una API ni un adaptador Opta hasta tener un consumidor real.

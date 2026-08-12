@@ -5,7 +5,7 @@ enumeran todos los desenlaces posibles y se comparan, resultado por resultado,
 contra lo que dicen los solucionadores. Es la evidencia de que "los números
 siempre salen de Python y están validados".
 
-La suite actual contiene **237 pruebas**.
+La suite actual contiene **246 pruebas**.
 
 | Archivo | Qué cubre |
 | --- | --- |
@@ -33,6 +33,7 @@ La suite actual contiene **237 pruebas**.
 | `test_lpf_result_updates.py` | Aplicación manual de resultados: no muta la entrada, ignora duplicados/no pendientes, calcula cambios de posiciones y conserva equivalencia con 3.8.21. |
 | `test_lpf_form.py` | Forma, rachas y fuerza regularizada: casos dirigidos, equivalencia aleatoria con 3.8.25 y ausencia de dependencias de Streamlit/red. |
 | `test_lpf_simulation.py` | Contexto y Monte Carlo puros: Anual/cupos explícitos, posición/puntos por zona, suma de puntos, objetivos, reproducibilidad y ausencia de Streamlit/red. |
+| `test_lpf_probability_audit.py` | Auditoría probabilística con foto real de Fecha 4: kernel único, sensibilidad, backtest, interzonales, 8 cupos por zona, muestra condicionada y consistencia entre proyecciones. |
 | `test_lpf_qualification.py` | Tabla Anual, plazas y contexto de copas: prioridad Apertura/Anual directa, reordenamientos, clasificados fijos, vivos de Copa Argentina, etiqueta de actualización y equivalencia histórica. |
 
 Convenio de desempates (verificado en las pruebas):
@@ -53,3 +54,5 @@ python -m pytest -q
 - `test_lpf_table_selection.py`: prioridad/fallback puro de zonas y Tabla Anual entre proveedores y respaldos.
 
 La extracción de `lpf_simulation.py` se verificó además contra 3.8.26 en 500 casos de zona + 500 wrappers, 800 matrices globales y 900 máscaras de objetivos. En 3.8.28, el constructor de contexto se comparó además contra `_lpf_ctx` de 3.8.27 en 500 estados con fallbacks de Apertura/Anual/Copa Argentina.
+
+En 3.8.29 se congeló una foto real del Clausura 2026 al 11/08 20:28 ART para auditar 59 partidos completados, comparar el modelo canónico contra el camino editorial legado y verificar interzonales/muestras condicionadas. No se recalibraron parámetros con esa muestra.

@@ -19,6 +19,14 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
+from lpf_simulation import (
+    DEFAULT_DRAW_PROBABILITY,
+    DEFAULT_HOME_ADVANTAGE,
+    match_outcome_probabilities,
+)
+
+LPF_RUNTIME_API = 12
+
 
 # Los playoffs 2025/26 comparten formato de 16 partidos por zona. La muestra se
 # guarda como cortes, no como garantías: cinco de los seis octavos sumaron 21 y uno 18.
@@ -156,6 +164,7 @@ def _simulate_fixture(
     cutoff: int,
     *,
     strength_base: Mapping[str, object] | None,
+    strength: Mapping[str, float] | None,
     simulations: int,
     seed: int,
     draw_probability: float,
@@ -167,18 +176,25 @@ def _simulate_fixture(
     for home, away in matches:
         all_names.add(home)
         all_names.add(away)
-    strength = _regularized_strength(strength_base or base, all_names)
+    if strength is None:
+        model_strength = _regularized_strength(strength_base or base, all_names)
+        strength_source = "regularized_current_points"
+    else:
+        model_strength = {name: float(strength.get(name, 1.0)) for name in all_names}
+        strength_source = "provided_canonical"
     rng = np.random.default_rng(int(seed))
     additions = np.zeros((int(simulations), len(teams)), dtype=np.int16)
 
     for home, away in matches:
-        sh = strength.get(home, 1.0) * float(home_advantage)
-        sa = strength.get(away, 1.0)
-        decisive = max(0.0, 1.0 - float(draw_probability))
-        p_home = decisive * sh / (sh + sa)
+        p_home, p_draw, _p_away = match_outcome_probabilities(
+            model_strength.get(home, 1.0),
+            model_strength.get(away, 1.0),
+            draw_probability,
+            home_advantage,
+        )
         u = rng.random(int(simulations))
         home_win = u < p_home
-        away_win = u >= p_home + float(draw_probability)
+        away_win = u >= p_home + p_draw
         draw = ~(home_win | away_win)
         if home in index:
             additions[:, index[home]] += np.where(home_win, 3, np.where(draw, 1, 0)).astype(np.int16)
@@ -244,11 +260,18 @@ def _simulate_fixture(
         "target_70": threshold(0.70),
         "target_85": threshold(0.85),
         "by_final_points": grouped,
+        "model_parameters": {
+            "draw_probability": float(draw_probability),
+            "home_advantage": float(home_advantage),
+            "strength_source": strength_source,
+        },
         "tiebreak_note": "La estimación usa la diferencia de gol actual como desempate de referencia.",
         "model_note": (
-            "El modelo pondera el rendimiento actual regularizado por partidos jugados, "
-            "incorpora una ventaja local moderada, fija 27% de probabilidad de empate y "
-            "usa la diferencia de gol actual sólo como referencia para los desempates futuros."
+            ("El modelo usa la fuerza canónica y el mismo kernel probabilístico que el Monte Carlo principal "
+             if strength_source == "provided_canonical" else
+             "El modelo usa una fuerza regularizada de compatibilidad y el kernel probabilístico canónico ")
+            + f"({100 * float(draw_probability):.0f}% de empate y factor local {float(home_advantage):.2f}); "
+            + "la diferencia de gol actual queda sólo como referencia para los desempates futuros."
         ),
     }
 
@@ -260,6 +283,7 @@ def competition_context(
     cutoff: int,
     *,
     strength_base: Mapping[str, object] | None = None,
+    strength: Mapping[str, float] | None = None,
     simulations: int = 6000,
     seed: int = 20260804,
     contender_margin: int = 4,
@@ -350,10 +374,11 @@ def competition_context(
         team,
         k,
         strength_base=strength_base,
+        strength=strength,
         simulations=max(1000, int(simulations)),
         seed=int(seed),
-        draw_probability=0.27,
-        home_advantage=1.08,
+        draw_probability=DEFAULT_DRAW_PROBABILITY,
+        home_advantage=DEFAULT_HOME_ADVANTAGE,
     )
     return {
         "team": team,

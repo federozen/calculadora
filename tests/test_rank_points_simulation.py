@@ -49,15 +49,29 @@ def _sample_input():
     return base, rest, pending, forced
 
 
-def test_wrapper_de_posiciones_conserva_exactamente_la_simulacion_historica():
+def test_wrapper_conserva_la_simulacion_historica_si_no_hay_interzonal_externo():
     old = _extract_functions(ORIGINAL, {"_sim_zone_pos"})["_sim_zone_pos"]
     new_ns = _extract_functions(MAIN, {"_sim_zone_rank_points", "_sim_zone_pos"})
     new = new_ns["_sim_zone_pos"]
     base, rest, pending, forced = _sample_input()
+    pending = [match for match in pending if "X" not in match]
 
     expected = old(base, rest, pending, "A", 1200, 77, forced=forced, jugados=[])
     got = new(base, rest, pending, "A", 1200, 77, forced=forced, jugados=[])
     np.testing.assert_array_equal(got, expected)
+
+
+def test_interzonal_externo_usa_al_rival_real_en_vez_de_un_rival_promedio():
+    base, rest, pending, _forced = _sample_input()
+    strength = {"A": 1.0, "B": 1.0, "C": 1.0, "D": 1.0, "E": 1.0, "X": 1.75}
+    _positions, points_strong_rival = simulate_zone_rank_points(
+        base, rest, pending, "B", 8000, 88, strength
+    )
+    strength["X"] = 0.55
+    _positions, points_weak_rival = simulate_zone_rank_points(
+        base, rest, pending, "B", 8000, 88, strength
+    )
+    assert points_weak_rival.mean() > points_strong_rival.mean()
 
 
 def test_simulacion_nueva_devuelve_los_puntos_de_las_mismas_corridas():

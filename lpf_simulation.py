@@ -10,10 +10,77 @@ import numpy as np
 
 from lpf_qualification import allocate_cup_slots, annual_base
 
-LPF_RUNTIME_API = 11
+LPF_RUNTIME_API = 12
 
 DEFAULT_DRAW_PROBABILITY = 0.26
 DEFAULT_HOME_ADVANTAGE = 1.22
+
+
+def match_outcome_probabilities(
+    home_strength,
+    away_strength,
+    draw_probability=DEFAULT_DRAW_PROBABILITY,
+    home_advantage=DEFAULT_HOME_ADVANTAGE,
+):
+    """Probabilidades canónicas (local, empate, visitante) del modelo LPF.
+
+    La ventaja local se aplica sólo a la fuerza del local y el empate conserva
+    una probabilidad fija. Esta función centraliza el kernel para que Previa,
+    Monte Carlo y contexto competitivo no deriven fórmulas distintas.
+    """
+    draw = float(draw_probability)
+    weighted_home = float(home_strength) * float(home_advantage)
+    weighted_away = float(away_strength)
+    decisive = 1.0 - draw
+    home = decisive * weighted_home / (weighted_home + weighted_away)
+    away = decisive - home
+    return home, draw, away
+
+
+def summarize_rank_condition(positions, final_points, target_rank, *, min_samples=100):
+    """Resume puntos finales condicionado a terminar en ``target_rank``.
+
+    Devuelve también cuántas corridas sostienen el resumen. La mediana y los
+    cuantiles condicionados pueden ser muy sensibles cuando el puesto aparece
+    pocas veces; ``stable`` hace visible ese tamaño de muestra a la UI.
+    """
+    positions = np.asarray(positions)
+    final_points = np.asarray(final_points)
+    if positions.shape != final_points.shape:
+        raise ValueError("positions y final_points deben tener la misma forma")
+    total = int(positions.size)
+    mask = positions == int(target_rank)
+    selected = final_points[mask]
+    count = int(selected.size)
+    result = {
+        "target_rank": int(target_rank),
+        "simulations": total,
+        "samples": count,
+        "probability": (float(count / total) if total else 0.0),
+        "stable": count >= int(min_samples),
+        "minimum_samples": int(min_samples),
+        "median": None,
+        "q25": None,
+        "q75": None,
+        "distribution": [],
+    }
+    if not count:
+        return result
+    values, counts = np.unique(selected.astype(int), return_counts=True)
+    result.update({
+        "median": float(np.median(selected)),
+        "q25": float(np.quantile(selected, 0.25)),
+        "q75": float(np.quantile(selected, 0.75)),
+        "distribution": [
+            {
+                "final_points": int(value),
+                "samples": int(n),
+                "frequency": float(n / count),
+            }
+            for value, n in zip(values, counts)
+        ],
+    })
+    return result
 
 
 def build_simulation_context(
@@ -116,25 +183,34 @@ def simulate_zone_rank_points(
 
     in_fixture = {team: 0 for team in teams}
     for local, visitor in pending:
-        if local in idx and visitor in idx and (local, visitor) not in forced:
+        if (local, visitor) in forced or (local not in idx and visitor not in idx):
+            continue
+        if local in idx:
             in_fixture[local] += 1
+        if visitor in idx:
             in_fixture[visitor] += 1
-            p_local = (1 - pdraw) * (strength[local] * loc) / (strength[local] * loc + strength[visitor])
-            sample = rng.random(n)
-            local_win = sample < p_local
-            visitor_win = sample >= p_local + pdraw
+        p_local, p_draw, _p_visitor = match_outcome_probabilities(
+            strength.get(local, 1.0), strength.get(visitor, 1.0), pdraw, loc
+        )
+        sample = rng.random(n)
+        local_win = sample < p_local
+        visitor_win = sample >= p_local + p_draw
+        if local in idx:
             points[:, idx[local]] += np.where(local_win, 3, np.where(visitor_win, 0, 1))
+        if visitor in idx:
             points[:, idx[visitor]] += np.where(visitor_win, 3, np.where(local_win, 0, 1))
 
     for team in teams:
         extra = max(0, remaining.get(team, 0) - in_fixture[team] - consumed[team])
         if extra:
-            p_team = (1 - pdraw) * strength[team] / (strength[team] + 1.0)
+            p_team, p_draw, _p_average = match_outcome_probabilities(
+                strength[team], 1.0, pdraw, 1.0
+            )
             sample = rng.random((n, extra))
             points[:, idx[team]] += np.where(
                 sample < p_team,
                 3,
-                np.where(sample < p_team + pdraw, 1, 0),
+                np.where(sample < p_team + p_draw, 1, 0),
             ).sum(axis=1)
 
     key = points + dg0[None, :] * 1e-4 + rng.random((n, len(teams))) * 1e-7
@@ -170,10 +246,12 @@ def simulate_point_additions(
             add[:, ilocal] += 1
             add[:, ivisitor] += 1
         else:
-            p_local = (1 - pdraw) * (strength[local] * loc) / (strength[local] * loc + strength[visitor])
+            p_local, p_draw, _p_visitor = match_outcome_probabilities(
+                strength[local], strength[visitor], pdraw, loc
+            )
             sample = rng.random(n)
             local_win = sample < p_local
-            visitor_win = sample >= p_local + pdraw
+            visitor_win = sample >= p_local + p_draw
             add[:, ilocal] += np.where(local_win, 3, np.where(visitor_win, 0, 1))
             add[:, ivisitor] += np.where(visitor_win, 3, np.where(local_win, 0, 1))
     return add, idx

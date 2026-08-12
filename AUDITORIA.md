@@ -38,6 +38,36 @@ El semáforo de calidad (`ok` / `warning` / `blocked`) se evalúa por dominio:
 playoffs, copas, promedios y descenso. Un problema exclusivo de un dominio no
 invalida los cálculos de los demás.
 
+
+## Auditoría probabilística · 3.8.29
+
+La estimación tiene **un solo modelo activo** para Previa, chances, escenarios y “Realidad y proyección”:
+
+- fuerza: `lpf_form.estimate_team_strength` (Apertura como antecedente, Clausura vigente y forma reciente cuando hay resultados);
+- empate fijo: **26%**;
+- factor de localía: **1,22** sobre la fuerza del local;
+- kernel único: `lpf_simulation.match_outcome_probabilities`;
+- el fixture real se respeta, incluidos los interzonales. Si un rival no está disponible en la fuerza, recién ahí se usa 1,0 como respaldo.
+
+Antes de 3.8.29, `lpf_competitive_context` usaba 27% de empate, factor local 1,08 y otra regularización, y la simulación de una zona podía convertir un interzonal en un partido contra “rival promedio”. Esas dos divergencias quedaron eliminadas.
+
+### Control con la Fecha 4 real
+
+Se congeló `tests/fixtures/lpf_2026_fecha4_probability_audit.json` con la foto del **11/08/2026 20:28 ART**, cuando había 59 partidos terminados y Talleres–Lanús todavía estaba pendiente. Fuentes de control: FutbolArgentino.com (tabla del Clausura), TyC Sports (Fecha 4) y Nuevo Mundo (cierre de la Fecha 4).
+
+En esos 59 partidos hubo 33 triunfos locales, 9 empates y 17 triunfos visitantes. Un backtest secuencial —sin mirar el resultado futuro para construir la fuerza— dio:
+
+| Modelo | Log-loss medio | Brier multiclase |
+| --- | ---: | ---: |
+| Canónico (26% / 1,22 + `lpf_form`) | **1,037** | **0,624** |
+| Camino editorial anterior (27% / 1,08 + fuerza paralela) | 1,057 | 0,640 |
+
+**Decisión:** no se ajustan 26% ni 1,22 a partir de sólo cuatro fechas. La tasa observada de empates de esta muestra es mucho menor, pero 59 partidos son insuficientes para reemplazar una parametrización estable sin un backtest histórico más largo. El cambio 3.8.29 corrige **consistencia interna**, no entrena un modelo nuevo.
+
+### Puesto específico y tamaño de muestra
+
+La distribución “si termina 8º” es condicional. La app informa cuántas de las 6.000 corridas terminaron exactamente en ese puesto y marca la lectura como **muestra condicionada chica** cuando hay menos de 100 casos. Una mediana con 80 casos no debe leerse con la misma estabilidad que una basada en 500. Los extremos matemáticos siguen separados y sin probabilidad.
+
 ## Controles automatizados
 
 Las pruebas viven en `tests/` y cubren, entre otras cosas:
