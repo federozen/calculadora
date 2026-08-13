@@ -1,3 +1,3 @@
-"""Versión única del motor LPF."""
+"""Versión pública de la calculadora."""
 
-__version__ = "3.8.42"
+__version__ = "3.8.47"

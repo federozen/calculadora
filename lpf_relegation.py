@@ -11,7 +11,7 @@ from fractions import Fraction
 from itertools import combinations
 from collections.abc import Mapping, Sequence
 
-LPF_RUNTIME_API = 16
+LPF_RUNTIME_API = 19
 
 
 def _bottom_resolution(items, score, slots: int):

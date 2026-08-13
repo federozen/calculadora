@@ -1,25 +1,118 @@
 """Foto canónica de competencia reutilizable por Streamlit y futuras APIs.
 
 La foto reúne datos ya normalizados/reconciliados en una estructura simple y
-serializable. No hace red, no conoce Streamlit y no calcula fórmulas nuevas: usa
-``lpf_state`` como única construcción autoritativa del estado.
+serializable. Desde schema 2 también conserva el contexto competitivo necesario
+para resolver Playoffs, Libertadores y Sudamericana sin que cada consumidor deba
+reconstruir cortes, exclusiones por vía directa o la Tabla Anual reducida.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 16
-SNAPSHOT_SCHEMA_VERSION = "1"
-
+LPF_RUNTIME_API = 19
+SNAPSHOT_SCHEMA_VERSION = "2"
+SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS = ("1", "2")
 
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from lpf_averages import combine_average_totals, previous_averages_json
-from lpf_state import build_lpf_state
+from lpf_qualification import allocate_cup_slots
+from lpf_state import LPF_APERTURA_PJ, build_lpf_state
 
 
 def _average_rows(previous: Mapping[str, object] | None) -> dict[str, dict[str, int]]:
     """Normaliza antecedentes al contrato JSON-safe compartido."""
     return previous_averages_json(previous)
+
+
+def _clean_sequence(values: Sequence[object] | None, size: int) -> tuple[str, ...]:
+    raw = [str(value or "").strip() for value in (values or ())]
+    raw = (raw + [""] * size)[:size]
+    return tuple(raw)
+
+
+def _qualification_context(
+    zones: Mapping[str, Mapping[str, Mapping[str, object]]],
+    annual: Mapping[str, Mapping[str, object]],
+    *,
+    camps: Sequence[object] = ("", "", ""),
+    extras: Sequence[object] = ("", ""),
+    copa_replacement: object = "",
+    playoff_cutoff: int = 8,
+    sudamericana_slots: int = 6,
+) -> dict[str, object]:
+    """Deriva el universo estable de cada objetivo desde una sola foto canónica."""
+    playoff_zones = {
+        str(label): {
+            "cutoff": min(max(0, int(playoff_cutoff)), len(base)),
+            "eligible_teams": list(base),
+        }
+        for label, base in zones.items()
+    }
+    playoffs = {
+        "available": bool(playoff_zones),
+        "kind": "zone",
+        "label": "Playoffs",
+        "zones": playoff_zones,
+    }
+
+    if not annual:
+        unavailable = {
+            "available": False,
+            "kind": "annual_reduced",
+            "reason": "No hay una Tabla Anual autoritativa en el snapshot.",
+            "eligible_teams": [],
+            "direct_qualifiers": [],
+            "direct_reasons": {},
+            "cutoff": 0,
+        }
+        return {
+            "playoffs": playoffs,
+            "libertadores": {**unavailable, "label": "Libertadores por Tabla Anual"},
+            "sudamericana": {**unavailable, "label": "Al menos Sudamericana por Tabla Anual"},
+        }
+
+    allocation = allocate_cup_slots(
+        annual,
+        camps=_clean_sequence(camps, 3),
+        extras=_clean_sequence(extras, 2),
+        copa_replacement=str(copa_replacement or "").strip(),
+    )
+    eligible = [str(team) for team in allocation.get("reducida", []) if str(team) in annual]
+    eligible_set = set(eligible)
+    order = [str(team) for team in allocation.get("orden", [])]
+    direct = [team for team in order if team not in eligible_set]
+    direct_set = set(direct)
+    direct_reasons = {
+        str(team): str(reason)
+        for team, reason in allocation.get("lib", [])
+        if str(team) in direct_set
+    }
+    n_lib = max(0, int(allocation.get("n_tabla_lib") or 0))
+    n_sud = max(0, int(sudamericana_slots))
+    common = {
+        "available": bool(eligible),
+        "kind": "annual_reduced",
+        "eligible_teams": eligible,
+        "direct_qualifiers": direct,
+        "direct_reasons": direct_reasons,
+        "notices": [str(value) for value in allocation.get("avisos", [])],
+    }
+    return {
+        "playoffs": playoffs,
+        "libertadores": {
+            **common,
+            "label": "Libertadores por Tabla Anual",
+            "cutoff": min(n_lib, len(eligible)),
+            "table_slots": n_lib,
+        },
+        "sudamericana": {
+            **common,
+            "label": "Al menos Sudamericana por Tabla Anual",
+            "cutoff": min(n_lib + n_sud, len(eligible)),
+            "libertadores_table_slots": n_lib,
+            "sudamericana_slots": n_sud,
+        },
+    }
 
 
 def build_competition_snapshot(
@@ -30,10 +123,18 @@ def build_competition_snapshot(
     opening: Mapping[str, Mapping[str, object]] | None = None,
     previous_averages: Mapping[str, object] | None = None,
     fixture: Sequence[Mapping[str, object]] = (),
+    camps: Sequence[object] = ("", "", ""),
+    extras: Sequence[object] = ("", ""),
+    copa_replacement: object = "",
     annual_relegations: int = 1,
     average_relegations: int = 1,
+    opening_rounds: int = LPF_APERTURA_PJ,
+    playoff_cutoff: int = 8,
+    sudamericana_slots: int = 6,
 ) -> tuple[dict[str, Any], object]:
     """Construye una foto estable a partir del mismo estado que usa la app."""
+    clean_camps = _clean_sequence(camps, 3)
+    clean_extras = _clean_sequence(extras, 2)
     state, report = build_lpf_state(
         zones,
         played=played,
@@ -41,15 +142,20 @@ def build_competition_snapshot(
         opening=opening,
         promedios=previous_averages,
         fixture=fixture,
+        camps=clean_camps,
+        intl=clean_extras,
         n_anual=annual_relegations,
         n_prom=average_relegations,
+        copa_arg_reemplazo=str(copa_replacement or "").strip(),
+        opening_rounds=int(opening_rounds),
     )
+    authoritative_annual = state["anual_directo"]
     snapshot = {
         "snapshot_schema_version": SNAPSHOT_SCHEMA_VERSION,
         "competition": "LPF 2026",
         "teams": list(state["equipos"]),
         "zones": state["zonas_lpf"],
-        "annual": state["anual_directo"],
+        "annual": authoritative_annual,
         "opening": state["apertura"],
         "played": [
             {"home": h, "away": a, "home_goals": int(gh), "away_goals": int(ga)}
@@ -66,8 +172,49 @@ def build_competition_snapshot(
             "annual_relegations": int(state["n_anual"]),
             "average_relegations": int(state["n_prom"]),
         },
+        "format": {
+            "opening_rounds": int(opening_rounds),
+            "playoff_cutoff": int(playoff_cutoff),
+            "sudamericana_slots": int(sudamericana_slots),
+        },
+        "qualification_inputs": {
+            "champions": {
+                "apertura": clean_camps[0],
+                "clausura": clean_camps[1],
+                "copa_argentina": clean_camps[2],
+            },
+            "international_champions": {
+                "libertadores": clean_extras[0],
+                "sudamericana": clean_extras[1],
+            },
+            "copa_argentina_replacement": str(copa_replacement or "").strip(),
+        },
+        "qualification": _qualification_context(
+            state["zonas_lpf"],
+            authoritative_annual,
+            camps=clean_camps,
+            extras=clean_extras,
+            copa_replacement=copa_replacement,
+            playoff_cutoff=int(playoff_cutoff),
+            sudamericana_slots=int(sudamericana_slots),
+        ),
     }
     return snapshot, report
+
+
+def _pending_pairs(snapshot: Mapping[str, object]) -> tuple[Mapping[str, int], list[tuple[str, str]]]:
+    remaining = snapshot.get("remaining")
+    pending_raw = snapshot.get("pending")
+    if not isinstance(remaining, Mapping) or not isinstance(pending_raw, Sequence):
+        raise ValueError("snapshot incompleto")
+    pending: list[tuple[str, str]] = []
+    for row in pending_raw:
+        if not isinstance(row, Mapping):
+            continue
+        home, away = str(row.get("home", "")), str(row.get("away", ""))
+        if home and away:
+            pending.append((home, away))
+    return remaining, pending
 
 
 def snapshot_scope(
@@ -77,18 +224,7 @@ def snapshot_scope(
     zone: str | None = None,
 ) -> tuple[Mapping[str, object], Mapping[str, int], list[tuple[str, str]]]:
     """Devuelve base, partidos restantes y conteos para una consulta del snapshot."""
-    remaining = snapshot.get("remaining")
-    pending_raw = snapshot.get("pending")
-    if not isinstance(remaining, Mapping) or not isinstance(pending_raw, Sequence):
-        raise ValueError("snapshot incompleto")
-
-    pending: list[tuple[str, str]] = []
-    for row in pending_raw:
-        if not isinstance(row, Mapping):
-            continue
-        home, away = str(row.get("home", "")), str(row.get("away", ""))
-        if home and away:
-            pending.append((home, away))
+    remaining, pending = _pending_pairs(snapshot)
 
     if scope == "annual":
         base = snapshot.get("annual")
@@ -108,6 +244,71 @@ def snapshot_scope(
         return base, remaining, matches
 
     raise ValueError("scope inválido")
+
+
+def normalize_objective(objective: object) -> str:
+    """Normaliza aliases editoriales del contrato a tres objetivos matemáticos."""
+    key = str(objective or "").strip().lower().replace("á", "a")
+    key = key.replace(" ", "_")
+    aliases = {
+        "playoff": "playoffs",
+        "playoffs": "playoffs",
+        "libertadores": "libertadores",
+        "copa_libertadores": "libertadores",
+        "sudamericana": "sudamericana",
+        "al_menos_sudamericana": "sudamericana",
+        "copa_sudamericana": "sudamericana",
+    }
+    if key not in aliases:
+        raise ValueError("objetivo inválido")
+    return aliases[key]
+
+
+def snapshot_objective_scope(
+    snapshot: Mapping[str, object],
+    objective: object,
+    *,
+    zone: str | None = None,
+) -> tuple[Mapping[str, object], Mapping[str, int], list[tuple[str, str]], int, Mapping[str, object]]:
+    """Resuelve base y corte de un objetivo sin parámetros duplicados del cliente."""
+    key = normalize_objective(objective)
+    qualification = snapshot.get("qualification")
+    if not isinstance(qualification, Mapping):
+        raise ValueError("snapshot sin contexto de clasificación")
+    context = qualification.get(key)
+    if not isinstance(context, Mapping):
+        raise ValueError("snapshot sin contexto para el objetivo")
+    if not bool(context.get("available")):
+        raise ValueError(str(context.get("reason") or "objetivo no disponible en el snapshot"))
+
+    remaining, pending = _pending_pairs(snapshot)
+    if key == "playoffs":
+        zones = snapshot.get("zones")
+        by_zone = context.get("zones")
+        if not isinstance(zones, Mapping) or not isinstance(by_zone, Mapping):
+            raise ValueError("snapshot sin zonas de playoffs")
+        selected = str(zone or "").strip()
+        if not selected:
+            raise ValueError("falta indicar la zona para playoffs")
+        base = zones.get(selected)
+        zctx = by_zone.get(selected)
+        if not isinstance(base, Mapping) or not isinstance(zctx, Mapping):
+            raise ValueError("zona inexistente")
+        cutoff = int(zctx.get("cutoff", 0) or 0)
+        pool = set(base)
+        matches = [(h, a) for h, a in pending if h in pool or a in pool]
+        meta = {**dict(context), "zone": selected, "cutoff": cutoff}
+        return base, remaining, matches, cutoff, meta
+
+    annual = snapshot.get("annual")
+    eligible = context.get("eligible_teams")
+    if not isinstance(annual, Mapping) or not isinstance(eligible, Sequence) or isinstance(eligible, (str, bytes)):
+        raise ValueError("snapshot sin Tabla Anual reducida")
+    base = {str(team): annual[str(team)] for team in eligible if str(team) in annual}
+    cutoff = int(context.get("cutoff", 0) or 0)
+    pool = set(base)
+    matches = [(h, a) for h, a in pending if h in pool or a in pool]
+    return base, remaining, matches, cutoff, context
 
 
 def snapshot_average_totals(snapshot: Mapping[str, object]) -> dict[str, tuple[int, int]] | None:

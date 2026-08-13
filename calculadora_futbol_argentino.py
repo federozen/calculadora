@@ -11,7 +11,7 @@ from lpf_version import __version__
 import streamlit as st
 from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
-_REQUIRED_RUNTIME_API = 16
+_REQUIRED_RUNTIME_API = 19
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -46,7 +46,12 @@ from lpf_pisos import (
 )
 from lpf_competitive_context import competition_context, historical_reference
 from lpf_conditionals import branch_explanation, key_rival_matrix, next_round_conditionals
-from lpf_editorial_definition import all_teams_matrix, branch_cell, definition_clock, fight_zone
+from lpf_editorial_definition import (
+    all_teams_matrix, branch_cell, definition_clock, fight_zone,
+    definition_guarantee as _editorial_definition_guarantee,
+    guarantee_round_label as _editorial_guarantee_round_label,
+    objective_context as _editorial_objective_context,
+)
 from lpf_relegation import current_relegation_picture
 from lpf_preview import preview_objective as _preview_objective, team_preview_text as _team_preview_text_core
 from lpf_display import display_team, editorialize_frame, editorialize_spec, editorialize_text
@@ -9139,34 +9144,19 @@ def _render_exact_next_round_conditionals(team, base, rest, pending):
 
 
 def _definition_objective_context(E, objective, zone=None):
-    """Adapta Playoffs/Copas a una tabla + corte comunes para los visuales exactos."""
+    """Resuelve sesión/proveedores y delega el contexto a la capa pura."""
     Z = E.get("zonas_lpf") or {}
-    rest = E.get("rest") or {}
-    annual = lpf_anual_base(Z, E.get("apertura") or {})
-    if objective == "Playoffs":
-        lab = zone if zone in Z else (sorted(Z)[0] if Z else None)
-        if lab is None:
-            return None
-        return {
-            "base": Z[lab], "cutoff": _LPF_TOP_OCTAVOS, "label": "Playoffs",
-            "scope": f"Zona {lab}", "zone": lab, "direct": [], "annual": annual,
-        }
-    if objective not in ("Libertadores", "Al menos Sudamericana") or not annual:
-        return None
+    estado = st.session_state.get("ESTADO") or {}
+    opening = E.get("apertura") or estado.get("apertura") or st.session_state.get("LPF_APERTURA") or {}
+    direct_annual = estado.get("anual_directo") or st.session_state.get("LPF_ANUAL") or {}
     camps = E.get("camps") or ("", "", "")
     extras = E.get("intl") or ("", "")
-    allocation = lpf_plazas_copas(Z, E.get("apertura") or {}, camps, extras)
-    reduced = [team for team in allocation.get("reducida", []) if team in annual]
-    base = {team: annual[team] for team in reduced}
-    n_lib = int(allocation.get("n_tabla_lib") or 0)
-    cutoff = n_lib if objective == "Libertadores" else n_lib + 6
-    direct = [team for team in allocation.get("orden", []) if team not in set(reduced)]
-    label = "Libertadores por Tabla Anual" if objective == "Libertadores" else "Al menos Sudamericana por Tabla Anual"
-    return {
-        "base": base, "cutoff": min(cutoff, len(base)), "label": label,
-        "scope": "Tabla Anual sin clasificados directos a Libertadores", "zone": None,
-        "direct": direct, "annual": annual, "allocation": allocation,
-    }
+    replacement = st.session_state.get("LPF_COPA_ARG_REEMPLAZO", "")
+    return _editorial_objective_context(
+        Z, objective=objective, zone=zone, opening=opening, direct_annual=direct_annual,
+        opening_rounds=LPF_APERTURA_PJ, camps=camps, extras=extras,
+        copa_replacement=replacement, playoff_cutoff=_LPF_TOP_OCTAVOS,
+    )
 
 
 def _definition_tree_dot(team, objective_label, report):
@@ -9206,27 +9196,15 @@ def _definition_tree_dot(team, objective_label, report):
 
 
 def _definition_guarantee(base, pending, team, cutoff, rest):
-    left = int(rest.get(team, 0))
-    if not (0 < left <= VENTANA_EXACTA):
-        return None, None
-    exact = point_ladder(base, pending, team, cutoff, max_rows=4, max_matches=110)
-    if not exact.get("available"):
-        return None, None
-    guarantee = exact.get("guarantee")
-    if guarantee is None:
-        return None, exact
-    return int(guarantee), exact
+    return _editorial_definition_guarantee(
+        base, pending, team, cutoff, rest, exact_window=VENTANA_EXACTA, max_rows=4, max_matches=110
+    )
 
 
 def _definition_guarantee_round(team, pending, current, guarantee):
-    if guarantee is None or guarantee <= current:
-        return "Hoy" if guarantee is not None else None
-    games_needed = (int(guarantee) - int(current) + 2) // 3
-    fmap = _lpf_fecha_de(pending)
-    rounds = sorted({rnd for match, rnd in fmap.items() if rnd is not None and team in match})
-    if games_needed > 0 and len(rounds) >= games_needed:
-        return f"Fecha {rounds[games_needed - 1]}"
-    return f"Tras {games_needed} partido(s) propios"
+    return _editorial_guarantee_round_label(
+        team, pending, LPF_FIXTURE, current, guarantee
+    )
 
 
 def render_definition_radar(E):
@@ -9242,6 +9220,10 @@ def render_definition_radar(E):
     ui_caption(
         "EXACTO = cuentas matemáticas con puntos y fixture. Los semáforos, matrices, árbol, zona de pelea y reloj "
         "no usan probabilidades. Las estimaciones Monte Carlo siguen fuera de este bloque."
+    )
+    ui_caption(
+        "🔍 ¿Por qué? está dentro de este mismo tablero: debajo de la Matriz de la fecha, dentro de la Matriz de rival clave "
+        "y nuevamente antes del Reloj de definición para explicar G/E/P del equipo bajo la lupa."
     )
 
     _sync_lpf_objective_widget("radar_objective")
@@ -9291,12 +9273,22 @@ def render_definition_radar(E):
     # 2) Matriz general / semáforo, con selección libre de equipos.
     ui_markdown("### Matriz de la fecha · todos los equipos que quieras seguir")
     around = fight.loc[fight["Equipo"] != "…", "Equipo"].tolist() if not fight.empty else ordered[:6]
-    default_matrix = [team for team in around if team in ordered][:7]
+    suggested_matrix = [name for name in around if name in ordered and name != team_focus][:6]
+    matrix_state_key = f"radar_matrix_teams_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}"
     selected_teams = st.multiselect(
-        "Equipos a mostrar", ordered, default=default_matrix,
-        key=f"radar_matrix_teams_{objective}_{ctx.get('zone') or 'annual'}",
-        help="Podés elegir uno, varios o todos. La cuenta G/E/P se recalcula para cada equipo.",
+        "Equipos a mostrar", ordered, default=[team_focus],
+        key=matrix_state_key,
+        help=(
+            "Sólo se preselecciona el equipo bajo la lupa. Podés elegir uno, varios o todos; "
+            "la cuenta G/E/P se recalcula para cada equipo."
+        ),
     )
+    if suggested_matrix:
+        ui_caption(
+            "Sugeridos para comparar por cercanía al equipo y al corte: "
+            + ", ".join(suggested_matrix)
+            + ". No se seleccionan automáticamente."
+        )
     if selected_teams:
         rows = all_teams_matrix(base, rest, games, selected_teams, cutoff, max_other_matches=8)
         view = st.radio(
@@ -9322,7 +9314,7 @@ def render_definition_radar(E):
         with st.expander("¿Por qué? · explicar un equipo de la matriz", expanded=False):
             why_team = ui_selectbox(
                 "Equipo a explicar", selected_teams,
-                key=f"radar_matrix_why_team_{objective}_{ctx.get('zone') or 'annual'}",
+                key=f"radar_matrix_why_team_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}",
             )
             why_result_label = ui_selectbox(
                 "Resultado propio", ["Gana", "Empata", "Pierde"],
@@ -9376,8 +9368,11 @@ def render_definition_radar(E):
         if st.session_state.get(key_state) not in key_options:
             st.session_state[key_state] = key_options[0]
         key_team = ui_selectbox(
-            "Rival a cruzar", key_options, key=key_state,
-            help="Se sugiere primero la otra cancha que más cambia las ramas exactas; podés elegir cualquier otro equipo de la fecha.",
+            "Rival sugerido (editable)", key_options, key=key_state,
+            help=(
+                "La primera opción es la otra cancha que más cambia las ramas exactas del equipo bajo la lupa. "
+                "No se elige al azar y podés cambiarla manualmente."
+            ),
         )
         key_report = key_rival_matrix(base, rest, games, team_focus, key_team, cutoff)
         if key_report.get("available"):

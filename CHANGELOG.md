@@ -1,3 +1,54 @@
+## 3.8.47 · 2026-08-13
+
+### Superficie pública mínima para una futura API
+
+- Se congela `PUBLIC_SERVICE_VERSION = 1` con siete operaciones estables en `lpf_services.calculate()`: `standings`, `preview`, `objective_points`, `objective_chances`, `definition`, `relegation` y `competition_batch`.
+- Las integraciones nuevas usan snapshot como entrada preferida. Los helpers legacy (`objective_floor`, `point_ladder`, `rank_window`, etc.) siguen disponibles por compatibilidad pero dejan de ser el contrato recomendado para HTTP/Opta.
+- `preview` reutiliza `lpf_preview` y `lpf_schedule` y convierte la tabla de escenarios a objetos JSON; no filtra pandas fuera de la frontera.
+- `objective_chances` reutiliza `lpf_competitive_context` + fuerza canónica, usa **6.000 simulaciones por defecto** y separa explícitamente `estimated=true` de `definition`, que permanece exacto. Las plazas directas se resuelven en 100% sin simular.
+- `relegation` reúne foto actual + piso/garantía opcional por equipo; si faltan antecedentes de promedios publica `complete=false` en vez de presentar una conclusión combinada incompleta.
+- `service_capabilities()` agrega `public_service_version` y `public_operations`. `LPF_RUNTIME_API` permanece en **19** porque no cambia el contrato que consume Streamlit entre módulos críticos. Suite: **335 pruebas**.
+
+## 3.8.46 · 2026-08-13
+
+### Comparaciones editoriales sin selecciones heredadas
+
+- La **Matriz de la fecha** deja de precargar automáticamente varios clubes: al abrirla sólo selecciona el **equipo bajo la lupa**. Los equipos cercanos al club y al corte aparecen como sugerencias visibles, pero no se marcan solos.
+- La clave de estado del multiselect incorpora el equipo bajo la lupa, de modo que cambiar de club no arrastra una selección de comparadores hecha para otro equipo.
+- El selector de **Matriz de rival clave** se rotula como `Rival sugerido (editable)` y aclara que la propuesta automática surge de sensibilidad exacta de la fecha, no de azar.
+- `LPF_RUNTIME_API` permanece en **19**: es una corrección de interfaz y estado, sin cambios en el contrato entre módulos críticos. Suite: **328 pruebas**.
+
+## 3.8.45 · 2026-08-13
+
+### Definición por objetivo directamente desde el snapshot
+
+- `lpf_services.calculate_definition()` suma modo snapshot: con `snapshot`, `team`, `objective` y `round`/`fecha` resuelve automáticamente base, corte, pendientes y fixture; Playoffs sólo requiere `zone`. El modo legacy `base + cutoff` se conserva.
+- `competition_batch` incorpora `type=definition`, reutilizando exactamente el mismo resolvedor de objetivo/fecha y sin duplicar reglas de Copas.
+- La fecha explícita se valida contra los pendientes del snapshot; si se omite, se usa la jornada operativa vigente. Un objetivo ya resuelto por vía directa se devuelve antes de correr la enumeración exacta.
+- **Últimas fechas** agrega una guía visible que indica dónde abrir `🔍 ¿Por qué?`: matriz general, matriz de rival clave y explicación G/E/P del equipo bajo la lupa.
+- `LPF_RUNTIME_API` sube a **19** porque la fachada de servicios y el resolvedor de calendario comparten ahora el contrato de definición desde snapshot. Suite: **328 pruebas**.
+
+## 3.8.44 · 2026-08-13
+
+### Snapshot schema 2 con objetivos de Playoffs y Copas
+
+- `lpf_snapshot.py` incorpora `qualification` con el universo y corte efectivo de **Playoffs, Libertadores y al menos Sudamericana**. Para Copas guarda la Anual elegible después de retirar vías directas ya resueltas, sus motivos y los avisos de plazas todavía abiertas.
+- Las reglas de formato (`opening_rounds`, `playoff_cutoff`, `sudamericana_slots`) quedan separadas de las reglas de descenso dentro del snapshot. Los campeones y reemplazos que determinan vías directas quedan en `qualification_inputs`.
+- `lpf_services.competition_batch` agrega `objective_status` y acepta `objective` en consultas de objetivo, escalera o rango. El consumidor ya no necesita fabricar una tabla reducida ni repetir el `cutoff`; para Playoffs sólo debe indicar la zona.
+- Si el equipo ya obtuvo Libertadores por una vía directa, la consulta devuelve un estado resuelto y el motivo. En el objetivo de al menos Sudamericana, una plaza de Libertadores se reconoce como objetivo superior ya cumplido.
+- `snapshot_schema_version` sube a **2**, pero schema 1 sigue admitido para las consultas legacy. `service_capabilities()` publica las versiones de snapshot aceptadas y los objetivos disponibles.
+- `LPF_RUNTIME_API` sube a **18** porque `lpf_snapshot` y `lpf_services` comparten el nuevo contrato de objetivos. Suite: **323 pruebas**.
+
+## 3.8.43 · 2026-08-13
+
+### Definición desacoplada de Streamlit y lista para otra interfaz
+
+- `lpf_editorial_definition.py` incorpora un **contexto puro de objetivo** para Playoffs, Libertadores y al menos Sudamericana: recibe zonas, Apertura/Anual y vías directas por parámetro, y devuelve la tabla efectiva + corte sin leer sesión.
+- La garantía exacta y la **primera fecha oficial en que puede alcanzarse** también salen de helpers puros; Streamlit queda como adaptador de sesión/calendario en vez de contener esa lógica.
+- Nuevo `definition_snapshot`: empaqueta zona de pelea, matriz G/E/P seleccionable, informe del equipo, rival clave opcional, mínimo que asegura y reloj de definición en una estructura JSON-safe y sin probabilidades.
+- `lpf_services.calculate_definition()` expone ese paquete a una futura API sin importar Streamlit ni proveedores. Para Copas, el consumidor entrega la Tabla Anual reducida por las vías directas vigentes; el contrato sigue siendo aditivo y mantiene `CONTRACT_VERSION = 1`.
+- `LPF_RUNTIME_API` sube a **17** porque Streamlit y la fachada de servicios requieren nuevas funciones de `lpf_editorial_definition.py`; el núcleo debe desplegarse completo. Suite: **317 pruebas**.
+
 ## 3.8.42 · 2026-08-13
 
 ### “¿Por qué?” también explica lo que no alcanza

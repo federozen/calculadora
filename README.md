@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.42
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.47
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -10,6 +10,53 @@ La versión 3 prioriza tres objetivos:
 2. **Explicación honesta:** distingue hechos exactos, mínimo posible, total seguro, mínimo que asegura y estimaciones.
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
+
+
+
+## Novedad 3.8.47 · Contrato público mínimo listo para HTTP/Opta
+
+- `lpf_services.calculate()` fija una superficie pública v1 de **7 operaciones**: `standings`, `preview`, `objective_points`, `objective_chances`, `definition`, `relegation` y `competition_batch`.
+- El formato recomendado de entrada es el **snapshot canónico**; una integración externa ya no necesita reconstruir `base`, `remaining`, cortes ni la Tabla Anual reducida.
+- `preview` devuelve Markdown + escenarios como JSON, sin filtrar `DataFrame`. `definition` conserva los condicionales y “¿Por qué?” exactos.
+- `objective_chances` queda separado del motor exacto: **6.000 simulaciones por defecto**, salida rotulada como `estimated`, semilla explícita y 100% directo sin Monte Carlo cuando la plaza ya está resuelta por otra vía.
+- `relegation` expone la foto actual + piso de permanencia opcional y marca la respuesta como incompleta si faltan antecedentes de promedios.
+- No se agrega FastAPI todavía: un futuro servidor sólo tendrá que parsear JSON, llamar `calculate()` y mapear `ContractError` a HTTP.
+- Runtime interno **19**; suite **335 pruebas**.
+
+
+## Novedad 3.8.46 · Comparaciones sin preselecciones engañosas
+
+- En **Visualizaciones → Últimas fechas → Matriz de la fecha**, sólo queda preseleccionado el equipo bajo la lupa. Los rivales cercanos al equipo/corte se muestran como sugerencias editoriales, pero el editor decide cuáles agregar.
+- La selección de la matriz ahora tiene estado separado por equipo bajo la lupa, evitando heredar comparaciones elegidas para otro club.
+- **Rival clave** conserva su sugerencia automática porque surge del impacto exacto de la otra cancha, pero la interfaz la rotula como sugerencia editable y aclara que no es aleatoria.
+
+## Novedad 3.8.45 · Definición directa desde el snapshot
+
+- `calculate_definition()` acepta ahora `snapshot + team + objective + round/fecha`; ya no hace falta preparar `base`, `remaining`, `pending_matches` ni `cutoff`. Para Playoffs sólo se agrega `zone`.
+- `competition_batch` suma `type=definition`, con la misma resolución automática para **Playoffs, Libertadores y Sudamericana**.
+- La fecha se resuelve contra el fixture/pending canónico del snapshot. `round` es el campo estable y `fecha` un alias editorial; si no se informa, se usa la jornada operativa vigente.
+- Si el objetivo ya está resuelto por una vía directa, la definición se devuelve como resuelta antes de enumerar ramas.
+- En **Visualizaciones → Últimas fechas** aparece una guía visible de `🔍 ¿Por qué?`: debajo de la matriz general, dentro de la matriz de rival clave y antes del Reloj de definición para G/E/P.
+- Runtime interno **19**; suite **328 pruebas**.
+
+
+## Novedad 3.8.44 · Snapshot con objetivos de Playoffs y Copas
+
+- El snapshot canónico sube a **schema 2** e incorpora `qualification`: universo elegible, corte efectivo y vías directas para **Playoffs, Libertadores y al menos Sudamericana**.
+- `prepare_competition_snapshot()` acepta campeones/vías internacionales y reglas de formato sin mezclar esos datos con las reglas de descenso.
+- `competition_batch` agrega `objective_status` y permite usar `objective=playoffs|libertadores|sudamericana` también en `objective_points`, `point_ladder` y `rank_window`, sin enviar una Tabla Anual reducida ni repetir el `cutoff`.
+- Un club ya clasificado a Libertadores por otra vía se devuelve como **objetivo resuelto**, con su motivo, en vez de aparecer como equipo desconocido. Para Sudamericana, esa misma plaza superior se reconoce como objetivo ya cumplido.
+- Snapshots schema 1 siguen aceptándose para consultas antiguas; las consultas directas por objetivo requieren el contexto schema 2.
+- Runtime interno **18**; suite **323 pruebas**.
+
+
+## Novedad 3.8.43 · Definición reutilizable fuera de Streamlit
+
+- El contexto de **Playoffs / Libertadores / al menos Sudamericana** ya no se arma dentro de la UI: `lpf_editorial_definition.objective_context` recibe datos explícitos y devuelve tabla efectiva, corte y vías directas.
+- La garantía y la primera fecha en la que puede alcanzarse el total que asegura también quedan en helpers puros.
+- Nuevo `definition_snapshot`: zona de pelea + matriz G/E/P + rival clave opcional + prueba + garantía + reloj en una estructura JSON-safe, sin probabilidades.
+- `lpf_services.calculate_definition()` expone ese mismo paquete para una futura API/Opta sin importar Streamlit. El contrato externo sigue en versión 1 porque la operación es aditiva.
+- Runtime interno **17**; suite **317 pruebas**.
 
 
 ## Novedad 3.8.42 · “¿Por qué?” también para lo que no alcanza

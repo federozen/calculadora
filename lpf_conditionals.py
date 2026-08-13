@@ -9,7 +9,7 @@ from __future__ import annotations
 from itertools import product
 from collections.abc import Iterable, Mapping
 
-LPF_RUNTIME_API = 16
+LPF_RUNTIME_API = 19
 
 OUTCOMES = ("L", "E", "V")
 _OWN_BRANCHES = ("G", "E", "P")

@@ -24,6 +24,7 @@ el modelo de lenguaje, cuando está activo, sólo interpreta la consulta y redac
 | `lpf_competition_narratives.py` | Relatos de zonas, Libertadores, Sudamericana y descenso. |
 | `lpf_competitive_context.py` | Contexto de tabla, cruces internos y proyección del corte; usa el kernel/fuerza canónicos del Monte Carlo. |
 | `lpf_conditionals.py` | Condicionales exactos de la próxima fecha: ramas G/E/P, estado final de la pelea, posición al cierre, palancas de otras canchas y condiciones simples; no asigna probabilidades. |
+| `lpf_editorial_definition.py` | Composición pura de definición: contexto Playoffs/Copas, zona de pelea, matrices, garantía, reloj y paquete JSON-safe reutilizable por Streamlit o servicios. |
 | `lpf_relegation.py` | Foto actual de descensos con desempates reglamentarios y regla de exclusión promedio→Anual; no usa DG para decidir una igualdad de descenso. |
 | `lpf_fixture_sources.py` | Parsers y validación de fuentes (FutbolArgentino.com, ESPN) sin inferir partidos por PJ. |
 | `lpf_schedule.py` | Agenda y calendario puros: normaliza horarios de proveedor a Argentina, resuelve jornada/postergados, ordena pendientes y define la ventana temporal de la Previa sin Streamlit. |
@@ -68,8 +69,10 @@ el modelo de lenguaje, cuando está activo, sólo interpreta la consulta y redac
 10. **Monte Carlo (`lpf_simulation`):** construye el contexto estable desde fotos explícitas y recibe fuerza, fixture/contexto y semilla para producir posiciones, puntos y máscaras de objetivo sin conocer Streamlit.
 11. **Previa por equipo (`lpf_preview`):** consume ventana/partidos/contexto explícitos y produce relato + tabla de escenarios; Streamlit sólo aporta fallbacks de agenda y sesión.
 12. **Condicionales de fecha (`lpf_conditionals`):** enumera la próxima jornada relevante y produce una matriz exacta sin probabilidades.
-13. **Descenso actual (`lpf_relegation`):** separa descendidos confirmados de desempates y resuelve la duplicación promedio→Anual.
-14. **Redacción y UI:** los renderizadores consumen los resultados estructurados.
+13. **Composición de definición (`lpf_editorial_definition`):** convierte esos condicionales y el contexto de objetivo en zona de pelea, matrices, garantía/reloj y un paquete serializable sin leer Streamlit.
+
+14. **Descenso actual (`lpf_relegation`):** separa descendidos confirmados de desempates y resuelve la duplicación promedio→Anual.
+15. **Redacción y UI:** los renderizadores consumen los resultados estructurados.
 
 ## Frontera para futura API y proveedores externos
 
@@ -95,8 +98,10 @@ Reglas de esa frontera:
 - La forma, racha y fuerza regularizada viven en `lpf_form`: una API o simulador puede aportar tabla vigente, resultados y Apertura explícitos sin depender de `session_state`.
 - Los antecedentes de promedios se normalizan en `lpf_averages`: `previous_averages` excluye 2026 y `average_totals` suma la Tabla Anual vigente con sus PJ reales.
 - El contexto Monte Carlo se arma en `lpf_simulation.build_simulation_context`: Apertura, Anual directa, cupos/reemplazos, antecedentes de promedios y rest entran por parámetro; una API no necesita reproducir fallbacks de sesión.
-- Una futura API debe importar `lpf_standings`, `lpf_scenarios`, `lpf_exact` y
-  `lpf_pisos` directamente; no debe importar `calculadora_futbol_argentino.py`.
+- Una futura API debe entrar por la superficie pública de `lpf_services.calculate()`;
+  no debe importar `calculadora_futbol_argentino.py` ni reconstruir bases/cortes que ya
+  están disponibles en el snapshot. Los motores (`lpf_standings`, `lpf_scenarios`,
+  `lpf_exact`, `lpf_pisos`, etc.) quedan detrás de esa frontera.
 - Un futuro conector Opta debe resolver IDs/nombres, estados de partido y formatos del
   proveedor antes de la capa de cálculo, reutilizando la canonicalización del dominio.
 - Las entradas al núcleo deben seguir siendo estructuras Python simples y
@@ -148,10 +153,7 @@ Desde 3.8.33, `.github/workflows/ci.yml` ejecuta esa verificación en GitHub jun
 
 `lpf_services.py` es una capa de aplicación fina y JSON-safe. No hace red, no conoce
 Streamlit ni proveedores y no contiene fórmulas propias: valida/traduce payloads y
-delega en `lpf_standings`, `lpf_scenarios` y `lpf_pisos`. `lpf_snapshot.py` agrega una
-foto canónica autocontenida de competencia construida desde `lpf_state`, para que una
-misma entrada pueda alimentar varias consultas sin reconstruir datos por fuera. Una
-futura API HTTP debe llamar estas capas en vez de importar `calculadora_futbol_argentino.py`.
+delega en los motores puros. Desde 3.8.43 también expone `calculate_definition`, que consume el paquete de `lpf_editorial_definition` para que una futura API pueda reproducir el tablero exacto sin importar Streamlit. Desde 3.8.44, `lpf_snapshot.py` publica schema 2: además de la foto canónica de competencia conserva el contexto de Playoffs/Libertadores/Sudamericana (elegibles, vías directas y corte efectivo). Desde 3.8.45, `calculate_definition` y `competition_batch(type=definition)` pueden resolver además la fecha desde el fixture/pending del snapshot, de modo que el cliente sólo aporte equipo + objetivo (+ zona para Playoffs) + fecha opcional. Desde 3.8.47 queda congelada una **superficie pública mínima v1** mediante `lpf_services.calculate()` con siete operaciones: `standings`, `preview`, `objective_points`, `objective_chances`, `definition`, `relegation` y `competition_batch`. Los helpers legacy siguen disponibles pero ya no son el contrato recomendado para una integración nueva. Una futura API HTTP debe llamar esta frontera en vez de importar `calculadora_futbol_argentino.py`.
 
 `lpf_version.py` contiene la única versión del motor y puede importarse desde cualquier
 interfaz sin disparar UI. El contrato externo se versiona de forma independiente con
@@ -166,7 +168,7 @@ la existencia de `services` no obliga a reescribir la UI.
 
 ## Compatibilidad de despliegue
 
-Los módulos cuyo contrato cruza capas publican `LPF_RUNTIME_API`; desde 3.8.15 también `lpf_http.py`, porque Streamlit importa sus orquestadores de transporte. En 3.8.16 el nivel subió a **2** al agregarse la secuencia requerida de resultados de FutbolArgentino.com, en 3.8.19 subió a **3** por `lpf_state.refresh_lpf_quality_state` y en 3.8.21 subió a **4** al incorporar `lpf_schedule.py` como dependencia activa de la Previa, en 3.8.22 subió a **5** al incorporar `lpf_result_updates.py` para la carga manual de resultados y en 3.8.23 subió a **6** al incorporar `lpf_qualification.py` para Anual/cupos, en 3.8.24 subió a **7** porque Streamlit importa también sus helpers de contexto de copas y en 3.8.25 subió a **8** porque la UI requiere `lpf_scenarios.can_finish_exact_rank_by_points` y en 3.8.26 sube a **9** al incorporar `lpf_form.py` como dependencia activa del modelo de simulación; en 3.8.27 sube a **10** al incorporar `lpf_simulation.py` como frontera Monte Carlo pura y en 3.8.28 sube a **11** porque Streamlit importa también su constructor explícito de contexto de simulación y en 3.8.29 sube a **12** al unificar `lpf_competitive_context.py` con el kernel/fuerza canónicos del Monte Carlo; en 3.8.31 sube a **13** al incorporar `lpf_averages.py` y separar previas de totales de promedios; en 3.8.34 sube a **14** al incorporar `lpf_preview.py` como dependencia activa de la Previa por equipo; en 3.8.38 sube a **15** al incorporar `lpf_conditionals.py` y `lpf_relegation.py` como dependencias activas de Últimas fechas y descenso; en 3.8.41 sube a **16** al incorporar `lpf_editorial_definition.py` y la matriz/proof exacta consumida por la UI de definición. `lpf_runtime.py`
+Los módulos cuyo contrato cruza capas publican `LPF_RUNTIME_API`; desde 3.8.15 también `lpf_http.py`, porque Streamlit importa sus orquestadores de transporte. En 3.8.16 el nivel subió a **2** al agregarse la secuencia requerida de resultados de FutbolArgentino.com, en 3.8.19 subió a **3** por `lpf_state.refresh_lpf_quality_state` y en 3.8.21 subió a **4** al incorporar `lpf_schedule.py` como dependencia activa de la Previa, en 3.8.22 subió a **5** al incorporar `lpf_result_updates.py` para la carga manual de resultados y en 3.8.23 subió a **6** al incorporar `lpf_qualification.py` para Anual/cupos, en 3.8.24 subió a **7** porque Streamlit importa también sus helpers de contexto de copas y en 3.8.25 subió a **8** porque la UI requiere `lpf_scenarios.can_finish_exact_rank_by_points` y en 3.8.26 sube a **9** al incorporar `lpf_form.py` como dependencia activa del modelo de simulación; en 3.8.27 sube a **10** al incorporar `lpf_simulation.py` como frontera Monte Carlo pura y en 3.8.28 sube a **11** porque Streamlit importa también su constructor explícito de contexto de simulación y en 3.8.29 sube a **12** al unificar `lpf_competitive_context.py` con el kernel/fuerza canónicos del Monte Carlo; en 3.8.31 sube a **13** al incorporar `lpf_averages.py` y separar previas de totales de promedios; en 3.8.34 sube a **14** al incorporar `lpf_preview.py` como dependencia activa de la Previa por equipo; en 3.8.38 sube a **15** al incorporar `lpf_conditionals.py` y `lpf_relegation.py` como dependencias activas de Últimas fechas y descenso; en 3.8.41 sube a **16** al incorporar `lpf_editorial_definition.py` y la matriz/proof exacta consumida por la UI de definición; en 3.8.43 sube a **17** porque Streamlit y `lpf_services` requieren el nuevo contexto/paquete puro de definición; en 3.8.44 sube a **18** porque `lpf_snapshot` y `lpf_services` comparten el nuevo contrato schema 2 de objetivos y cortes efectivos; en 3.8.45 sube a **19** porque `lpf_services` usa también el contrato de `lpf_schedule` para resolver la fecha de definición desde el snapshot. `lpf_runtime.py`
 lee esos marcadores directamente desde los archivos, antes de que Streamlit importe
 el motor. Si un deploy manual mezcla módulos viejos y nuevos, la app se detiene con
 un diagnóstico de archivos desincronizados. El nivel de runtime no reemplaza
