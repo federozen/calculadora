@@ -17,7 +17,7 @@ from lpf_services import (
     service_capabilities as _lpf_service_capabilities,
 )
 
-_REQUIRED_RUNTIME_API = 19
+_REQUIRED_RUNTIME_API = 21
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -683,6 +683,13 @@ if "DIRECTO"            not in st.session_state: st.session_state.DIRECTO       
 if "MEJORES_TERCEROS"   not in st.session_state: st.session_state.MEJORES_TERCEROS   = 0
 if "CAMPEON"            not in st.session_state: st.session_state.CAMPEON            = "campeón"
 if "ESTADO"             not in st.session_state: st.session_state.ESTADO             = {}
+if "LPF_SOURCE_META"    not in st.session_state: st.session_state.LPF_SOURCE_META    = {
+    "source_name": "Estado actual de Streamlit",
+    "source_updated_at": None,
+    "data_as_of": None,
+    "sources": [],
+    "warnings": ["La fuente actual no informó todavía un timestamp de actualización."],
+}
 if "texto_torneo_cache" not in st.session_state: st.session_state.texto_torneo_cache = ""
 if "ZONAS"              not in st.session_state: st.session_state.ZONAS              = []
 if "ZONAS_TXT"          not in st.session_state: st.session_state.ZONAS_TXT          = ""
@@ -1006,6 +1013,7 @@ from lpf_reconcile import (
 from lpf_loading import (
     normalize_results_for_zones, prepare_automatic_update, prepare_offline_load,
 )
+from lpf_data_provider import CurrentProvider, provider_payload as _lpf_provider_payload
 from lpf_http import (
     fetch_espn_json, fetch_espn_scoreboard_window, fetch_futbolargentino_results_pages,
     fetch_html, fetch_url_text,
@@ -2277,6 +2285,17 @@ def _save_lpf_snapshot(zones, annual, source_name):
         # sigue conservando la foto y se informa el detalle sin bloquear la carga.
         return f"No pude guardar el respaldo en disco: {exc}"
     return ""
+
+
+def _set_lpf_source_meta(*, source_name, sources=(), warnings=(), updated_at=None, data_as_of=None):
+    """Guarda metadatos de procedencia sin inventar timestamps ausentes."""
+    st.session_state.LPF_SOURCE_META = {
+        "source_name": str(source_name or "Estado actual de Streamlit"),
+        "source_updated_at": updated_at,
+        "data_as_of": data_as_of or updated_at,
+        "sources": [str(value) for value in sources if str(value).strip()],
+        "warnings": [str(value) for value in warnings if str(value).strip()],
+    }
 
 
 def _load_lpf_snapshot(max_age_hours=LPF_SNAPSHOT_MAX_AGE_HOURS):
@@ -5145,6 +5164,11 @@ def cargar_lpf_todo():
         annual_direct=st.session_state.get("LPF_ANUAL") or {},
     )
     st.session_state.ESTADO = state
+    _set_lpf_source_meta(
+        source_name="Carga offline/manual",
+        sources=("tablas/resultados incluidos o pegados en Streamlit",),
+        warnings=("La carga offline/manual no informa un timestamp de origen verificable.",),
+    )
     return len(zones["A"]), len(zones["B"]), len(state.get("anual_directo") or {}), len(state["pendientes"])
 
 def cargar_lpf_espn(liga="arg.1"):
@@ -5282,6 +5306,23 @@ def cargar_lpf_espn(liga="arg.1"):
         opening=st.session_state.get("LPF_APERTURA") or {},
     )
     st.session_state.ESTADO = state
+    import datetime as _dt
+    _source_updated_at = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+    if str(source_name).startswith("Último respaldo válido"):
+        _source_updated_at = (st.session_state.get("LPF_LAST_VALID_SNAPSHOT") or {}).get("updated_at")
+    _result_source_name = " + ".join(
+        [name for name, rows in (
+            ("FutbolArgentino.com", fa_played),
+            ("ESPN", espn_played),
+        ) if rows]
+        + (["conciliación por resultados finales"] if reconcile_note else [])
+    ) or "base validada"
+    _set_lpf_source_meta(
+        source_name=source_name,
+        sources=(source_name, _result_source_name),
+        warnings=list(source_warnings or []) + result_source_warnings,
+        updated_at=_source_updated_at,
+    )
     if reconcile_note and state.get("anual_directo"):
         disk_warning = _save_lpf_snapshot(
             zones, state.get("anual_directo") or {}, source_name
@@ -5300,13 +5341,7 @@ def cargar_lpf_espn(liga="arg.1"):
         "sin_confirmar": sum(r.status == "unconfirmed" for r in report.match_records),
         "fuente": source_name,
         "avisos_fuente": list(source_warnings or []) + result_source_warnings,
-        "fuente_resultados": " + ".join(
-            [name for name, rows in (
-                ("FutbolArgentino.com", fa_played),
-                ("ESPN", espn_played),
-            ) if rows]
-            + (["conciliación por resultados finales"] if reconcile_note else [])
-        ) or "base validada",
+        "fuente_resultados": _result_source_name,
         "url_resultados": fa_url,
     }, None
 
@@ -5874,7 +5909,11 @@ def _lpf_service_objective(value):
 
 
 def _lpf_service_snapshot_payload(E):
-    """Traduce el estado Streamlit al payload JSON de snapshot público."""
+    """Traduce la fuente actual al contrato común ``DataProvider``.
+
+    Streamlit deja de ser una excepción: entrega exactamente el mismo ``ProviderData``
+    que puede producir un CSV o, más adelante, un adaptador Opta.
+    """
     E = E or {}
     camps = tuple(E.get("camps") or (
         st.session_state.get("lpf_c1", "Belgrano"),
@@ -5883,11 +5922,12 @@ def _lpf_service_snapshot_payload(E):
     ))
     camps = (camps + ("", "", ""))[:3]
     intl = tuple(E.get("intl") or (
-        st.session_state.get("lpf_xl", ""),
-        st.session_state.get("lpf_xs", ""),
+        st.session_state.get("lpf_x1", ""),
+        st.session_state.get("lpf_x2", ""),
     ))
     intl = (intl + ("", ""))[:2]
-    return {
+    source_meta = dict(st.session_state.get("LPF_SOURCE_META") or {})
+    raw = {
         "zones": E.get("zonas_lpf") or {},
         "played": E.get("jugados") or [],
         "annual": E.get("anual_directo") or st.session_state.get("LPF_ANUAL") or {},
@@ -5914,7 +5954,9 @@ def _lpf_service_snapshot_payload(E):
             "playoff_cutoff": 8,
             "sudamericana_slots": 6,
         },
+        "provenance": source_meta,
     }
+    return _lpf_provider_payload(CurrentProvider(raw))
 
 
 def _lpf_service_snapshot(E):
@@ -9131,11 +9173,51 @@ def render_data_audit(E):
         capabilities = (_lpf_service_capabilities().get("result") or {})
         try:
             public_snapshot = _lpf_service_snapshot(E)
-            snapshot_schema = public_snapshot.get("schema_version", "—")
+            snapshot_schema = public_snapshot.get("snapshot_schema_version", "—")
+            trace = public_snapshot.get("traceability") or {}
+            source_trace = trace.get("source") or {}
+            coverage_trace = trace.get("coverage") or {}
+            quality_trace = trace.get("quality") or {}
             ui_success(
                 f"Contrato público v{capabilities.get('public_service_version', '—')} activo · "
-                f"snapshot schema {snapshot_schema}."
+                f"snapshot schema {snapshot_schema} · DataProvider current v{capabilities.get('data_provider_contract_version', '—')}."
             )
+            ui_markdown(
+                f"**Snapshot ID:** `{trace.get('snapshot_id', '—')}` · "
+                f"**Fuente:** {source_trace.get('name') or 'sin identificar'}"
+            )
+            _fresh_ref = source_trace.get("data_as_of") or source_trace.get("updated_at")
+            if _fresh_ref:
+                try:
+                    import datetime as _dt
+                    _parsed = _dt.datetime.fromisoformat(str(_fresh_ref).replace("Z", "+00:00"))
+                    if _parsed.tzinfo is None:
+                        _parsed = _parsed.replace(tzinfo=_dt.timezone.utc)
+                    _age_h = max(
+                        0.0,
+                        (_dt.datetime.now(_dt.timezone.utc) - _parsed.astimezone(_dt.timezone.utc)).total_seconds() / 3600.0,
+                    )
+                    ui_caption(f"Fuente actualizada: {_fresh_ref} · antigüedad aproximada: {_age_h:.1f} h.")
+                except Exception:
+                    ui_warning(f"La fuente declaró un timestamp que no pude interpretar: {_fresh_ref}")
+            else:
+                ui_warning("La fuente no informó un timestamp verificable; la antigüedad de los datos es desconocida.")
+            _last_round = coverage_trace.get("last_confirmed_round")
+            _fixture_round = coverage_trace.get("fixture_through_round")
+            ui_caption(
+                f"Cobertura: {coverage_trace.get('played_match_count', 0)} resultados confirmados · "
+                f"{coverage_trace.get('pending_match_count', 0)} pendientes · "
+                f"fixture hasta fecha {_fixture_round if _fixture_round is not None else '—'} · "
+                f"última fecha con resultados confirmados {_last_round if _last_round is not None else '—'}."
+            )
+            if not quality_trace.get("complete", False):
+                ui_warning(
+                    "La foto tiene datos incompletos o bloqueos: "
+                    + ", ".join(quality_trace.get("blocked_domains") or ["revisar auditoría"])
+                )
+            _source_warnings = list(source_trace.get("warnings") or [])
+            if _source_warnings:
+                ui_caption("Trazabilidad: " + " | ".join(_source_warnings[:4]))
         except _LPFServiceContractError as exc:
             _record_lpf_service_fallback("audit_snapshot", exc)
             ui_warning(f"No se pudo construir el snapshot público: {exc}")
@@ -9445,6 +9527,15 @@ def _lpf_definition_package(E, objective, zone, team, selected_teams, round_no, 
         )
     except _LPFServiceContractError as exc:
         _record_lpf_service_fallback("definition", exc)
+        if team not in base:
+            return {
+                "available": False,
+                "definition_needed": False,
+                "reason": (
+                    f"{team} no forma parte de la tabla reducida de este objetivo y el servicio no pudo resolver su vía directa."
+                ),
+                "_fallback": True,
+            }
         report = next_round_conditionals(base, rest, games, team, cutoff, max_other_matches=8)
         guarantee, ladder = _definition_guarantee(base, pending, team, cutoff, rest)
         current = int((base.get(team) or {}).get("pts", 0))
@@ -9482,10 +9573,11 @@ def render_definition_radar(E):
         "no usan probabilidades. Las estimaciones Monte Carlo siguen fuera de este bloque."
     )
     ui_caption(
-        "🔍 ¿Por qué? está dentro de este mismo tablero: debajo de la Matriz de la fecha, dentro de la Matriz de rival clave "
+        "🔍 ¿Por qué? está dentro de este mismo tablero: debajo de la matriz G/E/P, dentro de Otra cancha clave · doble entrada "
         "y nuevamente antes del Reloj de definición para explicar G/E/P del equipo bajo la lupa."
     )
 
+    ui_markdown("### 1. Elegí qué querés analizar")
     _sync_lpf_objective_widget("radar_objective")
     objective = ui_selectbox(
         "Objetivo", _LPF_OBJECTIVE_UI_OPTIONS, key="radar_objective",
@@ -9517,55 +9609,120 @@ def render_definition_radar(E):
     if ctx.get("direct"):
         ui_caption("Clasificados por vías directas a Libertadores, fuera de esta tabla de pelea: " + ", ".join(ctx["direct"]))
 
-    # 1) Zona de pelea: el paquete exacto ya sale por la frontera pública.
-    ui_markdown("### Zona de pelea")
-    if "radar_team_focus" not in st.session_state or st.session_state.get("radar_team_focus") not in ordered:
-        default_idx = min(max(cutoff, 1), len(ordered)) - 1
-        st.session_state["radar_team_focus"] = ordered[default_idx]
-    team_focus = ui_selectbox("Equipo bajo la lupa", ordered, key="radar_team_focus")
+    ui_info(
+        "Cómo aparecen los equipos: **Equipo principal** = lo elegís vos y gobierna todo el tablero. "
+        "**Contexto automático** = clubes cercanos al principal o al corte, sólo para ubicar la pelea. "
+        "**Comparadores** = únicamente los que vos agregás en la matriz G/E/P. "
+        "**Otra cancha clave** = una sugerencia automática por impacto exacto que podés cambiar."
+    )
 
-    # Primera consulta: alcanza para zona de pelea, G/E/P, garantía y reloj del equipo.
+    # 2) Equipo principal. En Copas también dejamos elegir clasificados por vía directa
+    # para explicar que el objetivo ya está resuelto, en vez de saltar silenciosamente a otro club.
+    ui_markdown("### 2. Elegí el equipo principal")
+    selection_ordered = list(ordered)
+    if objective in ("Libertadores", "Al menos Sudamericana") and ctx.get("annual"):
+        selection_ordered = list(liga_tabla_df(ctx["annual"])["Equipo"])
+    team_placeholder = "— Elegí un equipo —"
+    team_options = [team_placeholder] + selection_ordered
+    if "radar_team_focus" not in st.session_state or st.session_state.get("radar_team_focus") not in team_options:
+        st.session_state["radar_team_focus"] = team_placeholder
+    team_focus = ui_selectbox(
+        "Equipo principal", team_options, key="radar_team_focus",
+        help="Primero elegí el club que querés analizar. Todo lo que sigue se recalcula desde ese equipo.",
+    )
+    if team_focus == team_placeholder:
+        ui_info(
+            "Elegí un equipo para abrir el tablero. No se selecciona ninguno automáticamente: así queda claro cuál es el protagonista del análisis."
+        )
+        return
+    ui_caption(
+        f"Equipo principal: **{team_focus}**. Los demás clubes no se convierten en protagonistas: "
+        "sólo aparecen como contexto automático, como comparadores elegidos por vos o como sugerencia de otra cancha clave."
+    )
+
+    # Primera consulta: alcanza para saber si el objetivo ya está resuelto y, si sigue abierto,
+    # para zona de pelea, G/E/P, garantía y reloj del equipo.
     package = _lpf_definition_package(
         E, objective, lab, team_focus, [team_focus], current_round,
         base=base, rest=rest, games=games, pending=pending, cutoff=cutoff,
     )
+    if package.get("resolved") and not package.get("definition_needed", True):
+        ui_success(str(package.get("message") or f"{team_focus} ya tiene resuelto este objetivo."))
+        if package.get("via"):
+            ui_caption(f"Vía: **{package['via']}**.")
+        ui_caption(
+            "No se muestran comparadores ni doble entrada porque este club ya no disputa este cupo por la tabla del objetivo."
+        )
+        return
+
+    # 3) Zona de pelea: siempre alrededor del equipo principal.
+    ui_markdown("### 3. Contexto automático · quiénes están alrededor")
     fight = pd.DataFrame(package.get("fight_zone") or [])
     if not fight.empty:
         ui_dataframe(fight, use_container_width=True, hide_index=True)
     ui_caption(
-        "Techo = puntos actuales + todos los puntos propios todavía disponibles. Sirve para ver quién puede alcanzar a quién; "
-        "no es una proyección."
+        "Estos equipos aparecen automáticamente porque están cerca del equipo principal o del corte. "
+        "Son contexto de la pelea: no fueron elegidos como comparadores y no cambian el protagonista. "
+        "Techo = puntos actuales + todos los puntos propios todavía disponibles; no es una proyección."
     )
 
-    # 2) Matriz general / semáforo, con selección libre de equipos.
-    ui_markdown("### Matriz de la fecha · todos los equipos que quieras seguir")
+    # 4) Matriz general / semáforo. El principal es fijo y los demás son sólo comparadores opcionales.
+    ui_markdown("### 4. Qué pasa si gana, empata o pierde")
+    ui_markdown(f"**Equipo principal: {team_focus}**")
     around = fight.loc[fight["Equipo"] != "…", "Equipo"].tolist() if not fight.empty and "Equipo" in fight else ordered[:6]
-    suggested_matrix = [name for name in around if name in ordered and name != team_focus][:6]
-    matrix_state_key = f"radar_matrix_teams_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}"
-    selected_teams = st.multiselect(
-        "Equipos a mostrar", ordered, default=[team_focus],
-        key=matrix_state_key,
-        help=(
-            "Sólo se preselecciona el equipo bajo la lupa. Podés elegir uno, varios o todos; "
-            "la cuenta G/E/P se recalcula para cada equipo."
-        ),
-    )
+    suggested_matrix = [name for name in around if name in ordered and name != team_focus][:4]
+    comparator_options = [name for name in ordered if name != team_focus]
+    matrix_state_key = f"radar_matrix_comparators_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}"
+    if matrix_state_key not in st.session_state:
+        st.session_state[matrix_state_key] = []
+    else:
+        st.session_state[matrix_state_key] = [
+            name for name in st.session_state.get(matrix_state_key, []) if name in comparator_options
+        ]
+
     if suggested_matrix:
         ui_caption(
-            "Sugeridos para comparar por cercanía al equipo y al corte: "
-            + ", ".join(suggested_matrix)
-            + ". No se seleccionan automáticamente."
+            "Cerca del equipo y del corte: " + ", ".join(suggested_matrix)
+            + ". Son sugerencias; **no se agregan solas**."
         )
+        add_col, clear_col = st.columns(2)
+        if add_col.button(
+            "Agregar sugeridos", key=f"radar_add_suggested_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}",
+            use_container_width=True,
+        ):
+            current_comparators = list(st.session_state.get(matrix_state_key, []))
+            st.session_state[matrix_state_key] = list(dict.fromkeys(current_comparators + suggested_matrix))
+            st.rerun()
+        if clear_col.button(
+            "Quitar comparadores", key=f"radar_clear_comparators_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}",
+            use_container_width=True,
+        ):
+            st.session_state[matrix_state_key] = []
+            st.rerun()
+
+    comparators = st.multiselect(
+        "Comparar también con… (opcional)", comparator_options,
+        key=matrix_state_key,
+        help=(
+            f"{team_focus} ya está incluido y no hace falta volver a elegirlo. "
+            "Los clubes que marques acá sólo agregan filas a esta matriz; no cambian el equipo principal."
+        ),
+    )
+    selected_teams = [team_focus] + [name for name in comparators if name != team_focus]
+    ui_caption(
+        f"La primera fila siempre es **{team_focus}**. "
+        + ("También vas a ver: " + ", ".join(comparators) + "." if comparators else "No agregaste comparadores.")
+    )
 
     # Si el editor agrega comparadores, pedimos de nuevo el mismo paquete público
     # con esa selección. El caso por defecto reutiliza la primera consulta.
-    if selected_teams and selected_teams != [team_focus]:
+    if comparators:
         package = _lpf_definition_package(
             E, objective, lab, team_focus, selected_teams, current_round,
             base=base, rest=rest, games=games, pending=pending, cutoff=cutoff,
         )
-    rows = list(package.get("matrix") or []) if selected_teams else []
-    if selected_teams:
+    rows = list(package.get("matrix") or [])
+    if rows:
         view = st.radio(
             "Lectura", ["Matriz detallada", "Semáforo compacto"], horizontal=True,
             key=f"radar_matrix_view_{objective}_{ctx.get('zone') or 'annual'}",
@@ -9620,8 +9777,12 @@ def render_definition_radar(E):
     c3.metric("Techo", current + 3 * left)
     c4.metric("Mínimo que asegura", guarantee if guarantee is not None else "—")
 
-    # 3) Matriz de rival clave, seleccionable y con sugerencia automática.
-    ui_markdown("### Matriz de rival clave")
+    # 5) Otra cancha clave, seleccionable y con sugerencia automática.
+    ui_markdown("### 5. Otra cancha clave · doble entrada")
+    ui_caption(
+        "Acá sí aparece un club propuesto por la aplicación. No es un comparador de la matriz anterior: "
+        "es el equipo de otra cancha cuyo resultado más cambia las ramas exactas del equipo principal. La sugerencia es editable."
+    )
     other_matches = list(report.get("other_matches") or [])
     candidate_scores = {}
     for branch in report.get("branches", []):
@@ -9644,12 +9805,18 @@ def render_definition_radar(E):
         if st.session_state.get(key_state) not in key_options:
             st.session_state[key_state] = key_options[0]
         key_team = ui_selectbox(
-            "Rival sugerido (editable)", key_options, key=key_state,
+            "Equipo de la otra cancha (sugerido, editable)", key_options, key=key_state,
             help=(
-                "La primera opción es la otra cancha que más cambia las ramas exactas del equipo bajo la lupa. "
+                "La primera opción es el equipo de la otra cancha que más cambia las ramas exactas del equipo principal. "
                 "No se elige al azar y podés cambiarla manualmente."
             ),
         )
+        key_match = match_by_team.get(key_team)
+        if key_match:
+            ui_caption(
+                f"Sugerencia actual: **{key_team}**, por el partido **{key_match[0]} – {key_match[1]}**. "
+                "Podés elegir otro equipo de las otras canchas desde el selector."
+            )
         key_report = key_rival_matrix(base, rest, games, team_focus, key_team, cutoff)
         if key_report.get("available"):
             cells = {(c["own_result"], c["key_result"]): c for c in key_report["cells"]}
@@ -9661,8 +9828,12 @@ def render_definition_radar(E):
                     f"{key_team} empata": branch_cell(cells[(own_code, "E")]),
                     f"{key_team} pierde": branch_cell(cells[(own_code, "P")]),
                 })
+            ui_markdown(f"**{team_focus} ↓ / {key_team} →**")
             ui_dataframe(pd.DataFrame(matrix_rows), use_container_width=True, hide_index=True)
-            ui_caption("Los demás partidos de la fecha quedan abiertos y se enumeran exactamente dentro de cada celda.")
+            ui_caption(
+                f"Filas = resultado de **{team_focus}**. Columnas = resultado de **{key_team}** en su otra cancha. "
+                "Los demás partidos de la fecha quedan abiertos y se enumeran exactamente dentro de cada celda."
+            )
 
             with st.expander("¿Por qué? · explicar una celda", expanded=False):
                 ec1, ec2 = st.columns(2)
@@ -9677,21 +9848,21 @@ def render_definition_radar(E):
     else:
         ui_caption("No hay otra cancha independiente para cruzar en esta fecha.")
 
-    # 4) Árbol reducido: sólo ramas con información nueva.
-    ui_markdown("### Árbol reducido del camino")
+    # 6) Árbol reducido: sólo ramas con información nueva.
+    ui_markdown("### 6. Árbol reducido del camino")
     tree = _definition_tree_dot(team_focus, ctx["label"], report)
     if tree:
         _ST_GRAPHVIZ(tree, use_container_width=True)
         ui_caption("El árbol corta las ramas terminales y no dibuja todas las combinaciones del torneo. Sólo muestra qué cambia el estado.")
 
-    # 5) Explicación exacta de G/E/P, a demanda.
+    # 7) Explicación exacta de G/E/P, a demanda.
     with st.expander("¿Por qué? · explicar gana / empata / pierde", expanded=False):
         for branch in report.get("branches", []):
             ui_markdown(f"**{branch['result_label']}**")
             ui_markdown(branch_explanation(branch, ctx["label"]))
 
-    # 6) Reloj: ya viene en el mismo paquete público exacto.
-    ui_markdown("### Reloj de definición")
+    # 8) Reloj: ya viene en el mismo paquete público exacto.
+    ui_markdown("### 8. Reloj de definición")
     guarantee_round = package.get("guarantee_round_label")
     clock = package.get("clock") or []
     if clock:

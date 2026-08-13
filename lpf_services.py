@@ -7,13 +7,17 @@ la matemática en los motores existentes.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 19
+LPF_RUNTIME_API = 21
 
 
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 
 from lpf_competitive_context import competition_context
+from lpf_data_provider import (
+    DATA_PROVIDER_CONTRACT_VERSION,
+    SUPPORTED_DATA_PROVIDER_CONTRACT_VERSIONS,
+)
 from lpf_editorial_definition import definition_snapshot
 from lpf_form import estimate_team_strength
 from lpf_pisos import VENTANA_EXACTA, piso_no_descenso, piso_por_corte
@@ -23,12 +27,14 @@ from lpf_scenarios import point_ladder, scenario_rank_bounds
 from lpf_schedule import build_schedule_map, current_round, match_round, resolve_scope_games
 from lpf_snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
+    SNAPSHOT_TRACEABILITY_VERSION,
     SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS,
     build_competition_snapshot,
     normalize_objective,
     snapshot_average_totals,
     snapshot_objective_scope,
     snapshot_scope,
+    snapshot_traceability_summary,
 )
 from lpf_standings import DEFAULT_CRITERIOS, _orden
 from lpf_version import __version__
@@ -410,6 +416,10 @@ def service_capabilities() -> dict[str, object]:
             "public_operations": list(PUBLIC_OPERATIONS),
             "snapshot_schema_version": SNAPSHOT_SCHEMA_VERSION,
             "supported_snapshot_schema_versions": list(SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS),
+            "data_provider_contract_version": DATA_PROVIDER_CONTRACT_VERSION,
+            "supported_data_provider_contract_versions": list(SUPPORTED_DATA_PROVIDER_CONTRACT_VERSIONS),
+            "data_provider_reference_implementations": ["current", "csv"],
+            "snapshot_traceability_version": SNAPSHOT_TRACEABILITY_VERSION,
             "snapshot_objectives": ["playoffs", "libertadores", "sudamericana"],
             "batch_query_types": list(SUPPORTED_QUERY_TYPES),
             "operations": [
@@ -619,9 +629,9 @@ def _validate_snapshot(snapshot: Mapping[str, object], *, require_canonical: boo
                 )
 
     qualification = snapshot.get("qualification")
-    if str(schema or "") == SNAPSHOT_SCHEMA_VERSION and require_canonical and not isinstance(qualification, Mapping):
+    if str(schema or "") in {"2", "3"} and require_canonical and not isinstance(qualification, Mapping):
         raise ContractError(
-            "invalid_snapshot", "Falta el contexto de clasificación del snapshot schema 2.", field="snapshot.qualification"
+            "invalid_snapshot", "Falta el contexto de clasificación del snapshot schema 2+.", field="snapshot.qualification"
         )
     if qualification is not None:
         if not isinstance(qualification, Mapping):
@@ -686,6 +696,46 @@ def _validate_snapshot(snapshot: Mapping[str, object], *, require_canonical: boo
                     field=f"snapshot.qualification.{objective}.cutoff",
                 )
 
+    traceability = snapshot.get("traceability")
+    if str(schema or "") == "3" and require_canonical and not isinstance(traceability, Mapping):
+        raise ContractError(
+            "invalid_snapshot",
+            "Falta 'traceability' en el snapshot schema 3.",
+            field="snapshot.traceability",
+        )
+    if traceability is not None:
+        if not isinstance(traceability, Mapping):
+            raise ContractError(
+                "invalid_snapshot", "'snapshot.traceability' debe ser un objeto.", field="snapshot.traceability"
+            )
+        if str(traceability.get("traceability_version") or "") != SNAPSHOT_TRACEABILITY_VERSION:
+            raise ContractError(
+                "invalid_snapshot",
+                "Versión de trazabilidad no soportada.",
+                field="snapshot.traceability.traceability_version",
+            )
+        if not str(traceability.get("snapshot_id") or "").strip():
+            raise ContractError(
+                "invalid_snapshot", "Falta snapshot_id de trazabilidad.", field="snapshot.traceability.snapshot_id"
+            )
+        if not isinstance(traceability.get("provider"), Mapping):
+            raise ContractError(
+                "invalid_snapshot", "Falta proveedor de trazabilidad.", field="snapshot.traceability.provider"
+            )
+        if not isinstance(traceability.get("source"), Mapping):
+            raise ContractError(
+                "invalid_snapshot", "Falta fuente de trazabilidad.", field="snapshot.traceability.source"
+            )
+        if not isinstance(traceability.get("coverage"), Mapping):
+            raise ContractError(
+                "invalid_snapshot", "Falta cobertura de trazabilidad.", field="snapshot.traceability.coverage"
+            )
+        if not isinstance(traceability.get("quality"), Mapping):
+            raise ContractError(
+                "invalid_snapshot", "Falta calidad de trazabilidad.", field="snapshot.traceability.quality"
+            )
+
+    trace_summary = snapshot_traceability_summary(snapshot)
     return {
         "snapshot_schema_version": str(schema or SNAPSHOT_SCHEMA_VERSION),
         "canonical": bool(teams and zone_teams),
@@ -695,6 +745,9 @@ def _validate_snapshot(snapshot: Mapping[str, object], *, require_canonical: boo
         "has_annual": isinstance(snapshot.get("annual"), Mapping) and bool(snapshot.get("annual")),
         "has_average_history": isinstance(snapshot.get("previous_averages"), Mapping) and bool(snapshot.get("previous_averages")),
         "has_qualification_context": isinstance(snapshot.get("qualification"), Mapping) and bool(snapshot.get("qualification")),
+        "has_traceability": bool(trace_summary.get("available")),
+        "snapshot_id": trace_summary.get("snapshot_id"),
+        "source_age_hours": trace_summary.get("age_hours"),
     }
 
 
@@ -808,6 +861,18 @@ def prepare_competition_snapshot(payload: Mapping[str, object]) -> dict[str, obj
     if min(annual_relegations, average_relegations, playoff_cutoff, sudamericana_slots) < 0 or opening_rounds <= 0:
         raise ContractError("invalid_rules", "Las reglas numéricas tienen valores fuera de rango.", field="rules")
 
+    provider_name = str(payload.get("data_provider") or "direct").strip() or "direct"
+    provider_contract_version = str(payload.get("data_provider_contract_version") or "").strip() or None
+    if provider_contract_version and provider_contract_version not in SUPPORTED_DATA_PROVIDER_CONTRACT_VERSIONS:
+        raise ContractError(
+            "unsupported_data_provider_contract",
+            f"DataProvider contract no soportado: '{provider_contract_version}'.",
+            field="data_provider_contract_version",
+        )
+    provenance = payload.get("provenance") or {}
+    if not isinstance(provenance, Mapping):
+        raise ContractError("invalid_provenance", "'provenance' debe ser un objeto.", field="provenance")
+
     snapshot, report = build_competition_snapshot(
         zones,
         played=played,
@@ -823,6 +888,9 @@ def prepare_competition_snapshot(payload: Mapping[str, object]) -> dict[str, obj
         opening_rounds=opening_rounds,
         playoff_cutoff=playoff_cutoff,
         sudamericana_slots=sudamericana_slots,
+        provider_name=provider_name,
+        provider_contract_version=provider_contract_version,
+        provenance=provenance,
     )
     snapshot["audit"] = report
     return _envelope("competition_snapshot", snapshot)

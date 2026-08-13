@@ -83,10 +83,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.42` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.43` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
-- Archivo principal: **~9.930 líneas** (arrancó en ~12.780).
-- **312 pruebas**, todas verdes en 3.8.42. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- Archivo principal: **~10.458 líneas** (arrancó en ~12.780).
+- **317 pruebas**, todas verdes en 3.8.43. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -598,3 +598,15 @@ El último objetivo consultado deja de ser una memoria exclusiva del chat: los s
 ### 8o. Definición visual exacta — 3.8.41
 
 `Visualizaciones → Últimas fechas` comparte el objetivo activo y construye una tabla de trabajo común para Playoffs, Libertadores por Tabla Anual o al menos Sudamericana por Tabla Anual. La vista muestra zona de pelea aun con el torneo abierto; para la fecha pendiente agrega matriz G/E/P multiseleccionable, semáforo compacto y doble entrada contra un rival elegido. `lpf_conditionals.key_rival_matrix` mantiene abiertas las demás canchas y enumera sus combinaciones; `branch_explanation` produce la capa “¿Por qué?” con una prueba auditable y no probabilística. El árbol reducido sólo abre ramas que cambian el estado y el reloj informa hitos demostrables; un total que asegura sólo se muestra cuando `point_ladder` lo comprobó exactamente. `lpf_editorial_definition.py` es puro y queda preparado para API/Opta. Runtime **16**; suite **309 pruebas**.
+
+### 8q. Definición fuera de Streamlit — 3.8.43
+
+- `lpf_editorial_definition.objective_context` arma el universo Playoffs/Copas con entradas explícitas; no leer sesión desde ese módulo.
+- `definition_guarantee` y `guarantee_round_label` concentran la garantía y su primera fecha alcanzable.
+- `definition_snapshot` es la salida JSON-safe común para otra interfaz. `lpf_services.calculate_definition` la expone sin red ni proveedores.
+- Si una futura API usa Copas, debe alimentar el contexto de vías directas antes de pedir la definición; no recrear esa regla en HTTP.
+
+
+### 8r. Selección explícita en Últimas fechas — 3.8.51
+
+En `render_definition_radar` no mezclar los roles de equipos. El **equipo principal** se elige explícitamente; el **contexto automático** sólo ubica la pelea; los **comparadores** se agregan manualmente y nunca sustituyen al principal; la **otra cancha clave** es una sugerencia exacta editable. La matriz G/E/P debe conservar al principal como primera fila. En Copas, los clasificados por vía directa siguen disponibles en el selector para explicar que el objetivo ya está resuelto. Runtime **21**; suite **352 pruebas**.

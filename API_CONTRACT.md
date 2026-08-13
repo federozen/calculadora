@@ -12,7 +12,7 @@ compatibles con JSON y delega la matemática en los motores existentes.
   específicamente la forma de la foto canónica de competencia.
 - Las funciones de servicio no importan Streamlit, `requests` ni proveedores.
 - ESPN, FutbolArgentino.com y un futuro Opta quedan antes de esta frontera: sus datos
-  deben normalizarse al modelo LPF antes de pedir cálculos.
+  deben normalizarse al contrato `DataProvider` v2 antes de pedir cálculos.
 - Los servicios no reimplementan fórmulas. Sólo validan/traducen JSON y llaman a
   `lpf_standings`, `lpf_scenarios` o `lpf_pisos`.
 - Los errores de entrada usan `ContractError(code, message, field)` para que una
@@ -116,7 +116,7 @@ Todas las operaciones devuelven:
 ```json
 {
   "contract_version": "1",
-  "calculation_version": "3.8.48",
+  "calculation_version": "3.8.51",
   "calculation": "standings",
   "result": {}
 }
@@ -234,9 +234,9 @@ Entrada conceptual:
 }
 ```
 
-La foto vigente incluye `snapshot_schema_version = "2"`. Schema 1 sigue admitido para
-consultas legacy, pero no contiene `qualification` y por eso no puede resolver objetivos
-por nombre. La auditoría puede devolver `blocked`; eso describe la calidad de la foto.
+La foto vigente incluye `snapshot_schema_version = "3"`. Schema 1 y 2 siguen admitidos para
+compatibilidad: schema 1 no contiene `qualification`; schema 2 sí contiene objetivos/cortes pero
+no exige trazabilidad. Schema 3 agrega `traceability` obligatorio para snapshots canónicos nuevos. La auditoría puede devolver `blocked`; eso describe la calidad de la foto.
 El servicio no inventa datos para volverla válida.
 
 `validate_competition_snapshot({"snapshot": ...})` permite validar la foto antes de
@@ -244,6 +244,51 @@ calcular. En una foto canónica comprueba que la nómina coincida con las zonas,
 `remaining` tenga enteros no negativos y que su conteo coincida exactamente con los
 partidos de `pending`. Un schema de snapshot desconocido se rechaza de forma
 explícita antes de entrar a los motores.
+
+
+### Trazabilidad del snapshot · schema 3
+
+Todo snapshot canónico nuevo incluye `traceability` con semántica estable:
+
+```json
+{
+  "traceability_version": "1",
+  "snapshot_id": "huella-del-contenido-competitivo",
+  "generated_at": "2026-08-13T20:00:00+00:00",
+  "provider": {"name": "current", "contract_version": "2"},
+  "source": {
+    "name": "ESPN + FutbolArgentino.com",
+    "updated_at": "2026-08-13T19:55:00+00:00",
+    "data_as_of": "2026-08-13T19:55:00+00:00",
+    "sources": ["ESPN", "FutbolArgentino.com"],
+    "warnings": []
+  },
+  "coverage": {
+    "played_match_count": 84,
+    "pending_match_count": 156,
+    "fixture_match_count": 240,
+    "fixture_through_round": 16,
+    "last_confirmed_round": 6,
+    "frontier_played_matches": []
+  },
+  "quality": {
+    "level": "ok",
+    "complete": true,
+    "issue_count": 0,
+    "blocked_domains": []
+  }
+}
+```
+
+`snapshot_id` se calcula sólo con el contenido competitivo; una misma foto proveniente de CSV,
+Streamlit u Opta debe conservar el mismo ID aunque cambien proveedor/timestamp. `generated_at`
+indica cuándo se construyó la foto, no cuándo se actualizó la fuente. La frescura se calcula a
+partir de `source.data_as_of` o `source.updated_at`; si el proveedor no informa timestamp, queda
+explícitamente desconocido y no se inventa una hora.
+
+`ProviderData.provenance` acepta `source_name`, `source_updated_at`, `data_as_of`, `sources` y
+`warnings`. Los timestamps deben ser ISO-8601. `CsvProvider` usa como referencia el `mtime` más
+reciente de sus archivos si el caller no aporta metadatos explícitos.
 
 ## 6. Varias consultas sobre una misma foto
 
@@ -268,7 +313,7 @@ persistencia en esta versión.
 Tipos soportados: `objective_points`, `objective_status`, `point_ladder`, `rank_window`,
 `definition` y `descent_points`. `objective_points`, `point_ladder` y `rank_window` conservan el
 modo legacy `scope=zone|annual` con `cutoff` cuando corresponde. Con un snapshot schema
-2 también pueden recibir `objective=playoffs|libertadores|sudamericana`: el servicio
+2+ también pueden recibir `objective=playoffs|libertadores|sudamericana`: el servicio
 toma automáticamente la base y el corte del snapshot (para Playoffs sólo se agrega
 `zone`). `objective_status` exige ese modo nuevo y, si el club ya tiene Libertadores
 por otra vía, devuelve el objetivo como resuelto con su motivo. Descenso usa siempre
@@ -281,6 +326,7 @@ Función: `service_capabilities()`. No recibe datos de competencia y puede expon
 como un endpoint de metadatos en una futura API. Informa:
 
 - `snapshot_schema_version` vigente y versiones de snapshot aceptadas;
+- `snapshot_traceability_version`, DataProvider vigente y versiones de proveedor aceptadas;
 - objetivos resolubles desde el snapshot (`playoffs`, `libertadores`, `sudamericana`);
 - operaciones disponibles;
 - tipos de consulta aceptados por `competition_batch`;
@@ -301,9 +347,26 @@ Cuando exista una API real, su trabajo debería ser delgado:
 
 Un proveedor como Opta pertenece a otra entrada del sistema:
 
-`Opta -> adaptador Opta -> lpf_loading/lpf_state -> lpf_services/motores -> HTTP o Streamlit`
+`Opta -> adaptador Opta -> DataProvider -> ProviderData -> snapshot -> lpf_services/motores -> HTTP o Streamlit`
 
-No debe importarse un SDK de Opta dentro de los motores ni de `lpf_services.py`.
+### Contrato DataProvider v2
+
+`lpf_data_provider.py` define `DataProvider.load() -> ProviderData`. El objeto canónico
+contiene `zones`, `played`, `annual`, `opening`, `previous_averages`, `fixture`,
+`qualification`, `rules` y `provenance`; `provider_payload()` lo convierte al JSON que ya acepta
+`prepare_competition_snapshot()`. El contrato vigente es **v2** y el servicio sigue aceptando
+payloads v1 para compatibilidad. `CurrentProvider` adapta la fuente actual de Streamlit y
+`CsvProvider` sirve como implementación reproducible de referencia.
+
+Los CSV usan encabezados simples: tablas (`equipo/team`, `pts`, `pj`, opcionalmente
+`dg/gf/ga`), resultados (`local/home`, `visitante/away`, goles) y fixture
+(`fecha/round`, local, visitante; `tipo/zona` son opcionales). Reglas y vías de
+clasificación se pasan como objetos separados, para que el archivo tabular no
+incorpore reglamento.
+
+Un futuro `OptaProvider` no debe reimplementar matemática: sólo resolver IDs/nombres,
+estados y formatos del proveedor y devolver `ProviderData`. No debe importarse un SDK
+de Opta dentro de los motores ni de `lpf_services.py`.
 
 ## 8. Paquete exacto de definición
 
@@ -328,7 +391,7 @@ Entrada conceptual:
 
 La salida incluye `fight_zone`, `matrix`, `report`, `key_rival`, `guarantee`,
 `guarantee_round_label` y `clock`. Para Playoffs, `base` es la zona correspondiente.
-El modo explícito `base + cutoff` se conserva por compatibilidad. Con un snapshot schema 2,
+El modo explícito `base + cutoff` se conserva por compatibilidad. Con un snapshot schema 2+,
 la misma operación puede pedirse sin preparar esa base:
 
 ```json

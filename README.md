@@ -1,8 +1,37 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.48
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.51
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
 La versión vigente siempre está en `lpf_version.__version__` (única fuente de verdad compartida por Streamlit, auditoría y futuras interfaces). El historial completo está en `CHANGELOG.md`.
+
+## Novedad 3.8.51 · selección de equipo y comparadores sin ambigüedad
+
+- **Últimas fechas** ya no elige un equipo principal de manera implícita al abrir: muestra `— Elegí un equipo —` y espera una selección explícita.
+- La pantalla separa cuatro roles: **equipo principal** (lo elige el editor), **contexto automático** (clubes cercanos al principal/corte), **comparadores** (sólo los que el editor agrega) y **otra cancha clave** (sugerencia exacta y editable).
+- La matriz G/E/P deja fijo al equipo principal y el segundo selector pasa a `Comparar también con… (opcional)`: ya no se puede desmarcar accidentalmente al protagonista del tablero.
+- Los sugeridos cercanos al corte no se agregan solos; hay acciones explícitas `Agregar sugeridos` y `Quitar comparadores`.
+- La doble entrada adopta la lectura `Equipo principal ↓ / equipo de la otra cancha →` y aclara qué representan filas y columnas, siguiendo la convención visual probada en la calculadora del Mundial.
+- En Libertadores/Sudamericana, un club ya clasificado por vía directa sigue siendo elegible en el selector y se explica como **objetivo resuelto**, en vez de hacer saltar silenciosamente la selección a otro equipo.
+- No cambia Public Service v1, DataProvider v2, snapshot schema 3 ni Runtime API 21. Validación: **352 pruebas** + `release check`.
+
+## Novedad 3.8.50 · trazabilidad, frescura y handoff a desarrollo
+
+- El snapshot canónico sube a **schema 3** e incorpora `traceability`: `snapshot_id` estable, proveedor, fuente, timestamps declarados, cobertura de resultados/fixture y resumen de calidad.
+- `snapshot_id` depende del contenido competitivo y no de la procedencia: la misma foto recibida por `CurrentProvider`, CSV o un futuro Opta conserva la misma huella.
+- `DataProvider` pasa a **v2** y agrega `ProviderData.provenance` (`source_name`, `source_updated_at`, `data_as_of`, `sources`, `warnings`). Schema/provider anteriores siguen soportados para compatibilidad.
+- **Datos y auditoría** muestra fuente, antigüedad cuando existe timestamp, última fecha con resultados confirmados, cobertura y bloqueos. Si no hay timestamp verificable, se informa como desconocido en vez de inventarlo.
+- `CsvProvider` usa el `mtime` más reciente como referencia si no recibe metadata explícita. `CurrentProvider` conserva la procedencia conocida de la sesión; la carga offline/manual queda explícitamente sin timestamp verificable.
+- Nuevo `HANDOFF_DESARROLLO.md` con contratos estables, checklist de integración Opta, validaciones y deuda deliberada. Public Service permanece en **v1**; Runtime interno **21**.
+- Validación de esta entrega: **351 pruebas** + `release check`; Ruff queda para la CI/equipo porque no está instalado en este entorno.
+
+## Novedad 3.8.49 · DataProvider común para fuente actual, CSV y futuro Opta
+
+- `lpf_data_provider.py` congela `DataProvider` v1 y `ProviderData`: zonas, resultados, Anual, Apertura, promedios previos, fixture, vías de clasificación y reglas llegan al snapshot con la misma forma sin importar el origen.
+- Streamlit ya construye su snapshot a través de `CurrentProvider`; un guard de arquitectura impide volver a saltarse esa frontera.
+- `CsvProvider` permite reproducir la misma entrada desde CSV y valida encabezados, resultados, fixture e interzonales. Los tests prueban que una misma foto vía fuente actual o CSV produce el mismo snapshot.
+- `service_capabilities()` publica `data_provider_contract_version = 1` y las implementaciones de referencia `current` / `csv`. Un futuro Opta sólo debe implementar `load() -> ProviderData`; no toca motores ni reglas.
+- No se agregó FastAPI ni SDK de Opta. Runtime interno **20**; Public Service sigue en **v1**. Suite: **346 pruebas**.
+
 
 La versión 3 prioriza tres objetivos:
 

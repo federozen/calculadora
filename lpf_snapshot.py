@@ -7,16 +7,172 @@ reconstruir cortes, exclusiones por vía directa o la Tabla Anual reducida.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 19
-SNAPSHOT_SCHEMA_VERSION = "2"
-SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS = ("1", "2")
+LPF_RUNTIME_API = 21
+SNAPSHOT_SCHEMA_VERSION = "3"
+SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS = ("1", "2", "3")
+SNAPSHOT_TRACEABILITY_VERSION = "1"
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timezone
+import hashlib
+import json
 from typing import Any
 
 from lpf_averages import combine_average_totals, previous_averages_json
 from lpf_qualification import allocate_cup_slots
 from lpf_state import LPF_APERTURA_PJ, build_lpf_state
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _snapshot_id(snapshot: Mapping[str, object]) -> str:
+    """Huella estable del contenido competitivo, independiente de fuente/hora."""
+    keys = (
+        "competition", "teams", "zones", "annual", "opening", "played", "pending",
+        "remaining", "previous_averages", "fixture", "rules", "format",
+        "qualification_inputs", "qualification",
+    )
+    payload = {key: snapshot.get(key) for key in keys}
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def _coverage(snapshot: Mapping[str, object]) -> dict[str, object]:
+    fixture = [row for row in (snapshot.get("fixture") or []) if isinstance(row, Mapping)]
+    played = [row for row in (snapshot.get("played") or []) if isinstance(row, Mapping)]
+    pending = [row for row in (snapshot.get("pending") or []) if isinstance(row, Mapping)]
+    fixture_by_pair = {
+        (str(row.get("l", "")), str(row.get("v", ""))): row
+        for row in fixture
+        if str(row.get("l", "")) and str(row.get("v", ""))
+    }
+    played_pairs = [
+        (str(row.get("home", "")), str(row.get("away", "")))
+        for row in played
+        if str(row.get("home", "")) and str(row.get("away", ""))
+    ]
+    played_fixture = [fixture_by_pair[pair] for pair in played_pairs if pair in fixture_by_pair]
+    played_rounds = [int(row.get("f", 0) or 0) for row in played_fixture if int(row.get("f", 0) or 0) > 0]
+    last_round = max(played_rounds, default=None)
+    frontier = []
+    if last_round is not None:
+        for pair in played_pairs:
+            game = fixture_by_pair.get(pair)
+            if game is not None and int(game.get("f", 0) or 0) == last_round:
+                frontier.append({"round": last_round, "home": pair[0], "away": pair[1]})
+    fixture_rounds = [int(row.get("f", 0) or 0) for row in fixture if int(row.get("f", 0) or 0) > 0]
+    dated = sum(
+        any(row.get(key) not in (None, "") for key in ("date", "datetime", "fecha_hora", "kickoff"))
+        for row in fixture
+    )
+    return {
+        "team_count": len(snapshot.get("teams") or []),
+        "played_match_count": len(played),
+        "pending_match_count": len(pending),
+        "fixture_match_count": len(fixture),
+        "fixture_through_round": max(fixture_rounds, default=None),
+        "last_confirmed_round": last_round,
+        "frontier_played_matches": frontier,
+        "results_outside_fixture_count": sum(pair not in fixture_by_pair for pair in played_pairs),
+        "dated_fixture_match_count": int(dated),
+    }
+
+
+def _quality_summary(report: object) -> dict[str, object]:
+    issues = list(getattr(report, "issues", []) or [])
+    level = str(getattr(report, "level", "warning") or "warning")
+    blocked_domains = sorted(
+        str(value) for value in (getattr(report, "blocked_domains", set()) or set())
+    )
+    return {
+        "level": level,
+        "complete": level != "blocked",
+        "issue_count": len(issues),
+        "warning_count": sum(str(getattr(issue, "level", "")) == "warning" for issue in issues),
+        "blocked_count": sum(str(getattr(issue, "level", "")) == "blocked" for issue in issues),
+        "blocked_domains": blocked_domains,
+    }
+
+
+def _traceability(
+    snapshot: Mapping[str, object],
+    report: object,
+    *,
+    provider_name: str,
+    provider_contract_version: str | None,
+    provenance: Mapping[str, object] | None,
+    generated_at: str | None,
+) -> dict[str, object]:
+    provenance = provenance if isinstance(provenance, Mapping) else {}
+    source_updated_at = provenance.get("source_updated_at")
+    data_as_of = provenance.get("data_as_of") or source_updated_at
+    warnings = [str(value) for value in (provenance.get("warnings") or []) if str(value).strip()]
+    if not source_updated_at and not data_as_of:
+        message = "El proveedor no informó un timestamp de actualización de la fuente."
+        if not any("timestamp" in warning.lower() for warning in warnings):
+            warnings.append(message)
+    return {
+        "traceability_version": SNAPSHOT_TRACEABILITY_VERSION,
+        "snapshot_id": _snapshot_id(snapshot),
+        "generated_at": str(generated_at or _utc_now()),
+        "provider": {
+            "name": str(provider_name or "direct"),
+            "contract_version": str(provider_contract_version or "") or None,
+        },
+        "source": {
+            "name": str(provenance.get("source_name") or provider_name or "direct"),
+            "updated_at": source_updated_at,
+            "data_as_of": data_as_of,
+            "sources": [str(value) for value in (provenance.get("sources") or []) if str(value).strip()],
+            "warnings": warnings,
+        },
+        "coverage": _coverage(snapshot),
+        "quality": _quality_summary(report),
+    }
+
+
+def snapshot_traceability_summary(
+    snapshot: Mapping[str, object],
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Resumen JSON-safe con edad de la fuente sin mutar el snapshot almacenado."""
+    trace = snapshot.get("traceability")
+    if not isinstance(trace, Mapping):
+        return {
+            "available": False,
+            "timestamp_known": False,
+            "age_hours": None,
+            "warning": "El snapshot no contiene trazabilidad.",
+        }
+    source = trace.get("source") if isinstance(trace.get("source"), Mapping) else {}
+    reference = source.get("data_as_of") or source.get("updated_at")
+    age_hours: float | None = None
+    if reference:
+        try:
+            parsed = datetime.fromisoformat(str(reference).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            current = now or datetime.now(timezone.utc)
+            if current.tzinfo is None:
+                current = current.replace(tzinfo=timezone.utc)
+            age_hours = round(max(0.0, (current - parsed.astimezone(timezone.utc)).total_seconds() / 3600.0), 2)
+        except ValueError:
+            age_hours = None
+    return {
+        "available": True,
+        "snapshot_id": trace.get("snapshot_id"),
+        "generated_at": trace.get("generated_at"),
+        "provider": trace.get("provider"),
+        "source": source,
+        "coverage": trace.get("coverage"),
+        "quality": trace.get("quality"),
+        "timestamp_known": bool(reference),
+        "reference_at": reference,
+        "age_hours": age_hours,
+    }
 
 
 def _average_rows(previous: Mapping[str, object] | None) -> dict[str, dict[str, int]]:
@@ -131,6 +287,10 @@ def build_competition_snapshot(
     opening_rounds: int = LPF_APERTURA_PJ,
     playoff_cutoff: int = 8,
     sudamericana_slots: int = 6,
+    provider_name: str = "direct",
+    provider_contract_version: str | None = None,
+    provenance: Mapping[str, object] | None = None,
+    generated_at: str | None = None,
 ) -> tuple[dict[str, Any], object]:
     """Construye una foto estable a partir del mismo estado que usa la app."""
     clean_camps = _clean_sequence(camps, 3)
@@ -199,6 +359,14 @@ def build_competition_snapshot(
             sudamericana_slots=int(sudamericana_slots),
         ),
     }
+    snapshot["traceability"] = _traceability(
+        snapshot,
+        report,
+        provider_name=provider_name,
+        provider_contract_version=provider_contract_version,
+        provenance=provenance,
+        generated_at=generated_at,
+    )
     return snapshot, report
 
 

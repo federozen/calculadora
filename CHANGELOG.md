@@ -1,3 +1,38 @@
+## 3.8.51 · 2026-08-13
+
+### Selección explícita de equipo y roles claros en Últimas fechas
+
+- `Visualizaciones → Últimas fechas` empieza sin equipo principal implícito: el editor debe elegirlo explícitamente.
+- Se distinguen cuatro fuentes de clubes visibles: principal manual, contexto automático alrededor del corte, comparadores manuales y otra cancha clave sugerida/editable.
+- La matriz G/E/P mantiene siempre al principal como primera fila y el multiselect sólo contiene otros equipos (`Comparar también con…`). Los sugeridos no se agregan solos.
+- La doble entrada muestra orientación explícita `principal ↓ / otra cancha →` y rotula filas/columnas.
+- Los clasificados por vía directa a Copas pueden seleccionarse y se muestran como objetivo resuelto; la UI ya no los reemplaza silenciosamente por otro club.
+- Cambio sólo de UI/composición: Public Service v1, DataProvider v2, snapshot schema 3 y Runtime API **21** permanecen sin cambios.
+- Suite: **352 pruebas**.
+
+## 3.8.50 · 2026-08-13
+
+### Trazabilidad/frescura del snapshot y paquete de handoff
+
+- `lpf_snapshot.py` publica **snapshot schema 3** con `traceability_version = 1`: `snapshot_id`, hora de construcción, proveedor, procedencia, cobertura y resumen de calidad. El ID se calcula sólo sobre contenido competitivo para comparar fotos entre fuentes.
+- `lpf_data_provider.py` sube a **DataProvider v2** y suma `ProviderData.provenance`; v1 sigue declarado como soportado. `CsvProvider` completa procedencia desde nombres/mtime de archivos si el caller no informa metadata.
+- `prepare_competition_snapshot()` propaga la procedencia al snapshot y `validate_competition_snapshot()` exige trazabilidad sólo en schema 3. Snapshots schema 1/2 siguen aceptados dentro de sus capacidades históricas.
+- **Datos y auditoría** muestra snapshot ID, fuente, timestamp/edad si se conoce, cobertura del fixture/resultados y bloqueos; una fuente sin timestamp queda explícitamente como antigüedad desconocida.
+- La carga automática registra procedencia y hora de consulta; la carga offline/manual no inventa un timestamp de origen.
+- Nuevo `HANDOFF_DESARROLLO.md` para entregar el repositorio: superficie pública v1, DataProvider v2, snapshot schema 3, checklist Opta, comandos de CI/release y excepciones todavía deliberadas.
+- `LPF_RUNTIME_API` sube a **21** porque proveedor, snapshot, servicios y Streamlit comparten el nuevo contrato de trazabilidad. Public Service permanece en **v1**.
+- Suite: **351 pruebas**. `tools/release.py check` OK; Ruff no está instalado en el entorno de construcción local.
+
+## 3.8.49 · 2026-08-13
+
+### DataProvider común para desacoplar definitivamente la fuente de datos
+
+- Nuevo `lpf_data_provider.py` con contrato `DataProvider` v1 y objeto `ProviderData` JSON-safe. La salida canónica cubre zonas, jugados, Tabla Anual, Apertura, antecedentes de promedios, fixture, vías de clasificación y reglas.
+- `CurrentProvider` adapta el estado/fuente actual de Streamlit; `_lpf_service_snapshot_payload` pasa obligatoriamente por esta capa antes de `prepare_competition_snapshot`.
+- `CsvProvider` agrega una fuente reproducible de referencia con validación de columnas, canonicalización de clubes, resultados, fixture e inferencia de interzonales. Una misma foto Current/CSV se prueba por equivalencia de snapshot.
+- `service_capabilities()` publica `data_provider_contract_version = 1` y `current/csv` como implementaciones de referencia. Public Service permanece en v1.
+- Un futuro Opta sólo debe implementar `load() -> ProviderData`; no incorpora SDK ni reglas de torneo en motores/servicios. `LPF_RUNTIME_API` sube a **20** y `lpf_data_provider.py` entra al núcleo crítico. Suite: **346 pruebas**.
+
 ## 3.8.48 · 2026-08-13
 
 ### Streamlit consume la frontera pública v1

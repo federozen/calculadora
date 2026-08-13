@@ -14,7 +14,7 @@ from lpf_scenarios import point_ladder
 from lpf_schedule import pending_round_map
 from lpf_standings import liga_tabla_df
 
-LPF_RUNTIME_API = 19
+LPF_RUNTIME_API = 21
 
 
 def branch_state(branch: Mapping[str, object]) -> dict[str, str]:
