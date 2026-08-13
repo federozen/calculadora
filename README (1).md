@@ -1,7 +1,10 @@
-# Copia de referencia (original, pre-refactor)
+# legacy/
 
-Este es el archivo principal **original**, antes de que se empezara a desarmar el
-monolito. Sirve para una sola cosa: **probar equivalencia exacta** al extraer
-funciones (ver `INSTRUCCIONES_IA.md`, sección 5).
+Código que la aplicación **ya no importa**, conservado sólo como referencia.
 
-No se usa en la aplicación. No lo edites. No lo importes desde el código.
+- `calculadora_mundial.py`: calculadora del Mundial de la que nació la calculadora
+  argentina. Compartía 163 de sus 170 funciones con `calculadora_futbol_argentino.py`,
+  por lo que mantener las dos copias garantizaba que las correcciones se aplicaran
+  a una sola. Se archivó en la versión 3.8.0. Si alguna vez se necesita, conviene
+  extraer el núcleo común (posiciones, escenarios, situación) a un módulo compartido
+  que ambas calculadoras importen, en lugar de reactivar la copia.

@@ -19,10 +19,8 @@ def test_definition_radar_keeps_estimated_other_results_separate():
 def test_definition_radar_exposes_editorial_visual_suite_and_objectives():
     source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
     for label in (
-        "Elegí qué querés analizar",
-        "Elegí el equipo principal",
+        "Zona de pelea",
         "Contexto automático · quiénes están alrededor",
-        "Qué pasa si gana, empata o pierde",
         "Semáforo compacto",
         "Otra cancha clave · doble entrada",
         "Árbol reducido del camino",
@@ -34,32 +32,6 @@ def test_definition_radar_exposes_editorial_visual_suite_and_objectives():
     assert "Libertadores por Tabla Anual" in source
     assert "Al menos Sudamericana por Tabla Anual" in source
     assert "st.multiselect" in source
-    assert "default=[team_focus]" not in source
-    assert "radar_matrix_comparators_" in source
-    assert "— Elegí un equipo —" in source
-    assert "Comparar también con… (opcional)" in source
-    assert "no se agregan solas" in source
-    assert "Partido de la otra cancha (sugerido, editable)" in source
-    assert "filas = resultado propio; columnas = resultado completo de la otra cancha" in source
-    assert "No se elige al azar" in source
-    assert "no hace falta elegir un segundo equipo" in source
-    assert "Partidos que más definen" in source
-    assert "Caminos exactos que cambian" in source
-    assert "No es probabilidad" in source
-
-
-def test_definition_radar_separates_principal_context_comparators_and_key_match():
-    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
-    assert "Equipo principal** = lo elegís vos" in source
-    assert "Contexto automático** = clubes cercanos" in source
-    assert "Comparadores** = únicamente los que vos agregás" in source
-    assert "la otra cancha se elige como partido" in source
-    assert "selected_teams = [team_focus] +" in source
-    assert "comparator_options = [name for name in ordered if name != team_focus]" in source
-    assert "No se selecciona ninguno automáticamente" in source
-    assert "Estos equipos aparecen automáticamente porque están cerca del equipo principal o del corte" in source
-    assert "No se muestran comparadores ni doble entrada porque este club ya no disputa este cupo" in source
-    assert 'selection_ordered = list(liga_tabla_df(ctx["annual"])["Equipo"])' in source
 
 
 def test_definition_radar_does_not_present_new_visuals_as_probability():

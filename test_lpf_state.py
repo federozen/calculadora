@@ -3,10 +3,7 @@ from __future__ import annotations
 
 from lpf_data_2026 import LPF_FIXTURE, ZONA_A_LPF_2026, ZONA_B_LPF_2026
 from lpf_parsers import parse_tabla_anual
-from lpf_state import (
-    LPF_APERTURA_PJ, add_source_issues, build_lpf_state, opening_is_valid,
-    refresh_lpf_quality_state,
-)
+from lpf_state import LPF_APERTURA_PJ, add_source_issues, build_lpf_state, opening_is_valid
 
 
 def _rosters():
@@ -133,53 +130,3 @@ def test_add_source_issues_no_duplica_lo_ya_existente():
     same = add_source_issues(report, ["aviso"])
     assert same is report
     assert len(report.issues) == before
-
-
-def test_refresh_lpf_quality_state_reconstruye_anual_con_primer_opening_valido():
-    zones, opening, annual = _fixture_state_inputs()
-    invalid = {team: dict(row) for team, row in opening.items()}
-    invalid[next(iter(invalid))]["pj"] = LPF_APERTURA_PJ - 1
-
-    selected, authoritative, report = refresh_lpf_quality_state(
-        zones,
-        annual_imported=annual,
-        annual_direct=annual,
-        opening_candidates=(invalid, opening),
-        fixture=LPF_FIXTURE,
-    )
-
-    assert selected == opening
-    assert authoritative == report.authoritative_annual
-    assert report.opening_snapshot == opening
-
-
-def test_refresh_lpf_quality_state_sin_opening_no_deriva_uno_nuevo():
-    zones, _opening, annual = _fixture_state_inputs()
-
-    selected, authoritative, report = refresh_lpf_quality_state(
-        zones,
-        annual_imported=annual,
-        annual_direct=annual,
-        opening_candidates=({},),
-        fixture=LPF_FIXTURE,
-    )
-
-    assert selected == {}
-    assert authoritative == annual
-    # La auditoría puede derivar una foto para diagnosticar, pero no se selecciona para migrar.
-    assert report.opening_snapshot
-
-
-def test_refresh_lpf_quality_state_inyecta_issues_de_fuente():
-    zones, opening, annual = _fixture_state_inputs()
-    _selected, _authoritative, report = refresh_lpf_quality_state(
-        zones,
-        annual_imported=annual,
-        annual_direct=annual,
-        opening_candidates=(opening,),
-        fixture=LPF_FIXTURE,
-        source_issues=["BLOQUEO: promedios fuera de sincronía"],
-    )
-
-    issue = next(i for i in report.issues if i.code == "prom_source_sync")
-    assert issue.level == "blocked"

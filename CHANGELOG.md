@@ -1,3 +1,13 @@
+## 3.8.58 · 2026-08-13
+
+### Restauración efectiva del informe completo de “Qué necesita”
+
+- El Panel por equipo deja de reemplazar la narrativa editorial por el resumen de `objective_points` tanto en `Resumen completo` como en `Qué necesita para alcanzar el objetivo`.
+- `Puntos por objetivo` conserva la tabla breve del contrato público y agrega debajo un **informe completo** seleccionable para Playoffs, Libertadores, Sudamericana y Descenso.
+- Playoffs vuelve a mostrar corte actual, proyección de 6.000 simulaciones, frecuencias por puntaje final, referencia histórica, peso del fixture, rivales próximos, referencia de trabajo y mínimo exacto cuando corresponde.
+- En copas, el objetivo elegido puede desarrollarse por separado para evitar mezclar Libertadores y Sudamericana en un mismo bloque largo.
+- Se sincronizan `lpf_version.py`, `pyproject.toml`, README y changelog para que el release publicado corresponda al código que ejecuta Streamlit.
+
 ## 3.8.53 · 2026-08-13
 
 ### Regresión corregida: vuelve la narrativa de qué necesita

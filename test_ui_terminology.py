@@ -227,3 +227,34 @@ def test_otra_cancha_no_recomienda_si_objetivo_ya_esta_cumplido_o_no_hay_riesgo(
     assert 'risk, _ = _lpf_riesgo_descenso(equipo, ctx)' in segment
     assert 'no está hoy en la zona de riesgo usada por esta herramienta' in segment
     assert 'No publico una recomendación de otra cancha' in segment
+
+
+def test_que_necesita_usa_informe_editorial_completo_en_panel_y_puntos_por_objetivo():
+    tree = ast.parse(MAIN)
+    guided = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "render_guided_workspace")
+    guided_segment = ast.get_source_segment(MAIN, guided) or ""
+    pisos = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "render_pisos_workspace")
+    pisos_segment = ast.get_source_segment(MAIN, pisos) or ""
+
+    assert "Lectura generada por el contrato público v1." not in MAIN
+    assert "Lectura editorial completa: separa realidad, proyección, historia, fixture y mínimo exacto." in guided_segment
+    assert "lpf_playoffs_texto(" in guided_segment
+    assert "lpf_copas_necesita_texto(" in guided_segment
+    assert "lpf_descenso_texto(" in guided_segment
+
+    assert "### Qué necesita · informe completo" in pisos_segment
+    assert "Objetivo para desarrollar" in pisos_segment
+    assert "lpf_playoffs_texto(" in pisos_segment
+    assert "lpf_copas_necesita_texto(" in pisos_segment
+    assert "lpf_descenso_texto(" in pisos_segment
+    assert "La tabla breve usa el contrato público de servicios" in pisos_segment
+
+
+def test_copas_permite_desarrollar_un_solo_objetivo_sin_mezclar_informes():
+    tree = ast.parse(MAIN)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "lpf_copas_necesita_texto")
+    segment = ast.get_source_segment(MAIN, fn) or ""
+    assert "selected_objective=None" in segment
+    assert 'selected_objective in (None, "libertadores")' in segment
+    assert 'selected_objective in (None, "sudamericana")' in segment
+    assert 'selected_objective="libertadores" if objective == "Libertadores" else "sudamericana"' in MAIN
