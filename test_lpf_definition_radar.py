@@ -39,9 +39,13 @@ def test_definition_radar_exposes_editorial_visual_suite_and_objectives():
     assert "— Elegí un equipo —" in source
     assert "Comparar también con… (opcional)" in source
     assert "no se agregan solas" in source
-    assert "Equipo de la otra cancha (sugerido, editable)" in source
-    assert "Filas = resultado de **{team_focus}**. Columnas = resultado de **{key_team}**" in source
+    assert "Partido de la otra cancha (sugerido, editable)" in source
+    assert "filas = resultado propio; columnas = resultado completo de la otra cancha" in source
     assert "No se elige al azar" in source
+    assert "no hace falta elegir un segundo equipo" in source
+    assert "Partidos que más definen" in source
+    assert "Caminos exactos que cambian" in source
+    assert "No es probabilidad" in source
 
 
 def test_definition_radar_separates_principal_context_comparators_and_key_match():
@@ -49,6 +53,7 @@ def test_definition_radar_separates_principal_context_comparators_and_key_match(
     assert "Equipo principal** = lo elegís vos" in source
     assert "Contexto automático** = clubes cercanos" in source
     assert "Comparadores** = únicamente los que vos agregás" in source
+    assert "la otra cancha se elige como partido" in source
     assert "selected_teams = [team_focus] +" in source
     assert "comparator_options = [name for name in ordered if name != team_focus]" in source
     assert "No se selecciona ninguno automáticamente" in source

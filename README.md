@@ -1,8 +1,18 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.51
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.52
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
 La versión vigente siempre está en `lpf_version.__version__` (única fuente de verdad compartida por Streamlit, auditoría y futuras interfaces). El historial completo está en `CHANGELOG.md`.
+
+## Novedad 3.8.52 · matrices visuales y otra cancha por partido
+
+- **Últimas fechas** adopta la lectura visual probada en la calculadora del Mundial: la matriz G/E/P se muestra como grilla coloreada con equipos en filas y resultados en columnas; el detalle tabular/exportable queda plegado.
+- La **doble entrada** deja de pedir un segundo equipo. El selector pasa a `Partido de la otra cancha (sugerido, editable)` y las columnas son los tres desenlaces naturales del encuentro: gana local / empate / gana visitante.
+- El encabezado usa la convención `equipo principal ↓ / partido de la otra cancha →`, por lo que queda un solo protagonista seleccionado durante todo el tablero.
+- Cada celda conserva texto además del color: `ASEGURA`, `SIGUE ABIERTO`, `PUEDE ASEGURAR`, `PUEDE QUEDAR AFUERA` o `ELIMINADO`; los semáforos siguen siendo estados exactos, no probabilidad.
+- Nuevo bloque **Partidos que más definen**: ordena las otras canchas por sensibilidad exacta y expresa el impacto como cantidad de **caminos exactos que cambian** entre el desenlace más favorable y el menos favorable.
+- El árbol reducido, `¿Por qué?`, Zona de pelea y Reloj de definición se mantienen; no se agregan gráficos redundantes ni se mezclan frecuencias combinatorias con Monte Carlo.
+- No cambia Public Service v1, DataProvider v2, snapshot schema 3 ni Runtime API 21. Validación: **352 pruebas** + `release check`.
 
 ## Novedad 3.8.51 · selección de equipo y comparadores sin ambigüedad
 

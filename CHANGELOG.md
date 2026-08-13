@@ -1,3 +1,15 @@
+## 3.8.52 · 2026-08-13
+
+### Cierre visual de Últimas fechas con doble entrada por partido
+
+- La matriz general G/E/P pasa a una grilla visual tipo Mundial con estados exactos coloreados y el equipo principal marcado; el detalle completo/exportable queda en un expander.
+- La segunda dimensión de la doble entrada cambia de **equipo rival** a **partido de la otra cancha**. Las columnas se leen como `gana local / empate / gana visitante`, evitando seleccionar dos veces protagonistas distintos.
+- Se conserva la sugerencia automática, pero ahora ordena partidos completos por sensibilidad exacta; el editor puede elegir cualquier otra cancha de la fecha.
+- Nuevo bloque `Partidos que más definen`: ranking exacto derivado de los `levers` ya enumerados, expresado como cantidad de caminos favorables que cambian, no como probabilidad.
+- `¿Por qué?` sigue disponible para la matriz general, cada celda de la doble entrada y el resumen G/E/P; árbol reducido, Zona de pelea y Reloj se mantienen.
+- Cambio de UI/composición: Public Service v1, DataProvider v2, snapshot schema 3 y Runtime API **21** permanecen sin cambios.
+- Suite: **352 pruebas**.
+
 ## 3.8.51 · 2026-08-13
 
 ### Selección explícita de equipo y roles claros en Últimas fechas

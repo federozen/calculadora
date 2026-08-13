@@ -610,3 +610,7 @@ El último objetivo consultado deja de ser una memoria exclusiva del chat: los s
 ### 8r. Selección explícita en Últimas fechas — 3.8.51
 
 En `render_definition_radar` no mezclar los roles de equipos. El **equipo principal** se elige explícitamente; el **contexto automático** sólo ubica la pelea; los **comparadores** se agregan manualmente y nunca sustituyen al principal; la **otra cancha clave** es una sugerencia exacta editable. La matriz G/E/P debe conservar al principal como primera fila. En Copas, los clasificados por vía directa siguen disponibles en el selector para explicar que el objetivo ya está resuelto. Runtime **21**; suite **352 pruebas**.
+### 8s. Doble entrada por partido y ranking exacto — 3.8.52
+
+En `render_definition_radar`, mantener un único `equipo principal`. La doble entrada debe seleccionar **un partido de otra cancha**, no un segundo equipo, y mostrar columnas `gana local / empate / gana visitante`. La lectura principal de G/E/P y de la doble entrada usa grillas visuales con texto + color. `Partidos que más definen` se deriva de los `levers` exactos y comunica **caminos exactos que cambian**, nunca probabilidad. Public Service v1, DataProvider v2, snapshot schema 3 y Runtime **21** no cambian. Suite **352 pruebas**.
+

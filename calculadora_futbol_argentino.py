@@ -55,7 +55,7 @@ from lpf_pisos import (
 from lpf_competitive_context import competition_context, historical_reference
 from lpf_conditionals import branch_explanation, key_rival_matrix, next_round_conditionals
 from lpf_editorial_definition import (
-    all_teams_matrix, branch_cell, definition_clock, fight_zone,
+    all_teams_matrix, branch_cell, branch_state, definition_clock, fight_zone,
     definition_guarantee as _editorial_definition_guarantee,
     guarantee_round_label as _editorial_guarantee_round_label,
     objective_context as _editorial_objective_context,
@@ -9460,6 +9460,118 @@ def _definition_objective_context(E, objective, zone=None):
     )
 
 
+def _definition_state_cell(branch):
+    """Celda visual corta para matrices exactas, sin exponer frecuencias como probabilidades."""
+    if not branch:
+        return ("—", "#e5e7eb")
+    state = branch_state(branch)
+    colors = {"green": "#1b5e20", "yellow": "#f9a825", "red": "#b71c1c"}
+    labels = {
+        "Asegura": "ASEGURA",
+        "Queda eliminado": "ELIMINADO",
+        "Puede asegurar": "PUEDE ASEGURAR",
+        "Puede quedar eliminado": "PUEDE QUEDAR AFUERA",
+        "Sigue abierto": "SIGUE ABIERTO",
+        "Sigue dependiendo": "DEPENDE",
+    }
+    return (labels.get(state["label"], str(state["label"]).upper()), colors[state["signal"]])
+
+
+def _definition_general_matrix_spec(rows, team_focus, objective_label):
+    """Grilla tipo Mundial: equipos en filas, G/E/P en columnas."""
+    row_headers, cells = [], []
+    for row in rows or []:
+        team = str(row.get("Equipo") or "")
+        report = row.get("_report") or {}
+        branches = {str(b.get("result")): b for b in report.get("branches", [])} if report.get("available") else {}
+        pts = row.get("PTS", "—")
+        prefix = "★ " if team == team_focus else ""
+        row_headers.append(f"{prefix}{team} · {pts} pts")
+        cells.append([
+            _definition_state_cell(branches.get("G")),
+            _definition_state_cell(branches.get("E")),
+            _definition_state_cell(branches.get("P")),
+        ])
+    return {
+        "titulo": f"Qué pasa si gana, empata o pierde · {objective_label}",
+        "col_headers": ["Gana", "Empata", "Pierde"],
+        "row_headers": row_headers,
+        "cells": cells,
+        "corner": "Equipo ↓ / resultado →",
+        "leyenda": [("#1b5e20", "objetivo cerrado a favor"), ("#f9a825", "sigue condicionado"), ("#b71c1c", "objetivo cerrado en contra")],
+        "footer": "★ = equipo principal. Los comparadores sólo aparecen si los agregaste. Estados matemáticos exactos; no son probabilidades.",
+    }
+
+
+def _definition_key_matrix_spec(team_focus, key_match, key_team, key_report, objective_label):
+    """Doble entrada por PARTIDO ajeno, no por un segundo equipo seleccionado."""
+    home, away = key_match
+    cells_by_code = {(c["own_result"], c["key_result"]): c for c in key_report.get("cells", [])}
+    # key_rival_matrix expresa G/E/P desde la óptica de key_team. Convertimos a
+    # desenlaces naturales del partido: gana local / empate / gana visitante.
+    if key_team == home:
+        columns = [(f"Gana {home}", "G"), ("Empatan", "E"), (f"Gana {away}", "P")]
+    else:
+        columns = [(f"Gana {home}", "P"), ("Empatan", "E"), (f"Gana {away}", "G")]
+    row_headers, matrix_cells = [], []
+    for own_code, own_label in (("G", "Gana"), ("E", "Empata"), ("P", "Pierde")):
+        row_headers.append(own_label)
+        matrix_cells.append([_definition_state_cell(cells_by_code.get((own_code, key_code))) for _label, key_code in columns])
+    return {
+        "titulo": f"{team_focus} vs la otra cancha · {objective_label}",
+        "col_headers": [label for label, _code in columns],
+        "row_headers": row_headers,
+        "cells": matrix_cells,
+        "corner": f"{team_focus} ↓ / {home}–{away} →",
+        "leyenda": [("#1b5e20", "objetivo cerrado a favor"), ("#f9a825", "depende de lo demás"), ("#b71c1c", "objetivo cerrado en contra")],
+        "footer": f"Filas = resultado de {team_focus}. Columnas = resultado de {home}–{away}. Los demás partidos quedan abiertos y se enumeran exactamente.",
+        "_columns": columns,
+    }
+
+
+def _definition_decisive_matches(report):
+    """Ranking exacto de otras canchas por cuánto cambian los caminos favorables."""
+    best_by_match = {}
+    affected = {}
+    for branch in (report or {}).get("branches", []):
+        branch_label = str(branch.get("result_label") or "")
+        for lever in branch.get("levers", []):
+            outcomes = list(lever.get("outcomes") or [])
+            if not outcomes:
+                continue
+            high = max(outcomes, key=lambda item: (int(item.get("success", 0)), str(item.get("label", ""))))
+            low = min(outcomes, key=lambda item: (int(item.get("success", 0)), str(item.get("label", ""))))
+            delta = int(high.get("success", 0)) - int(low.get("success", 0))
+            total = max(int(item.get("total", 0) or 0) for item in outcomes)
+            match = str(lever.get("match") or "")
+            if delta > 0:
+                affected.setdefault(match, set()).add(branch_label)
+            score = (delta / total) if total else 0.0
+            candidate = {
+                "Partido": match,
+                "Se nota más si": branch_label,
+                "Más favorable": str(high.get("label") or "—"),
+                "Menos favorable": str(low.get("label") or "—"),
+                "Caminos que cambian": delta,
+                "Combinaciones por desenlace": total,
+                "_score": score,
+            }
+            current = best_by_match.get(match)
+            if current is None or (candidate["_score"], delta, match) > (current["_score"], current["Caminos que cambian"], match):
+                best_by_match[match] = candidate
+    rows = []
+    for match, item in best_by_match.items():
+        if item["Caminos que cambian"] <= 0:
+            continue
+        out = dict(item)
+        out["Ramas afectadas"] = len(affected.get(match, set()))
+        rows.append(out)
+    rows.sort(key=lambda item: (-item["_score"], -item["Caminos que cambian"], item["Partido"]))
+    for idx, item in enumerate(rows, 1):
+        item["Orden"] = idx
+    return rows
+
+
 def _definition_tree_dot(team, objective_label, report):
     """Árbol corto: sólo abre condiciones que cambian el estado matemático."""
     if not report or not report.get("available"):
@@ -9574,7 +9686,7 @@ def render_definition_radar(E):
     )
     ui_caption(
         "🔍 ¿Por qué? está dentro de este mismo tablero: debajo de la matriz G/E/P, dentro de Otra cancha clave · doble entrada "
-        "y nuevamente antes del Reloj de definición para explicar G/E/P del equipo bajo la lupa."
+        "y en el resumen exacto de G/E/P. La otra cancha se elige como partido completo, no como segundo equipo."
     )
 
     ui_markdown("### 1. Elegí qué querés analizar")
@@ -9613,7 +9725,7 @@ def render_definition_radar(E):
         "Cómo aparecen los equipos: **Equipo principal** = lo elegís vos y gobierna todo el tablero. "
         "**Contexto automático** = clubes cercanos al principal o al corte, sólo para ubicar la pelea. "
         "**Comparadores** = únicamente los que vos agregás en la matriz G/E/P. "
-        "**Otra cancha clave** = una sugerencia automática por impacto exacto que podés cambiar."
+        "**Otra cancha clave** = un partido sugerido automáticamente por impacto exacto que podés cambiar."
     )
 
     # 2) Equipo principal. En Copas también dejamos elegir clasificados por vía directa
@@ -9637,7 +9749,7 @@ def render_definition_radar(E):
         return
     ui_caption(
         f"Equipo principal: **{team_focus}**. Los demás clubes no se convierten en protagonistas: "
-        "sólo aparecen como contexto automático, como comparadores elegidos por vos o como sugerencia de otra cancha clave."
+        "sólo aparecen como contexto automático o como comparadores elegidos por vos; la otra cancha se elige como partido."
     )
 
     # Primera consulta: alcanza para saber si el objetivo ya está resuelto y, si sigue abierto,
@@ -9723,25 +9835,18 @@ def render_definition_radar(E):
         )
     rows = list(package.get("matrix") or [])
     if rows:
-        view = st.radio(
-            "Lectura", ["Matriz detallada", "Semáforo compacto"], horizontal=True,
-            key=f"radar_matrix_view_{objective}_{ctx.get('zone') or 'annual'}",
-        )
-        if view == "Matriz detallada":
+        # Lectura principal tipo Mundial: una sola grilla, sin obligar a elegir entre modos.
+        visual_spec = _definition_general_matrix_spec(rows, team_focus, ctx["label"])
+        ui_markdown(_html_tabla(visual_spec), unsafe_allow_html=True)
+        ui_caption("Semáforo compacto: 🟢 objetivo cerrado a favor · 🟡 sigue condicionado · 🔴 objetivo cerrado en contra. El texto de la celda manda sobre el color.")
+
+        with st.expander("Ver detalle tabular y exportar", expanded=False):
             visible = [{k: v for k, v in row.items() if not str(k).startswith("_")} for row in rows]
-        else:
-            visible = []
-            for row in rows:
-                row_report = row.get("_report") or {}
-                branches = {b["result"]: b for b in row_report.get("branches", [])} if row_report.get("available") else {}
-                visible.append({
-                    "Equipo": row["Equipo"], "PTS": row["PTS"],
-                    "Gana": branch_cell(branches["G"], with_detail=False) if "G" in branches else "—",
-                    "Empata": branch_cell(branches["E"], with_detail=False) if "E" in branches else "—",
-                    "Pierde": branch_cell(branches["P"], with_detail=False) if "P" in branches else "—",
-                })
-        ui_dataframe(pd.DataFrame(visible), use_container_width=True, hide_index=True)
-        ui_caption("🟢 estado cerrado a favor · 🟡 el objetivo sigue condicionado · 🔴 estado cerrado en contra. El texto manda sobre el color.")
+            ui_dataframe(
+                pd.DataFrame(visible), use_container_width=True, hide_index=True,
+                export_title=f"Matriz G-E-P · {team_focus} · {ctx['label']}",
+                export_name=f"matriz_gep_{team_focus}",
+            )
 
         with st.expander("¿Por qué? · explicar un equipo de la matriz", expanded=False):
             why_team = ui_selectbox(
@@ -9777,72 +9882,83 @@ def render_definition_radar(E):
     c3.metric("Techo", current + 3 * left)
     c4.metric("Mínimo que asegura", guarantee if guarantee is not None else "—")
 
-    # 5) Otra cancha clave, seleccionable y con sugerencia automática.
+    # 5) Otra cancha clave: se elige un PARTIDO, no un segundo equipo.
     ui_markdown("### 5. Otra cancha clave · doble entrada")
     ui_caption(
-        "Acá sí aparece un club propuesto por la aplicación. No es un comparador de la matriz anterior: "
-        "es el equipo de otra cancha cuyo resultado más cambia las ramas exactas del equipo principal. La sugerencia es editable."
+        "Acá no elegís otro protagonista. La aplicación sugiere un **partido de otra cancha** por impacto exacto y podés cambiarlo. "
+        "La doble entrada cruza el resultado del equipo principal con los tres desenlaces naturales de ese partido."
     )
     other_matches = list(report.get("other_matches") or [])
     candidate_scores = {}
     for branch in report.get("branches", []):
         for lever in branch.get("levers", []):
             candidate_scores[lever["match"]] = max(candidate_scores.get(lever["match"], 0.0), float(lever.get("spread", 0.0)))
-    key_options = []
-    match_by_team = {}
-    score_by_team = {}
-    positions = {team: idx for idx, team in enumerate(ordered)}
+
+    match_options = []
+    match_by_label = {}
     for match in other_matches:
         label = f"{match[0]} – {match[1]}"
-        for candidate in match:
-            if candidate in base and candidate != team_focus:
-                key_options.append(candidate)
-                match_by_team[candidate] = match
-                score_by_team[candidate] = candidate_scores.get(label, 0.0)
-    key_options = sorted(set(key_options), key=lambda t: (-score_by_team.get(t, 0.0), abs(positions.get(t, 999) - positions.get(team_focus, 0)), t))
-    if key_options:
-        key_state = f"radar_key_team_{objective}_{team_focus}"
-        if st.session_state.get(key_state) not in key_options:
-            st.session_state[key_state] = key_options[0]
-        key_team = ui_selectbox(
-            "Equipo de la otra cancha (sugerido, editable)", key_options, key=key_state,
+        match_options.append(label)
+        match_by_label[label] = match
+    match_options = sorted(set(match_options), key=lambda label: (-candidate_scores.get(label, 0.0), label))
+
+    if match_options:
+        key_state = f"radar_key_match_{objective}_{team_focus}"
+        if st.session_state.get(key_state) not in match_options:
+            st.session_state[key_state] = match_options[0]
+        key_match_label = ui_selectbox(
+            "Partido de la otra cancha (sugerido, editable)", match_options, key=key_state,
             help=(
-                "La primera opción es el equipo de la otra cancha que más cambia las ramas exactas del equipo principal. "
-                "No se elige al azar y podés cambiarla manualmente."
+                "La primera opción es la otra cancha que más cambia los caminos exactos del equipo principal. "
+                "No se elige al azar; podés seleccionar cualquier otro partido de la fecha."
             ),
         )
-        key_match = match_by_team.get(key_team)
-        if key_match:
-            ui_caption(
-                f"Sugerencia actual: **{key_team}**, por el partido **{key_match[0]} – {key_match[1]}**. "
-                "Podés elegir otro equipo de las otras canchas desde el selector."
-            )
+        key_match = match_by_label[key_match_label]
+        key_team = key_match[0] if key_match[0] in base else key_match[1]
+        ui_caption(
+            f"Otra cancha seleccionada: **{key_match[0]} – {key_match[1]}**. "
+            "Las columnas muestran gana local / empate / gana visitante; no hace falta elegir un segundo equipo."
+        )
         key_report = key_rival_matrix(base, rest, games, team_focus, key_team, cutoff)
         if key_report.get("available"):
-            cells = {(c["own_result"], c["key_result"]): c for c in key_report["cells"]}
-            matrix_rows = []
-            for own_code, own_label in (("G", "Gana"), ("E", "Empata"), ("P", "Pierde")):
-                matrix_rows.append({
-                    team_focus: own_label,
-                    f"{key_team} gana": branch_cell(cells[(own_code, "G")]),
-                    f"{key_team} empata": branch_cell(cells[(own_code, "E")]),
-                    f"{key_team} pierde": branch_cell(cells[(own_code, "P")]),
-                })
-            ui_markdown(f"**{team_focus} ↓ / {key_team} →**")
-            ui_dataframe(pd.DataFrame(matrix_rows), use_container_width=True, hide_index=True)
+            key_spec = _definition_key_matrix_spec(team_focus, key_match, key_team, key_report, ctx["label"])
+            ui_markdown(_html_tabla(key_spec), unsafe_allow_html=True)
             ui_caption(
-                f"Filas = resultado de **{team_focus}**. Columnas = resultado de **{key_team}** en su otra cancha. "
+                f"**{team_focus} ↓ / {key_match[0]}–{key_match[1]} →** · filas = resultado propio; columnas = resultado completo de la otra cancha. "
                 "Los demás partidos de la fecha quedan abiertos y se enumeran exactamente dentro de cada celda."
             )
 
             with st.expander("¿Por qué? · explicar una celda", expanded=False):
                 ec1, ec2 = st.columns(2)
-                own_explain = ec1.selectbox("Resultado de " + team_focus, ["Gana", "Empata", "Pierde"], key=f"why_own_{team_focus}_{key_team}")
-                key_explain = ec2.selectbox("Resultado de " + key_team, ["Gana", "Empata", "Pierde"], key=f"why_key_{team_focus}_{key_team}")
-                rev = {"Gana": "G", "Empata": "E", "Pierde": "P"}
-                cell = dict(cells[(rev[own_explain], rev[key_explain])])
-                cell["result_label"] = f"Si {team_focus} {own_explain.lower()} y {key_team} {key_explain.lower()}"
+                own_explain = ec1.selectbox(
+                    "Resultado de " + team_focus, ["Gana", "Empata", "Pierde"],
+                    key=f"why_own_{team_focus}_{key_match[0]}_{key_match[1]}",
+                )
+                outcome_labels = [label for label, _code in key_spec["_columns"]]
+                other_explain = ec2.selectbox(
+                    f"Resultado de {key_match[0]} – {key_match[1]}", outcome_labels,
+                    key=f"why_match_{team_focus}_{key_match[0]}_{key_match[1]}",
+                )
+                own_code = {"Gana": "G", "Empata": "E", "Pierde": "P"}[own_explain]
+                key_code = dict(key_spec["_columns"])[other_explain]
+                cells = {(c["own_result"], c["key_result"]): c for c in key_report["cells"]}
+                cell = dict(cells[(own_code, key_code)])
+                cell["result_label"] = f"Si {team_focus} {own_explain.lower()} y en {key_match[0]}–{key_match[1]} {other_explain.lower()}"
                 ui_markdown(branch_explanation(cell, ctx["label"]))
+
+            with st.expander("Ver doble entrada detallada y exportar", expanded=False):
+                cells = {(c["own_result"], c["key_result"]): c for c in key_report["cells"]}
+                detailed_rows = []
+                for own_code, own_label in (("G", "Gana"), ("E", "Empata"), ("P", "Pierde")):
+                    detailed_rows.append({
+                        team_focus: own_label,
+                        **{label: branch_cell(cells[(own_code, key_code)]) for label, key_code in key_spec["_columns"]},
+                    })
+                ui_dataframe(
+                    pd.DataFrame(detailed_rows), use_container_width=True, hide_index=True,
+                    export_title=f"Doble entrada · {team_focus} · {key_match[0]}-{key_match[1]}",
+                    export_name=f"doble_entrada_{team_focus}_{key_match[0]}_{key_match[1]}",
+                )
         else:
             ui_info(key_report.get("reason") or "No se pudo construir la doble entrada.")
     else:
@@ -9855,14 +9971,41 @@ def render_definition_radar(E):
         _ST_GRAPHVIZ(tree, use_container_width=True)
         ui_caption("El árbol corta las ramas terminales y no dibuja todas las combinaciones del torneo. Sólo muestra qué cambia el estado.")
 
-    # 7) Explicación exacta de G/E/P, a demanda.
-    with st.expander("¿Por qué? · explicar gana / empata / pierde", expanded=False):
+    # 7) Partidos que más definen: ranking exacto de sensibilidad, no pronóstico.
+    ui_markdown("### 7. Partidos que más definen")
+    decisive_rows = _definition_decisive_matches(report)
+    if decisive_rows:
+        visible_decisive = []
+        for item in decisive_rows:
+            visible_decisive.append({
+                "Orden": item["Orden"],
+                "Partido": item["Partido"],
+                "Se nota más si": item["Se nota más si"],
+                "Resultado más favorable": item["Más favorable"],
+                "Resultado menos favorable": item["Menos favorable"],
+                "Caminos exactos que cambian": f"{item['Caminos que cambian']} de {item['Combinaciones por desenlace']}",
+                "Ramas G/E/P afectadas": item["Ramas afectadas"],
+            })
+        ui_dataframe(
+            pd.DataFrame(visible_decisive), use_container_width=True, hide_index=True,
+            export_title=f"Partidos que más definen · {team_focus}",
+            export_name=f"partidos_que_mas_definen_{team_focus}",
+        )
+        ui_caption(
+            "Orden exacto: mide cuánto cambia la cantidad de caminos favorables al fijar un desenlace u otro de cada partido ajeno. "
+            "Por ejemplo, ‘6 de 9’ significa seis combinaciones exactas de diferencia entre el desenlace más favorable y el menos favorable. No es probabilidad."
+        )
+    else:
+        ui_caption("Ninguna otra cancha cambia los caminos favorables del equipo principal en esta fecha.")
+
+    # 8) Explicación exacta de G/E/P, a demanda.
+    with st.expander("¿Por qué? · explicar gana / empata / pierde · resumen exacto", expanded=False):
         for branch in report.get("branches", []):
             ui_markdown(f"**{branch['result_label']}**")
             ui_markdown(branch_explanation(branch, ctx["label"]))
 
-    # 8) Reloj: ya viene en el mismo paquete público exacto.
-    ui_markdown("### 8. Reloj de definición")
+    # 9) Reloj: ya viene en el mismo paquete público exacto.
+    ui_markdown("### 9. Reloj de definición")
     guarantee_round = package.get("guarantee_round_label")
     clock = package.get("clock") or []
     if clock:

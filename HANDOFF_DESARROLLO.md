@@ -1,4 +1,4 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.51
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.52
 
 ## Qué se entrega
 
@@ -229,3 +229,16 @@ La UI debe preservar cuatro roles distintos y no volver a mezclarlos:
 En la doble entrada usar la convención `equipo principal ↓ / equipo de la otra cancha →`: filas = resultado propio; columnas = resultado de la otra cancha. Si un equipo ya tiene una Copa resuelta por vía directa, debe poder seleccionarse y recibir esa explicación; no reemplazar la selección silenciosamente.
 
 Este cambio no modifica los contratos Public Service/DataProvider/Snapshot.
+## Regla visual de `Últimas fechas` (3.8.52)
+
+Sobre la regla de selección de 3.8.51 se suma una convención obligatoria para futuras interfaces:
+
+1. **Un solo equipo seleccionado:** el `equipo principal` es el único protagonista. Los comparadores sólo agregan filas a G/E/P.
+2. **La otra cancha se selecciona como partido, no como equipo.** Mostrar `Partido de la otra cancha (sugerido, editable)` y cruzar filas del principal con columnas `gana local / empate / gana visitante`.
+3. **Convención de doble entrada:** `equipo principal ↓ / partido ajeno →`. No volver a una orientación dependiente de qué club del partido se tomó como referencia interna.
+4. **Semántica de color:** verde/amarillo/rojo representan estados matemáticos; siempre acompañar con texto. Nunca convertir la frecuencia de combinaciones en probabilidad.
+5. **Partidos que más definen:** puede ordenarse usando los `levers` exactos de `next_round_conditionals`; publicar el cambio como conteo de caminos exactos entre mejor/peor desenlace. No rotular ese conteo como chance.
+6. La grilla visual es lectura principal; las tablas extensas y exportaciones pueden quedar como detalle secundario.
+
+Este cambio no modifica Public Service v1, DataProvider v2, snapshot schema 3 ni Runtime API 21.
+
