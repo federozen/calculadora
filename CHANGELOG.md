@@ -1,3 +1,35 @@
+## 3.8.39 · 2026-08-13
+
+### Previa y simulación: criterios visibles y coherentes
+
+- **Previa por equipo** expone tres alcances claros: próximo partido real por agenda, fecha oficial específica y fecha + postergados. Un atrasado programado antes que la próxima jornada puede tener su propia previa sin confundir fecha de juego con número de fecha.
+- Las probabilidades publicables generales quedan unificadas en **6.000 simulaciones** y la interfaz deja de rotular 8.000 cuando el cálculo usaba otra cantidad. Las simulaciones de impacto de “otra cancha” conservan muestras mayores porque comparan diferencias pequeñas y controlan ruido.
+- La simulación visible de playoffs deja de convertir los interzonales en un rival promedio: cada interzonal pendiente se resuelve una sola vez contra su rival real, usando su fuerza cuando está disponible.
+- El informe de playoffs usa **puntos totales**, distingue **PJ** de **partidos por jugar** y enumera cada partido restante en una línea propia. Las salidas condicionadas se describen como **frecuencias del modelo**, no como una probabilidad general del equipo.
+- `LPF_RUNTIME_API` permanece en **15**: no cambia el contrato entre módulos críticos.
+- Suite: **296 pruebas**.
+
+## 3.8.38 · 2026-08-12
+
+### Últimas fechas: condicionales exactos y descenso coherente
+
+- Nuevo `lpf_conditionals.py`: enumera exactamente la próxima fecha relevante de una zona para las ramas gana/empata/pierde, sin asignar probabilidades.
+- **Visualizaciones → Últimas fechas → Condicionales de un equipo** muestra matriz, dos gráficos y narrativa exacta; busca condiciones simples suficientes de una o dos canchas cuando existen.
+- Las frecuencias de los gráficos quedan rotuladas como **combinatorias, no probabilidades**. El Monte Carlo de impacto ajeno permanece separado como ESTIMADO.
+- La vista está disponible dentro de la ventana exacta (8 partidos o menos) y marca **Modo definición** con 4 o menos.
+- Nuevo `lpf_relegation.py`: resuelve la foto actual de descensos respetando el partido desempate y la exclusión de quien ya baja por promedios. Los relatos ya no rompen empates de descenso por DG.
+- `LPF_RUNTIME_API` sube a **15**; `lpf_conditionals.py` y `lpf_relegation.py` entran al núcleo crítico. Suite: **290 pruebas**.
+
+## 3.8.37 · 2026-08-12
+
+### Copas: distinguir la Tabla Anual de las vías directas
+
+- **Puntos por objetivo** renombra las metas de copas basadas en puntos como **Libertadores por Tabla Anual** y **Al menos Sudamericana por Tabla Anual**.
+- Corrige una contradicción editorial: un club podía figurar “sin chances” por el corte de la Anual aunque todavía tuviera una vía independiente por Clausura/Copa Argentina. El estado “sin chances” queda ahora explícitamente limitado a la ruta de Tabla Anual.
+- Los clubes ya clasificados por una vía directa dejan de desaparecer del resumen por equipo; se muestran como clasificados sin inventar un mínimo de puntos.
+- La vista “Todos los equipos, un objetivo” incluye también esos clasificados directos y los separa con `Tipo de dato = Vía directa`.
+- Regresión con la foto real incluida: Belgrano, campeón del Apertura, permanece visible como clasificado a Libertadores. Suite: **279 pruebas**. `LPF_RUNTIME_API` permanece en **14**.
+
 ## 3.8.36 · 2026-08-12
 
 ### Consistencia del solver exacto en las últimas fechas

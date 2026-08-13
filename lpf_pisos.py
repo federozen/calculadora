@@ -21,7 +21,7 @@ por fuerza bruta en ``lpf_scenarios`` y ``lpf_exact``.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 14
+LPF_RUNTIME_API = 15
 
 
 from dataclasses import dataclass
@@ -108,7 +108,7 @@ class PisoObjetivo:
         if not self.aplica:
             return self.detalle or "No aplica para este equipo."
         if self.estado == "in":
-            return f"Ya lo tiene asegurado con {self.puntos_hoy} puntos; no depende de nadie."
+            return self.detalle or f"Ya lo tiene asegurado con {self.puntos_hoy} puntos; no depende de nadie."
         if self.estado == "out":
             return f"Sin chances: aun ganando todo llega a {self.techo} y no alcanza."
         piso = self.piso
@@ -352,11 +352,11 @@ def objetivos_de_equipo(
     if team in reducida and anual:
         base_red = {e: anual[e] for e in reducida if e in anual}
         specs.append({
-            "clave": "libertadores", "nombre": "la Libertadores",
+            "clave": "libertadores", "nombre": "la Libertadores por Tabla Anual",
             "base": base_red, "corte": int(n_lib),
         })
         specs.append({
-            "clave": "sudamericana", "nombre": "al menos la Sudamericana",
+            "clave": "sudamericana", "nombre": "al menos la Sudamericana por Tabla Anual",
             "base": base_red, "corte": int(n_lib) + 6,
         })
     return specs
@@ -382,6 +382,32 @@ def pisos_de_equipo(
             spec["base"], rest, pend, team, spec["corte"],
             clave=spec["clave"], nombre=spec["nombre"],
         ))
+
+    # Los equipos que ya tienen una plaza directa (por campeón o por una plaza
+    # internacional adicional) quedan fuera de ``reducida``. Antes desaparecían de
+    # las filas de copas y la interfaz podía sugerir que no tenían ese objetivo.
+    # Se muestran como ya clasificados, sin atribuir esa plaza a una cantidad de
+    # puntos de la Tabla Anual.
+    if anual and team in anual and team not in set(reducida):
+        pts_hoy = _pts(anual, team)
+        techo = _techo(anual, rest, team)
+        salida.append(PisoObjetivo(
+            clave="libertadores", nombre="la Libertadores", estado="in",
+            puntos_hoy=pts_hoy, techo=techo,
+            detalle=(
+                "Ya está clasificado a la Libertadores por una vía directa; "
+                "la Tabla Anual ya no define esa plaza."
+            ),
+        ))
+        salida.append(PisoObjetivo(
+            clave="sudamericana", nombre="al menos la Sudamericana", estado="in",
+            puntos_hoy=pts_hoy, techo=techo,
+            detalle=(
+                "Ya tiene asegurada una plaza internacional superior (Libertadores); "
+                "la vía de Sudamericana por Tabla Anual ya no aplica."
+            ),
+        ))
+
     if anual and team in anual:
         salida.append(piso_no_descenso(
             anual, rest, pend, team,

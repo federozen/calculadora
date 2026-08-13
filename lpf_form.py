@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-LPF_RUNTIME_API = 14
+LPF_RUNTIME_API = 15
 
 
 def result_letter(team, local, visitor, goals_local, goals_visitor):

@@ -118,3 +118,53 @@ def test_parse_y_formato_datetime_convierten_a_hora_argentina():
 
     assert parsed.isoformat() == "2026-08-14T20:30:00-03:00"
     assert format_datetime(parsed) == "viernes 14 de agosto a las 20.30"
+
+
+def test_postergado_programado_antes_de_la_fecha_siguiente_es_el_proximo_partido_real():
+    team = "Boca Juniors"
+    delayed = _team_match(team, 2)
+    official = _team_match(team, 3)
+    pending = [delayed, official]
+    schedule = build_schedule_map(
+        {
+            f"{delayed[0]}|||{delayed[1]}": "2026-08-13T19:00:00-03:00",
+            f"{official[0]}|||{official[1]}": "2026-08-16T20:00:00-03:00",
+        },
+        {},
+        {},
+    )
+
+    result = resolve_scope_games(
+        team,
+        pending,
+        LPF_FIXTURE,
+        schedule,
+        scope="next_team_match",
+    )
+
+    assert result["own_match"] == delayed
+    assert result["games"] == [delayed]
+    assert result["own_meta"]["round"] == 2
+    assert result["label"] == "próximo partido real"
+
+
+def test_scope_fecha_oficial_especifica_respeta_la_fecha_forzada():
+    team = "Boca Juniors"
+    round3 = _team_match(team, 3)
+    round4 = _team_match(team, 4)
+    pending = [*_round_matches(3), *_round_matches(4)]
+
+    result = resolve_scope_games(
+        team,
+        pending,
+        LPF_FIXTURE,
+        {},
+        scope="official_round",
+        fecha=4,
+    )
+
+    assert result["round"] == 4
+    assert round4 in result["games"]
+    assert round3 not in result["games"]
+    assert result["own_match"] == round4
+    assert result["label"] == "Fecha 4 oficial"

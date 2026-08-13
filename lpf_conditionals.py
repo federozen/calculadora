@@ -1,0 +1,257 @@
+"""Condicionales exactos de la próxima fecha para una tabla LPF.
+
+Enumera únicamente los resultados de la próxima jornada capaces de mover la tabla
+analizada. No asigna probabilidades: cada combinación cuenta una vez y las
+frecuencias resultantes son combinatorias, no pronósticos.
+"""
+from __future__ import annotations
+
+from itertools import product
+from collections.abc import Iterable, Mapping
+
+LPF_RUNTIME_API = 15
+
+OUTCOMES = ("L", "E", "V")
+_OWN_BRANCHES = ("G", "E", "P")
+
+
+def _dedupe_relevant(base: Mapping[str, object], games: Iterable[tuple[str, str]]):
+    teams = set(base)
+    out = []
+    seen = set()
+    for raw in games or []:
+        if len(raw) < 2:
+            continue
+        match = (str(raw[0]), str(raw[1]))
+        if match in seen or not (match[0] in teams or match[1] in teams):
+            continue
+        seen.add(match)
+        out.append(match)
+    return out
+
+
+def _outcome_points(code: str) -> tuple[int, int]:
+    if code == "L":
+        return 3, 0
+    if code == "V":
+        return 0, 3
+    return 1, 1
+
+
+def _own_code(match: tuple[str, str], team: str, branch: str) -> str:
+    if branch == "E":
+        return "E"
+    home = match[0] == team
+    if branch == "G":
+        return "L" if home else "V"
+    return "V" if home else "L"
+
+
+def _apply(base: Mapping[str, object], games, outcomes):
+    points = {team: int((row or {}).get("pts", 0)) for team, row in base.items()}
+    for (home, away), code in zip(games, outcomes):
+        ph, pa = _outcome_points(code)
+        if home in points:
+            points[home] += ph
+        if away in points:
+            points[away] += pa
+    return points
+
+
+def _rest_after_round(base: Mapping[str, object], rest: Mapping[str, int], games):
+    out = {team: int(rest.get(team, 0)) for team in base}
+    for home, away in games:
+        if home in out:
+            out[home] = max(0, out[home] - 1)
+        if away in out:
+            out[away] = max(0, out[away] - 1)
+    return out
+
+
+def _season_state(points: Mapping[str, int], rest: Mapping[str, int], team: str, cutoff: int) -> str:
+    pmax = {name: int(points[name]) + 3 * int(rest.get(name, 0)) for name in points}
+    above_reachable = sum(1 for name in points if name != team and pmax[name] >= int(points[team]))
+    unreachable = sum(1 for name in points if name != team and int(points[name]) > pmax[team])
+    if above_reachable < cutoff:
+        return "in"
+    if unreachable >= cutoff:
+        return "out"
+    return "pelea"
+
+
+def _round_state(points: Mapping[str, int], team: str, cutoff: int) -> str:
+    target = int(points[team])
+    strictly_above = sum(1 for name, value in points.items() if name != team and int(value) > target)
+    equal_or_above = sum(1 for name, value in points.items() if name != team and int(value) >= target)
+    if equal_or_above < cutoff:
+        return "safe"
+    if strictly_above < cutoff:
+        return "tiebreak"
+    return "out"
+
+
+def _outcome_label(match: tuple[str, str], code: str) -> str:
+    home, away = match
+    if code == "L":
+        return f"gana {home}"
+    if code == "V":
+        return f"gana {away}"
+    return f"empatan {home} y {away}"
+
+
+def _candidate_events(matches):
+    candidates = []
+    for index, match in enumerate(matches):
+        home, away = match
+        candidates.extend([
+            (index, frozenset({"L"}), f"gana {home}"),
+            (index, frozenset({"E"}), f"empatan {home} y {away}"),
+            (index, frozenset({"V"}), f"gana {away}"),
+            (index, frozenset({"E", "V"}), f"{home} no gana"),
+            (index, frozenset({"L", "E"}), f"{away} no gana"),
+        ])
+    return candidates
+
+
+def _simple_conditions(rows, matches, target_key):
+    if not rows or not any(row[target_key] for row in rows):
+        return None, None
+    if all(row[target_key] for row in rows):
+        return "No depende de otros resultados", None
+
+    candidates = _candidate_events(matches)
+
+    def matches_event(row, event):
+        idx, allowed, _label = event
+        return row["other_outcomes"][idx] in allowed
+
+    sufficient = []
+    for event in candidates:
+        subset = [row for row in rows if matches_event(row, event)]
+        if subset and all(row[target_key] for row in subset):
+            sufficient.append((1, -len(subset), event[2], (event,)))
+    if not sufficient:
+        for i, first in enumerate(candidates):
+            for second in candidates[i + 1:]:
+                if first[0] == second[0]:
+                    continue
+                subset = [row for row in rows if matches_event(row, first) and matches_event(row, second)]
+                if subset and all(row[target_key] for row in subset):
+                    label = f"{first[2]} y {second[2]}"
+                    sufficient.append((2, -len(subset), label, (first, second)))
+    sufficient.sort(key=lambda item: (item[0], item[1], item[2]))
+    sufficient_label = sufficient[0][2] if sufficient else None
+
+    target_rows = [row for row in rows if row[target_key]]
+    necessary = []
+    for event in candidates:
+        if all(matches_event(row, event) for row in target_rows):
+            necessary.append((len(event[1]), event[2]))
+    necessary.sort(key=lambda item: (item[0], item[1]))
+    necessary_label = necessary[0][1] if necessary else None
+    return sufficient_label, necessary_label
+
+
+def next_round_conditionals(
+    base: Mapping[str, object],
+    rest: Mapping[str, int],
+    games: Iterable[tuple[str, str]],
+    team: str,
+    cutoff: int = 8,
+    *,
+    max_other_matches: int = 8,
+) -> dict[str, object]:
+    """Enumera condicionales exactos de la próxima jornada.
+
+    ``season_state`` replica la convención del motor LPF: ``in`` significa que el
+    objetivo ya queda asegurado aun con desempate adverso; ``out`` que ya es
+    inalcanzable; ``pelea`` que sigue abierto. ``round_state`` describe sólo cómo
+    termina la jornada por puntos y separa los empates que exigirían desempate.
+    """
+    if team not in base:
+        return {"available": False, "reason": "Equipo desconocido."}
+    relevant = _dedupe_relevant(base, games)
+    own = next((match for match in relevant if team in match), None)
+    if own is None:
+        return {"available": False, "reason": "El equipo no tiene partido en la próxima jornada seleccionada."}
+    others = [match for match in relevant if match != own]
+    if len(others) > int(max_other_matches):
+        return {
+            "available": False,
+            "reason": f"Hay {len(others)} partidos ajenos relevantes; el máximo para enumerar exactamente es {max_other_matches}.",
+        }
+
+    all_games = [own, *others]
+    rest_after = _rest_after_round(base, rest, all_games)
+    branches = []
+    for branch in _OWN_BRANCHES:
+        own_code = _own_code(own, team, branch)
+        rows = []
+        for other_outcomes in product(OUTCOMES, repeat=len(others)):
+            points = _apply(base, all_games, (own_code, *other_outcomes))
+            season = _season_state(points, rest_after, team, int(cutoff))
+            round_state = _round_state(points, team, int(cutoff))
+            rows.append({
+                "other_outcomes": other_outcomes,
+                "season_state": season,
+                "round_state": round_state,
+                "season_in": season == "in",
+                "round_safe": round_state == "safe",
+            })
+
+        total = max(1, len(rows))
+        counts = {
+            "season_in": sum(row["season_state"] == "in" for row in rows),
+            "season_pelea": sum(row["season_state"] == "pelea" for row in rows),
+            "season_out": sum(row["season_state"] == "out" for row in rows),
+            "round_safe": sum(row["round_state"] == "safe" for row in rows),
+            "round_tiebreak": sum(row["round_state"] == "tiebreak" for row in rows),
+            "round_out": sum(row["round_state"] == "out" for row in rows),
+        }
+        target_key = "season_in" if counts["season_in"] else "round_safe"
+        sufficient, necessary = _simple_conditions(rows, others, target_key)
+
+        levers = []
+        for idx, match in enumerate(others):
+            values = []
+            for code in OUTCOMES:
+                subset = [row for row in rows if row["other_outcomes"][idx] == code]
+                success = sum(row[target_key] for row in subset)
+                values.append({
+                    "code": code,
+                    "label": _outcome_label(match, code),
+                    "success": success,
+                    "total": len(subset),
+                    "share": (100.0 * success / len(subset)) if subset else 0.0,
+                })
+            shares = [item["share"] for item in values]
+            levers.append({
+                "match": f"{match[0]} – {match[1]}",
+                "target": "Asegura playoffs" if target_key == "season_in" else "Termina la fecha adentro sin desempate",
+                "spread": max(shares) - min(shares) if shares else 0.0,
+                "outcomes": values,
+            })
+        levers.sort(key=lambda item: (-item["spread"], item["match"]))
+
+        final_points = int((base[team] or {}).get("pts", 0)) + _outcome_points(own_code)[0 if own[0] == team else 1]
+        branches.append({
+            "result": branch,
+            "result_label": {"G": "Si gana", "E": "Si empata", "P": "Si pierde"}[branch],
+            "final_points_after_round": final_points,
+            "total_combinations": len(rows),
+            **counts,
+            "target": "season_in" if target_key == "season_in" else "round_safe",
+            "sufficient_condition": sufficient,
+            "necessary_condition": necessary,
+            "levers": levers,
+        })
+
+    return {
+        "available": True,
+        "team": team,
+        "cutoff": int(cutoff),
+        "own_match": own,
+        "other_matches": others,
+        "branches": branches,
+        "frequency_note": "Frecuencia combinatoria: cada combinación de resultados ajenos cuenta una vez; no es una probabilidad.",
+    }

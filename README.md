@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.36
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.39
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -11,6 +11,23 @@ La versión 3 prioriza tres objetivos:
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
 
+
+## Novedad 3.8.38 · Qué tiene que pasar + descenso sin desempates falsos
+
+- **Visualizaciones → Últimas fechas → Condicionales de un equipo** agrega una matriz **EXACTA** de la próxima fecha para cada rama: si gana, empata o pierde. Enumera sólo las otras canchas capaces de mover su zona y separa **asegura playoffs / sigue en carrera / queda eliminado**.
+- La misma vista agrega dos gráficos: estado matemático de la pelea y posición al cierre de la fecha, más una narrativa que busca condiciones simples suficientes del tipo **“X no gana y Y pierde”** cuando realmente alcanzan.
+- Las barras son **frecuencia combinatoria, NO probabilidad**: cada combinación de resultados ajenos cuenta una vez. El Monte Carlo de “La otra cancha” sigue aparte y rotulado como ESTIMADO.
+- La herramienta se habilita desde que el equipo entra en la ventana exacta de **8 partidos o menos**; con **4 o menos** muestra explícitamente **Modo definición**, porque ahí los condicionales suelen volverse editorialmente decisivos.
+- Auditoría de descenso: si hay igualdad en una posición de descenso, la app deja de elegir un “último” por DG. Informa **partido desempate** y, si el empate es por promedios, también reconoce que la identidad del descenso por la Anual puede depender de quién baje primero por esa vía.
+- Se agregan `lpf_conditionals.py` y `lpf_relegation.py` al núcleo crítico. `LPF_RUNTIME_API` sube a **15**. Suite: **290 pruebas**.
+
+## Novedad 3.8.37 · Copas: puntos por Tabla Anual sin confundir vías directas
+
+- **Puntos por objetivo** deja de presentar los pisos de copas como si describieran todas las vías de clasificación: ahora las filas dicen explícitamente **Libertadores por Tabla Anual** y **Al menos Sudamericana por Tabla Anual**.
+- Ganar el Clausura o la Copa Argentina sigue siendo una vía independiente y no se convierte artificialmente en un número de puntos de la Anual.
+- Los equipos que ya tienen una plaza directa dejan de desaparecer de la vista. Por ejemplo, Belgrano (campeón del Apertura) figura como **ya clasificado a Libertadores por una vía directa**, sin atribuir esa plaza a un mínimo de puntos.
+- En la tabla de todos los equipos, los clasificados por otra vía aparecen con `Tipo de dato = Vía directa`; el resto conserva exactamente el mismo motor de pisos por corte.
+- No cambia la matemática de la vía anual ni el runtime interno. `LPF_RUNTIME_API` permanece en **14**. Suite: **279 pruebas**.
 
 ## Novedad 3.8.36 · Escalera exacta coherente entre pantallas
 

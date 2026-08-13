@@ -1,4 +1,5 @@
 """Regresiones editoriales de la interfaz y narrativas LPF."""
+import ast
 from pathlib import Path
 import re
 
@@ -86,3 +87,67 @@ def test_accesos_principales_deja_puntos_por_objetivo_al_final():
     assert labels[-1] == "🎯 Puntos por objetivo"
     assert labels[0] == "🧭 Panel por equipo"
 
+
+
+def test_chat_libre_se_integra_en_mesa_de_redaccion():
+    block = re.search(r"_WORKSPACES = \[(.*?)\]", MAIN, flags=re.DOTALL)
+    assert block is not None
+    labels = re.findall(r'"([^"\n]+)"', block.group(1))
+    assert "💬 Chat libre" not in labels
+    assert "🗞️ Mesa de redacción" in labels
+    assert '"Consultas y chat"' in MAIN
+    assert "render_chat_workspace(E)" in MAIN
+    assert 'st.session_state.get("workspace_nav") == "💬 Chat libre"' in MAIN
+    assert 'st.session_state["workspace_nav"] = "🗞️ Mesa de redacción"' in MAIN
+    assert 'key="newsroom_chat_sim_toggle"' in MAIN
+
+
+def test_ultimas_fechas_muestra_tablero_y_condicionales():
+    assert '"Últimas fechas"' in MAIN
+    assert "Últimas fechas · tablero de definición" in MAIN
+    assert "Puntos actuales y margen que queda" in MAIN
+    assert "Si gana, empata o pierde" in MAIN
+    assert "Abrir escalera exacta de puntos" in MAIN
+    assert "Calcular qué resultados ajenos lo condicionan en la fecha" in MAIN
+    assert "lpf_otros_resultados_sim(" in MAIN
+    assert "lpf_previa_equipo_texto(" in MAIN
+
+
+def test_monte_carlo_publicable_usa_6000_y_no_rotulos_viejos():
+    assert "_LPF_PUBLIC_MC_RUNS = 6000" in MAIN
+    assert "n=_LPF_PUBLIC_MC_RUNS" in MAIN
+    assert "Estimación por simulación (6.000 torneos)" in MAIN
+    assert "Calcular ahora (6.000 simulaciones)" in MAIN
+    assert "4.000 torneos" not in MAIN
+    assert "8.000 temporadas" not in MAIN
+
+
+def test_playoffs_distingue_pj_partidos_por_jugar_y_puntos_totales():
+    tree = ast.parse(MAIN)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "lpf_playoffs_texto")
+    segment = ast.get_source_segment(MAIN, fn) or ""
+    assert "puntos totales en {pj} PJ" in segment
+    assert "{gx} partidos por jugar" in segment
+    assert 'L.append("### Partidos por jugar")' in segment
+    assert 'L.append(f"- {rival}")' in segment
+    assert "### Partidos pendientes" not in segment
+
+
+def test_previa_por_equipo_expone_alcances_y_fecha_especifica():
+    assert '"Alcance de la Previa"' in MAIN
+    assert '["Próximo partido real", "Fecha oficial específica", "Fecha + postergados"]' in MAIN
+    assert '"Fecha oficial específica": "official_round"' in MAIN
+    assert '"Fecha + postergados": "extended_window"' in MAIN
+    assert '"Fecha oficial para la Previa"' in MAIN
+    assert "fecha=_preview_round" in MAIN
+    assert "scope=_preview_scope" in MAIN
+
+
+def test_probabilidades_playoffs_no_descartan_interzonales_reales():
+    tree = ast.parse(MAIN)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "liga_probabilidades_df")
+    segment = ast.get_source_segment(MAIN, fn) or ""
+    assert "if a in idx or b in idx" in segment
+    assert "sa = float(s.get(a, 1.0))" in segment
+    assert "sb = float(s.get(b, 1.0))" in segment
+    assert "if a in idx and b in idx" not in segment
