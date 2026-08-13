@@ -68,3 +68,49 @@ def test_branch_cell_semantics_are_not_probabilities():
     report = next_round_conditionals(base, rest, [("A", "X"), ("B", "C")], "A", cutoff=2)
     win = report["branches"][0]
     assert branch_cell(win).startswith("🟢")
+
+
+def test_branch_explanation_explains_partial_failure_and_adverse_condition():
+    base = {
+        "A": {"pts": 3},
+        "B": {"pts": 3},
+        "C": {"pts": 3},
+        "D": {"pts": 4},
+    }
+    rest = {team: 1 for team in base}
+    report = next_round_conditionals(base, rest, [("A", "D"), ("B", "C")], "A", cutoff=2)
+    draw = next(branch for branch in report["branches"] if branch["result"] == "E")
+    text = branch_explanation(draw, "los playoffs")
+    assert draw["season_in"] == 0
+    assert 0 < draw["season_out"] < draw["total_combinations"]
+    assert draw["elimination_sufficient_condition"] == "gana B"
+    assert "no puede asegurar todavía" in text
+    assert "gana B" in text
+    assert "fuera de alcance" in text
+    assert "no son probabilidades" in text
+
+
+def test_branch_explanation_does_not_confuse_round_cut_with_assured_objective():
+    base = {team: {"pts": 3} for team in ("A", "B", "C", "D")}
+    rest = {team: 2 for team in base}
+    report = next_round_conditionals(base, rest, [("A", "D"), ("B", "C")], "A", cutoff=2)
+    win = next(branch for branch in report["branches"] if branch["result"] == "G")
+    text = branch_explanation(win, "los playoffs")
+    assert win["season_in"] == 0
+    assert win["round_safe"] == win["total_combinations"]
+    assert "dentro del corte por puntos" in text
+    assert "no puede asegurar todavía" in text
+    assert "queda asegurado el objetivo" not in text
+
+
+def test_branch_explanation_explains_total_impossibility_by_ceiling_and_rivals():
+    base = {team: {"pts": 0} for team in ("A", "B", "C", "D")}
+    rest = {team: 1 for team in base}
+    report = next_round_conditionals(base, rest, [("A", "D"), ("B", "C")], "A", cutoff=2)
+    loss = next(branch for branch in report["branches"] if branch["result"] == "P")
+    text = branch_explanation(loss, "los playoffs")
+    assert loss["season_out"] == loss["total_combinations"]
+    assert "techo final" in text
+    assert "fuera de alcance el objetivo" in text
+    assert "rivales" in text
+    assert "probabilidad" not in text.lower()

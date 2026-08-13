@@ -26,6 +26,7 @@ def test_definition_radar_exposes_editorial_visual_suite_and_objectives():
         "Árbol reducido del camino",
         "Reloj de definición",
         "¿Por qué? · explicar gana / empata / pierde",
+        "¿Por qué? · explicar un equipo de la matriz",
     ):
         assert label in source
     assert "Libertadores por Tabla Anual" in source

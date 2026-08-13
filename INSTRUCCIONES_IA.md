@@ -83,10 +83,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.41` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.42` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
 - Archivo principal: **~9.930 líneas** (arrancó en ~12.780).
-- **309 pruebas**, todas verdes en 3.8.41. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- **312 pruebas**, todas verdes en 3.8.42. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -590,6 +590,10 @@ Las probabilidades publicables generales usan 6.000 simulaciones; la Previa expo
 
 El último objetivo consultado deja de ser una memoria exclusiva del chat: los selectores de Panel por equipo, Mesa de redacción, Visualizaciones y el explorador se sincronizan antes de crear sus widgets y actualizan `LPF_LAST_OBJECTIVE` por callback. Los atajos genéricos del chat respetan ese estado. Previa y “La otra cancha” pasan una fecha oficial explícita al resolvedor de `lpf_schedule`; no se reimplementa agenda en Streamlit. La herramienta de otra cancha tampoco publica recomendaciones si el objetivo internacional ya está cumplido por vía directa o si el club queda fuera del área de riesgo de descenso usada para ese análisis. Runtime **15**; suite **301 pruebas**.
 
+
+### 8p. Explicación negativa y parcial — 3.8.42
+
+`branch_explanation` debe explicar también por qué una rama no alcanza: si no asegura, distingue entre seguir abierto, terminar la fecha dentro del corte y quedar matemáticamente afuera. `lpf_conditionals` publica condiciones simples de eliminación suficientes/necesarias además de las favorables. La matriz general tiene explicación a demanda por equipo y G/E/P. Nunca llamar “clasificado” a quien sólo termina una jornada dentro del corte; nunca interpretar conteos de combinaciones como probabilidad. Runtime **16**; suite **312 pruebas**.
 
 ### 8o. Definición visual exacta — 3.8.41
 

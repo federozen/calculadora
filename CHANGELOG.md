@@ -1,3 +1,13 @@
+## 3.8.42 · 2026-08-13
+
+### “¿Por qué?” también explica lo que no alcanza
+
+- La capa exacta **“¿Por qué?”** deja de explicar sólo garantías o eliminaciones totales: ahora también cuenta por qué un G/E/P **no asegura por sí solo**, aunque todavía mantenga vivo el objetivo.
+- Los condicionales calculan también condiciones simples **suficientes/ necesarias para quedar afuera**. Si existe una combinación adversa que vuelve inalcanzable el objetivo, la explicación la muestra sin convertirla en probabilidad.
+- Se corrige una distinción didáctica importante: **terminar la fecha dentro del corte por puntos no equivale a haber asegurado Playoffs o Copas**. La explicación lo dice explícitamente cuando el campeonato sigue abierto.
+- La **matriz general de equipos** suma su propio expander “¿Por qué?”, seleccionando equipo y G/E/P; la doble entrada de rival clave y el equipo bajo la lupa conservan la misma prueba auditable.
+- `LPF_RUNTIME_API` permanece en **16**: se amplía de manera retrocompatible la prueba de `lpf_conditionals.py`, sin agregar una nueva dependencia crítica. Suite: **312 pruebas**.
+
 ## 3.8.41 · 2026-08-13
 
 ### Definición visual exacta y explicación auditable

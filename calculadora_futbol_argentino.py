@@ -9319,6 +9319,24 @@ def render_definition_radar(E):
         ui_dataframe(pd.DataFrame(visible), use_container_width=True, hide_index=True)
         ui_caption("🟢 estado cerrado a favor · 🟡 el objetivo sigue condicionado · 🔴 estado cerrado en contra. El texto manda sobre el color.")
 
+        with st.expander("¿Por qué? · explicar un equipo de la matriz", expanded=False):
+            why_team = ui_selectbox(
+                "Equipo a explicar", selected_teams,
+                key=f"radar_matrix_why_team_{objective}_{ctx.get('zone') or 'annual'}",
+            )
+            why_result_label = ui_selectbox(
+                "Resultado propio", ["Gana", "Empata", "Pierde"],
+                key=f"radar_matrix_why_result_{objective}_{ctx.get('zone') or 'annual'}",
+            )
+            why_row = next((row for row in rows if row.get("Equipo") == why_team), None)
+            why_report = (why_row or {}).get("_report") or {}
+            why_code = {"Gana": "G", "Empata": "E", "Pierde": "P"}[why_result_label]
+            why_branch = next((branch for branch in why_report.get("branches", []) if branch.get("result") == why_code), None)
+            if why_branch:
+                ui_markdown(branch_explanation(why_branch, ctx["label"]))
+            else:
+                ui_caption("No hay una rama exacta disponible para ese equipo/resultado en la fecha seleccionada.")
+
     # Informe exacto del equipo seleccionado.
     report = next_round_conditionals(base, rest, games, team_focus, cutoff, max_other_matches=8)
     if not report.get("available"):

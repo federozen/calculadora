@@ -221,6 +221,8 @@ def next_round_conditionals(
                 "season_state": season,
                 "round_state": round_state,
                 "season_in": season == "in",
+                "season_out": season == "out",
+                "season_pelea": season == "pelea",
                 "round_safe": round_state == "safe",
                 "proof": proof_metrics,
             })
@@ -236,6 +238,7 @@ def next_round_conditionals(
         }
         target_key = "season_in" if counts["season_in"] else "round_safe"
         sufficient, necessary = _simple_conditions(rows, others, target_key)
+        elimination_sufficient, elimination_necessary = _simple_conditions(rows, others, "season_out")
         worst_threat = max(rows, key=lambda row: (int(row["proof"]["threat_count"]), tuple(row["other_outcomes"])))
         weakest_elimination = min(rows, key=lambda row: (int(row["proof"]["unreachable_count"]), tuple(row["other_outcomes"])))
         proof = {
@@ -281,6 +284,8 @@ def next_round_conditionals(
             "target": "season_in" if target_key == "season_in" else "round_safe",
             "sufficient_condition": sufficient,
             "necessary_condition": necessary,
+            "elimination_sufficient_condition": elimination_sufficient,
+            "elimination_necessary_condition": elimination_necessary,
             "levers": levers,
             "proof": proof,
         })
@@ -298,44 +303,108 @@ def next_round_conditionals(
 
 
 def branch_explanation(branch: Mapping[str, object], objective_label: str = "el objetivo") -> str:
-    """Explicación breve y auditable de una rama exacta G/E/P."""
+    """Explicación breve y auditable de una rama exacta G/E/P.
+
+    Explica tanto por qué una rama asegura/elimina como por qué un resultado
+    todavía no alcanza por sí solo. Los conteos son enumeraciones exactas, nunca
+    probabilidades.
+    """
     total = max(1, int(branch.get("total_combinations", 0) or 0))
+    inside = int(branch.get("season_in", 0) or 0)
+    outside = int(branch.get("season_out", 0) or 0)
+    open_ = int(branch.get("season_pelea", 0) or 0)
+    round_safe = int(branch.get("round_safe", 0) or 0)
     proof = dict(branch.get("proof") or {})
     team_points = int(proof.get("team_points", branch.get("final_points_after_round", 0)) or 0)
     cutoff = int(proof.get("cutoff", 0) or 0)
     label = str(branch.get("result_label") or "Ese resultado")
-    if int(branch.get("season_in", 0) or 0) == total:
+
+    if inside == total:
         max_threats = int(proof.get("max_threat_count", 0) or 0)
         rivals = [str(name) for name, _value in list(proof.get("worst_threats") or [])[:6]]
         suffix = f" Los que todavía podrían igualarlo o superarlo en el caso más adverso son: {', '.join(rivals)}." if rivals else ""
         return (
             f"{label}, el equipo queda con {team_points} puntos. Se comprobaron exactamente {total} combinaciones "
             f"de las otras canchas y, aun en la más adversa, como máximo {max_threats} rivales pueden terminar "
-            f"con {team_points} puntos o más. Como el corte admite {cutoff} equipos, {objective_label} queda asegurado.{suffix}"
+            f"con {team_points} puntos o más. Como el corte admite {cutoff} equipos, queda asegurado el objetivo: {objective_label}.{suffix}"
         )
-    if int(branch.get("season_out", 0) or 0) == total:
+
+    if outside == total:
         ceiling = int(proof.get("team_ceiling", team_points) or team_points)
         blocked = int(proof.get("min_unreachable_count", 0) or 0)
         rivals = [str(name) for name, _value in list(proof.get("weakest_unreachable") or [])[:6]]
         suffix = f" Incluso en el caso menos desfavorable ya quedan por encima: {', '.join(rivals)}." if rivals else ""
         return (
             f"{label}, su techo final pasa a ser {ceiling} puntos. En las {total} combinaciones verificadas hay al menos "
-            f"{blocked} rivales que ya quedan fuera de su alcance; con un corte de {cutoff}, {objective_label} se vuelve inalcanzable.{suffix}"
+            f"{blocked} rivales que ya quedan fuera de su alcance; con un corte de {cutoff}, queda fuera de alcance el objetivo: {objective_label}.{suffix}"
         )
-    sufficient = str(branch.get("sufficient_condition") or "").strip()
-    if sufficient and sufficient != "No depende de otros resultados":
-        return (
-            f"{label} no resuelve por sí solo {objective_label}. La condición **{sufficient}** es suficiente: el motor "
-            "verificó que, una vez cumplida, todos los resultados restantes compatibles mantienen la conclusión favorable. "
-            "No es una probabilidad, sino una condición matemática."
-        )
+
+    favorable = str(branch.get("sufficient_condition") or "").strip()
     necessary = str(branch.get("necessary_condition") or "").strip()
-    if necessary:
-        return (
-            f"{label} deja el objetivo abierto. En todos los caminos favorables aparece **{necessary}**, aunque esa condición "
-            "por sí sola no alcanza para garantizarlo."
-        )
-    return f"{label} deja {objective_label} abierto: ninguna condición simple de una o dos canchas alcanza para cerrarlo."
+    adverse = str(branch.get("elimination_sufficient_condition") or "").strip()
+    adverse_necessary = str(branch.get("elimination_necessary_condition") or "").strip()
+    target = str(branch.get("target") or "season_in")
+    parts = [f"{label}, el equipo queda con {team_points} puntos."]
+
+    # Primero responde a la pregunta más importante: por qué ese resultado solo no basta.
+    if inside < total:
+        if inside:
+            parts.append(
+                f"Ese resultado por sí solo no asegura {objective_label}: hay {total - inside} combinaciones exactas de las otras canchas "
+                "en las que la garantía no se produce."
+            )
+        elif target == "round_safe" and round_safe:
+            parts.append(
+                f"Ese resultado no puede asegurar todavía {objective_label}: en ninguna de las {total} combinaciones queda cerrado el objetivo, "
+                "aunque sí puede terminar esta fecha dentro del corte por puntos."
+            )
+        else:
+            parts.append(
+                f"Ese resultado no puede asegurar todavía {objective_label}: ninguna de las {total} combinaciones exactas cierra el objetivo a favor."
+            )
+
+    if inside:
+        if favorable and favorable != "No depende de otros resultados":
+            parts.append(
+                f"A favor, **{favorable}** es una condición suficiente: una vez cumplida, todas las combinaciones restantes compatibles "
+                f"dejan asegurado el objetivo: {objective_label}."
+            )
+        elif necessary:
+            parts.append(
+                f"En todos los caminos que sí aseguran aparece **{necessary}**, pero esa condición es necesaria y no necesariamente suficiente por sí sola."
+            )
+        else:
+            parts.append(
+                f"Sí existen {inside} combinaciones exactas que lo aseguran, pero no se reducen a una condición simple de una o dos canchas."
+            )
+    elif round_safe:
+        if favorable and favorable != "No depende de otros resultados":
+            parts.append(
+                f"**{favorable}** sí alcanza para terminar la fecha dentro del corte por puntos, pero eso no equivale a haber asegurado {objective_label}."
+            )
+        elif necessary:
+            parts.append(
+                f"Para terminar la fecha dentro del corte aparece como condición necesaria **{necessary}**, sin que eso cierre todavía {objective_label}."
+            )
+
+    if outside:
+        if adverse and adverse != "No depende de otros resultados":
+            parts.append(
+                f"En contra, **{adverse}** es una condición suficiente para dejar fuera de alcance el objetivo ({objective_label}) en esta rama."
+            )
+        elif adverse_necessary:
+            parts.append(
+                f"Todos los caminos que lo dejan matemáticamente afuera comparten **{adverse_necessary}**, aunque esa condición sola puede no bastar para eliminarlo."
+            )
+        else:
+            parts.append(
+                f"También hay {outside} combinaciones exactas que lo dejan matemáticamente afuera, sin una condición simple común de una o dos canchas."
+            )
+    elif open_ == total and not inside:
+        parts.append(f"Tampoco puede quedar eliminado en esta fecha: el objetivo sigue abierto en las {total} combinaciones.")
+
+    parts.append("Son condiciones matemáticas enumeradas; no son probabilidades.")
+    return " ".join(parts)
 
 
 def key_rival_matrix(
@@ -390,6 +459,8 @@ def key_rival_matrix(
                     "season_state": season,
                     "round_state": round_state,
                     "season_in": season == "in",
+                    "season_out": season == "out",
+                    "season_pelea": season == "pelea",
                     "round_safe": round_state == "safe",
                     "proof": _proof_metrics(points, rest_after, team, int(cutoff)),
                 })
@@ -402,6 +473,7 @@ def key_rival_matrix(
             }
             target_key = "season_in" if counts["season_in"] else "round_safe"
             sufficient, necessary = _simple_conditions(rows, remaining, target_key)
+            elimination_sufficient, elimination_necessary = _simple_conditions(rows, remaining, "season_out")
             worst = max(rows, key=lambda row: int(row["proof"]["threat_count"]))
             weak_out = min(rows, key=lambda row: int(row["proof"]["unreachable_count"]))
             cells.append({
@@ -413,6 +485,9 @@ def key_rival_matrix(
                 **counts,
                 "sufficient_condition": sufficient,
                 "necessary_condition": necessary,
+                "elimination_sufficient_condition": elimination_sufficient,
+                "elimination_necessary_condition": elimination_necessary,
+                "target": "season_in" if target_key == "season_in" else "round_safe",
                 "proof": {
                     "verified_combinations": total,
                     "team_points": int(worst["proof"]["team_points"]),
