@@ -334,6 +334,10 @@ def test_service_capabilities_exposes_stable_contract_and_exact_window():
         "objective_points", "objective_status", "point_ladder", "rank_window", "definition", "descent_points"
     ]
     assert result["supported_snapshot_schema_versions"] == ["1", "2", "3"]
+    assert result["data_provider_contract_version"] == "2"
+    assert result["supported_data_provider_contract_versions"] == ["1", "2"]
+    assert result["data_provider_reference_implementations"] == ["current", "csv"]
+    assert result["snapshot_traceability_version"] == "1"
     assert result["snapshot_objectives"] == ["playoffs", "libertadores", "sudamericana"]
     assert "competition_batch" in result["operations"]
     assert "definition" in result["operations"]
@@ -471,7 +475,7 @@ def _snapshot_with_qualification_payload():
     return payload
 
 
-def test_snapshot_schema_3_embeds_playoffs_and_cup_context():
+def test_snapshot_schema_3_embeds_playoffs_cups_and_traceability():
     from lpf_services import prepare_competition_snapshot
 
     snapshot = prepare_competition_snapshot(_snapshot_with_qualification_payload())["result"]
@@ -489,6 +493,8 @@ def test_snapshot_schema_3_embeds_playoffs_and_cup_context():
     assert lib["direct_qualifiers"] == ["Equipo A"]
     assert "Equipo A" not in lib["eligible_teams"]
     assert "Campeón del Apertura" in lib["direct_reasons"]["Equipo A"]
+    assert snapshot["traceability"]["traceability_version"] == "1"
+    assert snapshot["traceability"]["snapshot_id"]
 
 
 def test_batch_resolves_playoffs_and_cups_without_client_cutoff_or_reduced_table():

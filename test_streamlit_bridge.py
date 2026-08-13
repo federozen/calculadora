@@ -331,3 +331,10 @@ def test_auditoria_expone_fallbacks_del_contrato_publico():
     assert "_lpf_service_capabilities" in audit
     assert "LPF_PUBLIC_SERVICE_FALLBACKS" in audit
     assert "Contrato público usado por Streamlit" in MAIN.read_text(encoding="utf-8")
+
+
+def test_snapshot_streamlit_pasa_por_current_data_provider():
+    fn = ast.unparse(_function("_lpf_service_snapshot_payload"))
+    assert "CurrentProvider" in fn
+    assert "_lpf_provider_payload" in fn
+    assert "return _lpf_provider_payload(CurrentProvider(raw))" in fn
