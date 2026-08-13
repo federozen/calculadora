@@ -12,6 +12,7 @@ from typing import Iterable, Mapping, Sequence
 from lpf_scenarios import exact_result_scenarios, scenario_rank_bounds
 from lpf_display import editorialize_text
 from lpf_pisos import VENTANA_EXACTA
+from lpf_relegation import current_relegation_picture
 
 
 def _num(value: object, default: int = 0) -> int:
@@ -1248,6 +1249,9 @@ def relegation_story(
     if not annual_rows:
         return "No hay una Tabla Anual válida para narrar el descenso."
     avg_rows = list(averages)
+    picture = current_relegation_picture(
+        annual, avg_rows, annual_relegations=annual_relegations, average_relegations=average_relegations
+    )
     lines = ["## Descenso 2026 — cómo está la pelea"]
     lines.append(
         f"Hay **{average_relegations} descenso por promedios** y **{annual_relegations} por la Tabla General**. "
@@ -1255,50 +1259,74 @@ def relegation_story(
     )
 
     bottom_annual = annual_rows[-max(5, annual_relegations + 3) :]
-    last_annual = annual_rows[-1]
-    previous_annual = annual_rows[-2] if len(annual_rows) > 1 else None
-    lines.append(
-        f"**Tabla General:** hoy el último es **{last_annual['team']}**, con **{last_annual['pts']} puntos** en "
-        f"{last_annual['pj']} PJ, DG **{_signed(last_annual['dg'])}** y {_gf(last_annual)} GF."
-    )
-    if previous_annual:
-        gap = _num(previous_annual["pts"]) - _num(last_annual["pts"])
+    min_annual = min(_num(row["pts"]) for row in annual_rows)
+    tied_annual = [row for row in annual_rows if _num(row["pts"]) == min_annual]
+    if len(tied_annual) > 1:
         lines.append(
-            f"Está a **{gap} punto{'s' if gap != 1 else ''}** de **{previous_annual['team']}**, que tiene "
-            f"{previous_annual['pts']} puntos en {previous_annual['pj']} PJ. La DG se muestra como contexto, pero una igualdad en una posición de descenso "
-            "se define mediante partido desempate, no por diferencia de gol."
+            "**Tabla General:** hay empate en el fondo entre **"
+            + _team_list([str(row["team"]) for row in tied_annual])
+            + f"**, todos con **{int(min_annual)} puntos**. Si esa igualdad define el descenso, corresponde partido desempate; la DG no elige al que baja."
         )
-
-    if avg_rows:
-        last_avg = avg_rows[-1]
-        prev_avg = avg_rows[-2] if len(avg_rows) > 1 else None
+    else:
+        last_annual = tied_annual[0]
+        previous_annual = annual_rows[-2] if len(annual_rows) > 1 else None
         lines.append(
-            f"**Promedios:** el último es **{last_avg.get('Equipo')}** con **{_decimal_es(last_avg.get('PROMEDIO', 0))}**, "
-            f"producto de {last_avg.get('Pts', 0)} puntos en {last_avg.get('PJ', 0)} partidos."
+            f"**Tabla General:** hoy el último es **{last_annual['team']}**, con **{last_annual['pts']} puntos** en "
+            f"{last_annual['pj']} PJ, DG **{_signed(last_annual['dg'])}** y {_gf(last_annual)} GF."
         )
-        if prev_avg:
-            diff = float(prev_avg.get("PROMEDIO", 0)) - float(last_avg.get("PROMEDIO", 0))
+        if previous_annual:
+            gap = _num(previous_annual["pts"]) - _num(last_annual["pts"])
             lines.append(
-                f"La diferencia con **{prev_avg.get('Equipo')}** es de **{_decimal_es(diff)}** en el coeficiente actual. "
-                "En esta tabla cada resultado cambia también el denominador, especialmente para los recién ascendidos."
+                f"Está a **{gap} punto{'s' if gap != 1 else ''}** de **{previous_annual['team']}**, que tiene "
+                f"{previous_annual['pts']} puntos en {previous_annual['pj']} PJ. La DG se muestra como contexto, pero una igualdad en una posición de descenso "
+                "se define mediante partido desempate, no por diferencia de gol."
             )
 
-        avg_relegated = [str(row.get("Equipo")) for row in avg_rows[-average_relegations:]]
+    if avg_rows:
+        if picture["average_playoff"]:
+            lines.append(
+                "**Promedios:** la posición de descenso está empatada entre **"
+                + _team_list(picture["average_playoff"])
+                + "**. Si terminara así, esa plaza se resuelve por desempate y no corresponde señalar un descendido único."
+            )
+        else:
+            last_avg = avg_rows[-1]
+            prev_avg = avg_rows[-2] if len(avg_rows) > 1 else None
+            lines.append(
+                f"**Promedios:** el último es **{last_avg.get('Equipo')}** con **{_decimal_es(last_avg.get('PROMEDIO', 0))}**, "
+                f"producto de {last_avg.get('Pts', 0)} puntos en {last_avg.get('PJ', 0)} partidos."
+            )
+            if prev_avg:
+                diff = float(prev_avg.get("PROMEDIO", 0)) - float(last_avg.get("PROMEDIO", 0))
+                lines.append(
+                    f"La diferencia con **{prev_avg.get('Equipo')}** es de **{_decimal_es(diff)}** en el coeficiente actual. "
+                    "En esta tabla cada resultado cambia también el denominador, especialmente para los recién ascendidos."
+                )
     else:
-        avg_relegated = []
         lines.append("**Promedios:** faltan antecedentes válidos; esta vía debe quedar bloqueada hasta completar la fuente.")
 
-    annual_candidates = [str(row["team"]) for row in annual_rows]
-    annual_relegated = [team for team in reversed(annual_candidates) if team not in avg_relegated][:annual_relegations]
-    if avg_relegated:
-        lines.append(f"**Si terminara hoy, bajaría por promedios:** {_team_list(avg_relegated)}.")
-    if annual_relegated:
-        lines.append(f"**Y por la Tabla General:** {_team_list(annual_relegated)}.")
-    if avg_relegated and str(last_annual["team"]) in avg_relegated:
+    if picture["average_playoff"]:
         lines.append(
-            f"**{last_annual['team']} es último en las dos tablas:** descendería por promedios y el descenso de la Anual "
-            f"pasaría al siguiente peor equipo que no haya bajado ya por esa vía ({_team_list(annual_relegated)})."
+            "**Si terminara hoy, el descenso por promedios se definiría en un desempate entre:** "
+            + _team_list(picture["average_playoff"]) + "."
         )
+    elif picture["average_confirmed"]:
+        lines.append(f"**Si terminara hoy, bajaría por promedios:** {_team_list(picture['average_confirmed'])}.")
+
+    if picture["annual_depends_on_average_playoff"]:
+        lines.append(
+            "**Tabla General:** su descenso queda condicionado por quién pierda el desempate de promedios. "
+            "Los candidatos que aparecen en los escenarios actuales son: " + _team_list(picture["annual_candidates"]) + "."
+        )
+    elif picture["annual_scenarios"]:
+        scenario = picture["annual_scenarios"][0]
+        if scenario["annual_playoff"]:
+            lines.append(
+                "**Por la Tabla General hay desempate en la posición de descenso entre:** "
+                + _team_list(scenario["annual_playoff"]) + "."
+            )
+        elif scenario["annual_confirmed"]:
+            lines.append(f"**Y por la Tabla General:** {_team_list(scenario['annual_confirmed'])}.")
 
     lines.append("### Los que están hoy en la zona de riesgo")
     lines.append("| Tabla General | PTS | PJ | DG | GF |")
@@ -1316,7 +1344,8 @@ def relegation_story(
                 f"{row.get('PJ', 0)} | {_decimal_es(row.get('Mínimo final', row.get('Piso', 0)))} | {_decimal_es(row.get('Máximo final', row.get('Techo', 0)))} |"
             )
     lines.append(
-        "_Es una foto exacta de las tablas cargadas. El mínimo y el máximo final del promedio son rangos matemáticos; no son una "
-        "predicción de resultados._"
+        "_Es una foto exacta de las tablas cargadas. En una igualdad que defina descenso, la DG no rompe el empate: "
+        "corresponde partido desempate. Los rangos de promedio son matemáticos, no una predicción._"
     )
     return editorialize_text("\n\n".join(lines))
+
