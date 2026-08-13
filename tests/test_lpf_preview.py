@@ -106,8 +106,16 @@ def test_main_preview_function_is_only_an_adapter():
         node for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name == "lpf_previa_equipo_texto"
     )
+    legacy = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_lpf_previa_equipo_texto_legacy"
+    )
     segment = ast.get_source_segment(source, fn) or ""
-    assert "_team_preview_text_core(" in segment
+    legacy_segment = ast.get_source_segment(source, legacy) or ""
+    assert '_lpf_service_result(' in segment
+    assert '"preview"' in segment
+    assert "pd.DataFrame(" in segment
+    assert "_team_preview_text_core(" not in segment
+    assert "_team_preview_text_core(" in legacy_segment
     assert "exact_result_scenarios(" not in segment
-    assert "pd.DataFrame(" not in segment
-    assert fn.end_lineno - fn.lineno + 1 <= 40
+    assert fn.end_lineno - fn.lineno + 1 <= 50

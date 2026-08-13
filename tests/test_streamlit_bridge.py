@@ -244,3 +244,90 @@ def test_forma_y_fuerza_delegan_modelo_fuera_de_streamlit():
     assert "_team_streak" in calls["racha_equipo"]
     assert "_estimate_team_strength" in calls["_fuerza_lpf"]
     assert "np.median" not in ast.unparse(funcs["_fuerza_lpf"])
+
+
+def test_mesa_de_redaccion_embebe_chat_y_el_radar_reusa_motores_existentes():
+    tree = _module_tree()
+    funcs = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name in {"render_newsroom", "render_chat_workspace", "render_definition_radar"}
+    }
+    assert set(funcs) == {"render_newsroom", "render_chat_workspace", "render_definition_radar"}
+
+    newsroom_calls = {
+        node.func.id
+        for node in ast.walk(funcs["render_newsroom"])
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "render_chat_workspace" in newsroom_calls
+
+    radar_calls = {
+        node.func.id
+        for node in ast.walk(funcs["render_definition_radar"])
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert {"lpf_previa_equipo_texto", "_render_point_ladder", "lpf_otros_resultados_sim"} <= radar_calls
+
+
+def test_puntos_por_objetivo_aclara_via_anual_y_muestra_clasificados_directos():
+    source = MAIN.read_text(encoding="utf-8")
+    assert '"Libertadores por Tabla Anual"' in source
+    assert '"Al menos Sudamericana por Tabla Anual"' in source
+    assert '"Ya clasificado por otra vía"' in source
+    assert '"Ya tiene Libertadores"' in source
+
+
+def _function(name: str) -> ast.FunctionDef:
+    tree = _module_tree()
+    return next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == name
+    )
+
+
+def _service_operations(fn: ast.FunctionDef) -> set[str]:
+    operations: set[str] = set()
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id != "_lpf_service_result" or not node.args:
+            continue
+        first = node.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            operations.add(first.value)
+    return operations
+
+
+def test_previa_streamlit_consume_operacion_publica_preview():
+    assert "preview" in _service_operations(_function("lpf_previa_equipo_texto"))
+
+
+def test_ultimas_fechas_consume_paquete_publico_definition():
+    assert "definition" in _service_operations(_function("_lpf_definition_package"))
+
+
+def test_puntos_y_descenso_consumen_frontera_publica():
+    assert _service_operations(_function("_lpf_service_team_objectives")) == {
+        "objective_points", "relegation"
+    }
+    source = MAIN.read_text(encoding="utf-8")
+    assert "'competition_batch'" in ast.unparse(_function("_lpf_service_objective_table_rows"))
+    assert "'standings'" in ast.unparse(_function("render_pisos_workspace"))
+    assert "_lpf_service_need_text" in source
+
+
+def test_chance_destacada_pasa_por_objective_chances_y_declara_excepciones():
+    newsroom = ast.unparse(_function("render_newsroom"))
+    assert "'objective_chances'" in newsroom
+    source = MAIN.read_text(encoding="utf-8")
+    assert "la tabla comparativa completa conserva" in source
+    assert "La probabilidad de descenso conserva por ahora la ruta de simulación contextual" in source
+
+
+def test_auditoria_expone_fallbacks_del_contrato_publico():
+    audit = ast.unparse(_function("render_data_audit"))
+    assert "_lpf_service_capabilities" in audit
+    assert "LPF_PUBLIC_SERVICE_FALLBACKS" in audit
+    assert "Contrato público usado por Streamlit" in MAIN.read_text(encoding="utf-8")

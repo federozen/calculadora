@@ -1,3 +1,14 @@
+## 3.8.48 · 2026-08-13
+
+### Streamlit consume la frontera pública v1
+
+- La **Previa** usa `lpf_services.calculate("preview")` como ruta principal; el adaptador legacy queda sólo como fallback explícito.
+- **Visualizaciones → Últimas fechas** obtiene zona de pelea, matriz general, G/E/P, garantía, escalera y reloj desde `calculate("definition")`. La matriz de rival clave conserva por ahora su helper exacto directo para no recalcular el paquete completo.
+- **Puntos por objetivo** y la foto/pisos de **Descenso** consumen `objective_points`, `relegation`, `standings` y `competition_batch`; `Qué necesita para alcanzar el objetivo` usa la misma lectura JSON del contrato público.
+- En la Mesa de redacción, la cifra destacada de chances de **Playoffs/Copas** sale de `objective_chances` con 6.000 simulaciones. Las tablas comparativas completas y la probabilidad de descenso conservan temporalmente el simulador contextual directo.
+- **Datos y auditoría** incorpora un bloque que muestra la versión del contrato/snapshot, las rutas migradas y cualquier fallback de compatibilidad registrado en la sesión.
+- Se agregan guardas de arquitectura para impedir que Previa/definición/puntos regresen silenciosamente a llamadas directas. `PUBLIC_SERVICE_VERSION` permanece en **1** y `LPF_RUNTIME_API` en **19**. Suite: **340 pruebas**.
+
 ## 3.8.47 · 2026-08-13
 
 ### Superficie pública mínima para una futura API

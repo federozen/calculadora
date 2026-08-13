@@ -116,7 +116,7 @@ Todas las operaciones devuelven:
 ```json
 {
   "contract_version": "1",
-  "calculation_version": "3.8.47",
+  "calculation_version": "3.8.48",
   "calculation": "standings",
   "result": {}
 }
