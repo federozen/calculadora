@@ -83,10 +83,10 @@ se usó y sirve para confirmar que ninguna extracción rompió la cadena de dato
 
 ## 3. Estado actual (punto de partida)
 
-- Versión: `3.8.36` (fuente única en `lpf_version.__version__`; la usan Streamlit,
+- Versión: `3.8.41` (fuente única en `lpf_version.__version__`; la usan Streamlit,
   `lpf_models.AuditMetadata.calculation_version` y la frontera de servicios).
 - Archivo principal: **~9.930 líneas** (arrancó en ~12.780).
-- **274 pruebas**, todas verdes en 3.8.36. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
+- **309 pruebas**, todas verdes en 3.8.41. `ruff` (categorías `F` y `E9`) sigue siendo obligatorio en el entorno de desarrollo.
 - Se extrajeron módulos del monolito y se agregó una frontera de servicios JSON-safe;
   las extracciones siguen verificadas por equivalencia exacta contra el original.
 - La copia original intacta está en `_original_referencia/` **sólo para probar
@@ -143,6 +143,8 @@ ciclos); respétalo. De más básico a más compuesto:
 | `lpf_averages.py` | Contrato puro de promedios: distingue antecedentes previos de totales acumulados y usa la Tabla Anual como fuente de puntos/PJ 2026. | lpf_clubs |
 | `lpf_form.py` | Forma reciente, rachas y fuerza regularizada para simulaciones; el Apertura entra por parámetro. | numpy |
 | `lpf_simulation.py` | Constructor explícito de contexto y primitivas Monte Carlo: Anual/cupos, promedios, posición/puntos por zona, suma de puntos y máscaras de objetivos. | numpy, lpf_averages, lpf_qualification |
+| `lpf_conditionals.py` | Condicionales exactos de la próxima fecha: G/E/P, clasificación asegurada/pelea/eliminación y palancas de otras canchas sin probabilidades. | — |
+| `lpf_relegation.py` | Foto actual de descensos respetando desempates y la exclusión promedio→Anual. | — |
 | `lpf_qualification.py` | Tabla Anual autoritativa, plazas internacionales y contexto de copas sin sesión. | lpf_clubs, lpf_data_quality, lpf_standings, lpf_text |
 | `lpf_data_quality.py` | Reportes de calidad de datos (ya existía). | lpf_models |
 | `lpf_state.py` | Constructor y revalidador puros del estado LPF canónico: Apertura, Anual autoritativa, pendientes y auditoría. Todos los valores de sesión entran por parámetro. | lpf_clubs, lpf_data_quality, lpf_models |
@@ -483,6 +485,20 @@ El chat deja de ser un workspace principal y se embebe dentro de **Mesa de redac
 
 No vuelvas a filtrar por "ambos equipos dentro" porque eso borraría interzonales reales. La regla correcta es: **conservar el partido si al menos uno de sus equipos pertenece a la tabla calculada**. Esto alinea Puntos por objetivo, Escenarios, servicios y Radar sin cambiar firmas. `LPF_RUNTIME_API` sigue en **14**. Suite: **274 pruebas**.
 
+### 8k. Copas: pisos sólo por Tabla Anual — resuelto en 3.8.37
+
+Los pisos numéricos de Libertadores/Sudamericana responden únicamente a la ruta que depende de la **Tabla Anual**. No vuelvas a rotularlos como si agotaran todas las formas de clasificar: Clausura y Copa Argentina otorgan plazas por vías independientes que no se pueden expresar honestamente como un mínimo de puntos de la Anual.
+
+Los equipos que ya tienen una plaza directa quedan fuera de `reducida`; eso **no significa que deban desaparecer** de Puntos por objetivo. Deben mostrarse como ya clasificados, sin mínimo de puntos y con una explicación de la vía directa. `LPF_RUNTIME_API` sigue en **14**. Suite: **279 pruebas**.
+
+### 8l. Qué tiene que pasar + desempates de descenso — resuelto en 3.8.38
+
+`lpf_conditionals.py` enumera **sólo la próxima fecha oficial relevante para una zona**. Para cada rama propia G/E/P cuenta exactamente los desenlaces de las otras canchas y separa: clasificación asegurada, pelea abierta, eliminación y posición al cierre de la fecha. Sus porcentajes son **frecuencia combinatoria**, nunca probabilidad. Si encuentra una condición suficiente de una o dos canchas, puede narrarla como “X no gana y Y pierde”; si no existe una regla corta, debe decirlo en vez de simplificar de más.
+
+La UI vive en **Visualizaciones → Últimas fechas → Condicionales de un equipo**. Está disponible dentro de la ventana exacta de **8 partidos o menos** y con **4 o menos** se marca como **Modo definición**. El Monte Carlo de “qué otra cancha pesa más” sigue separado y rotulado ESTIMADO.
+
+`lpf_relegation.py` es la fuente común para la foto “si terminara hoy”: una igualdad en una posición de descenso **no se rompe por DG**. Se informa partido desempate. Si el empate está en promedios, la plaza de la Anual puede quedar condicionada por quién termine bajando por esa primera vía. `LPF_RUNTIME_API` sube a **15** y ambos módulos pasan a críticos. Suite: **290 pruebas**.
+
 ---
 
 ## 9. Reglas de oro (no las rompas)
@@ -565,3 +581,16 @@ tener que leer 11.000 líneas. Cada extracción que hagas acerca ese objetivo.
   crear una API ni un adaptador Opta hasta tener un consumidor real.
 - No reescribas, no cambies el stack, no abstraigas de más.
 - Ante la duda, la respuesta segura es **hacer menos y verificar más**.
+
+### 8m. Previa y simulación visibles — corregido en 3.8.39
+
+Las probabilidades publicables generales usan 6.000 simulaciones; la Previa expone próximo partido real, fecha oficial y fecha + postergados, y la simulación de playoffs conserva interzonales contra rivales reales. La narrativa diferencia PJ, partidos por jugar y puntos totales. Runtime **15**.
+
+### 8n. Objetivo compartido y fecha específica — corregido en 3.8.40
+
+El último objetivo consultado deja de ser una memoria exclusiva del chat: los selectores de Panel por equipo, Mesa de redacción, Visualizaciones y el explorador se sincronizan antes de crear sus widgets y actualizan `LPF_LAST_OBJECTIVE` por callback. Los atajos genéricos del chat respetan ese estado. Previa y “La otra cancha” pasan una fecha oficial explícita al resolvedor de `lpf_schedule`; no se reimplementa agenda en Streamlit. La herramienta de otra cancha tampoco publica recomendaciones si el objetivo internacional ya está cumplido por vía directa o si el club queda fuera del área de riesgo de descenso usada para ese análisis. Runtime **15**; suite **301 pruebas**.
+
+
+### 8o. Definición visual exacta — 3.8.41
+
+`Visualizaciones → Últimas fechas` comparte el objetivo activo y construye una tabla de trabajo común para Playoffs, Libertadores por Tabla Anual o al menos Sudamericana por Tabla Anual. La vista muestra zona de pelea aun con el torneo abierto; para la fecha pendiente agrega matriz G/E/P multiseleccionable, semáforo compacto y doble entrada contra un rival elegido. `lpf_conditionals.key_rival_matrix` mantiene abiertas las demás canchas y enumera sus combinaciones; `branch_explanation` produce la capa “¿Por qué?” con una prueba auditable y no probabilística. El árbol reducido sólo abre ramas que cambian el estado y el reloj informa hitos demostrables; un total que asegura sólo se muestra cuando `point_ladder` lo comprobó exactamente. `lpf_editorial_definition.py` es puro y queda preparado para API/Opta. Runtime **16**; suite **309 pruebas**.

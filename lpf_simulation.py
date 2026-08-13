@@ -11,7 +11,7 @@ import numpy as np
 from lpf_averages import combine_average_totals, normalize_previous_averages
 from lpf_qualification import allocate_cup_slots, annual_base
 
-LPF_RUNTIME_API = 15
+LPF_RUNTIME_API = 16
 
 DEFAULT_DRAW_PROBABILITY = 0.26
 DEFAULT_HOME_ADVANTAGE = 1.22

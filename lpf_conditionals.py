@@ -9,7 +9,7 @@ from __future__ import annotations
 from itertools import product
 from collections.abc import Iterable, Mapping
 
-LPF_RUNTIME_API = 15
+LPF_RUNTIME_API = 16
 
 OUTCOMES = ("L", "E", "V")
 _OWN_BRANCHES = ("G", "E", "P")
@@ -88,6 +88,30 @@ def _round_state(points: Mapping[str, int], team: str, cutoff: int) -> str:
     if strictly_above < cutoff:
         return "tiebreak"
     return "out"
+
+
+def _proof_metrics(points: Mapping[str, int], rest: Mapping[str, int], team: str, cutoff: int) -> dict[str, object]:
+    """Datos de auditoría para explicar por qué una rama asegura o elimina."""
+    team_points = int(points[team])
+    team_ceiling = team_points + 3 * int(rest.get(team, 0))
+    pmax = {name: int(value) + 3 * int(rest.get(name, 0)) for name, value in points.items()}
+    threats = sorted(
+        ((name, int(pmax[name])) for name in points if name != team and int(pmax[name]) >= team_points),
+        key=lambda item: (-item[1], item[0]),
+    )
+    unreachable = sorted(
+        ((name, int(points[name])) for name in points if name != team and int(points[name]) > team_ceiling),
+        key=lambda item: (-item[1], item[0]),
+    )
+    return {
+        "team_points": team_points,
+        "team_ceiling": team_ceiling,
+        "threats": threats,
+        "threat_count": len(threats),
+        "unreachable": unreachable,
+        "unreachable_count": len(unreachable),
+        "cutoff": int(cutoff),
+    }
 
 
 def _outcome_label(match: tuple[str, str], code: str) -> str:
@@ -191,12 +215,14 @@ def next_round_conditionals(
             points = _apply(base, all_games, (own_code, *other_outcomes))
             season = _season_state(points, rest_after, team, int(cutoff))
             round_state = _round_state(points, team, int(cutoff))
+            proof_metrics = _proof_metrics(points, rest_after, team, int(cutoff))
             rows.append({
                 "other_outcomes": other_outcomes,
                 "season_state": season,
                 "round_state": round_state,
                 "season_in": season == "in",
                 "round_safe": round_state == "safe",
+                "proof": proof_metrics,
             })
 
         total = max(1, len(rows))
@@ -210,6 +236,18 @@ def next_round_conditionals(
         }
         target_key = "season_in" if counts["season_in"] else "round_safe"
         sufficient, necessary = _simple_conditions(rows, others, target_key)
+        worst_threat = max(rows, key=lambda row: (int(row["proof"]["threat_count"]), tuple(row["other_outcomes"])))
+        weakest_elimination = min(rows, key=lambda row: (int(row["proof"]["unreachable_count"]), tuple(row["other_outcomes"])))
+        proof = {
+            "verified_combinations": total,
+            "team_points": int(worst_threat["proof"]["team_points"]),
+            "team_ceiling": int(worst_threat["proof"]["team_ceiling"]),
+            "max_threat_count": int(worst_threat["proof"]["threat_count"]),
+            "worst_threats": list(worst_threat["proof"]["threats"]),
+            "min_unreachable_count": int(weakest_elimination["proof"]["unreachable_count"]),
+            "weakest_unreachable": list(weakest_elimination["proof"]["unreachable"]),
+            "cutoff": int(cutoff),
+        }
 
         levers = []
         for idx, match in enumerate(others):
@@ -244,6 +282,7 @@ def next_round_conditionals(
             "sufficient_condition": sufficient,
             "necessary_condition": necessary,
             "levers": levers,
+            "proof": proof,
         })
 
     return {
@@ -254,4 +293,144 @@ def next_round_conditionals(
         "other_matches": others,
         "branches": branches,
         "frequency_note": "Frecuencia combinatoria: cada combinación de resultados ajenos cuenta una vez; no es una probabilidad.",
+    }
+
+
+
+def branch_explanation(branch: Mapping[str, object], objective_label: str = "el objetivo") -> str:
+    """Explicación breve y auditable de una rama exacta G/E/P."""
+    total = max(1, int(branch.get("total_combinations", 0) or 0))
+    proof = dict(branch.get("proof") or {})
+    team_points = int(proof.get("team_points", branch.get("final_points_after_round", 0)) or 0)
+    cutoff = int(proof.get("cutoff", 0) or 0)
+    label = str(branch.get("result_label") or "Ese resultado")
+    if int(branch.get("season_in", 0) or 0) == total:
+        max_threats = int(proof.get("max_threat_count", 0) or 0)
+        rivals = [str(name) for name, _value in list(proof.get("worst_threats") or [])[:6]]
+        suffix = f" Los que todavía podrían igualarlo o superarlo en el caso más adverso son: {', '.join(rivals)}." if rivals else ""
+        return (
+            f"{label}, el equipo queda con {team_points} puntos. Se comprobaron exactamente {total} combinaciones "
+            f"de las otras canchas y, aun en la más adversa, como máximo {max_threats} rivales pueden terminar "
+            f"con {team_points} puntos o más. Como el corte admite {cutoff} equipos, {objective_label} queda asegurado.{suffix}"
+        )
+    if int(branch.get("season_out", 0) or 0) == total:
+        ceiling = int(proof.get("team_ceiling", team_points) or team_points)
+        blocked = int(proof.get("min_unreachable_count", 0) or 0)
+        rivals = [str(name) for name, _value in list(proof.get("weakest_unreachable") or [])[:6]]
+        suffix = f" Incluso en el caso menos desfavorable ya quedan por encima: {', '.join(rivals)}." if rivals else ""
+        return (
+            f"{label}, su techo final pasa a ser {ceiling} puntos. En las {total} combinaciones verificadas hay al menos "
+            f"{blocked} rivales que ya quedan fuera de su alcance; con un corte de {cutoff}, {objective_label} se vuelve inalcanzable.{suffix}"
+        )
+    sufficient = str(branch.get("sufficient_condition") or "").strip()
+    if sufficient and sufficient != "No depende de otros resultados":
+        return (
+            f"{label} no resuelve por sí solo {objective_label}. La condición **{sufficient}** es suficiente: el motor "
+            "verificó que, una vez cumplida, todos los resultados restantes compatibles mantienen la conclusión favorable. "
+            "No es una probabilidad, sino una condición matemática."
+        )
+    necessary = str(branch.get("necessary_condition") or "").strip()
+    if necessary:
+        return (
+            f"{label} deja el objetivo abierto. En todos los caminos favorables aparece **{necessary}**, aunque esa condición "
+            "por sí sola no alcanza para garantizarlo."
+        )
+    return f"{label} deja {objective_label} abierto: ninguna condición simple de una o dos canchas alcanza para cerrarlo."
+
+
+def key_rival_matrix(
+    base: Mapping[str, object],
+    rest: Mapping[str, int],
+    games: Iterable[tuple[str, str]],
+    team: str,
+    key_team: str,
+    cutoff: int = 8,
+    *,
+    max_remaining_matches: int = 7,
+) -> dict[str, object]:
+    """Cruza G/E/P del equipo con G/E/P de un rival de la misma fecha.
+
+    Los demás partidos quedan abiertos y se enumeran exactamente. Una celda verde o
+    roja significa que todas las combinaciones restantes llevan al mismo estado.
+    """
+    relevant = _dedupe_relevant(base, games)
+    own = next((match for match in relevant if team in match), None)
+    key_match = next((match for match in relevant if key_team in match and team not in match), None)
+    if own is None:
+        return {"available": False, "reason": "El equipo no juega en la fecha seleccionada."}
+    if key_match is None:
+        return {"available": False, "reason": "El rival elegido no tiene un partido independiente en esa fecha."}
+    remaining = [match for match in relevant if match not in (own, key_match)]
+    if len(remaining) > int(max_remaining_matches):
+        return {"available": False, "reason": f"Quedan {len(remaining)} partidos abiertos; el máximo exacto es {max_remaining_matches}."}
+
+    all_games = [own, key_match, *remaining]
+    rest_after = _rest_after_round(base, rest, all_games)
+
+    def team_code(match, selected_team, result):
+        if result == "E":
+            return "E"
+        home = match[0] == selected_team
+        if result == "G":
+            return "L" if home else "V"
+        return "V" if home else "L"
+
+    cells = []
+    for own_branch in _OWN_BRANCHES:
+        own_code = team_code(own, team, own_branch)
+        for key_branch in _OWN_BRANCHES:
+            key_code = team_code(key_match, key_team, key_branch)
+            rows = []
+            for other_outcomes in product(OUTCOMES, repeat=len(remaining)):
+                points = _apply(base, all_games, (own_code, key_code, *other_outcomes))
+                season = _season_state(points, rest_after, team, int(cutoff))
+                round_state = _round_state(points, team, int(cutoff))
+                rows.append({
+                    "other_outcomes": other_outcomes,
+                    "season_state": season,
+                    "round_state": round_state,
+                    "season_in": season == "in",
+                    "round_safe": round_state == "safe",
+                    "proof": _proof_metrics(points, rest_after, team, int(cutoff)),
+                })
+            total = max(1, len(rows))
+            counts = {
+                "season_in": sum(row["season_state"] == "in" for row in rows),
+                "season_pelea": sum(row["season_state"] == "pelea" for row in rows),
+                "season_out": sum(row["season_state"] == "out" for row in rows),
+                "round_safe": sum(row["round_state"] == "safe" for row in rows),
+            }
+            target_key = "season_in" if counts["season_in"] else "round_safe"
+            sufficient, necessary = _simple_conditions(rows, remaining, target_key)
+            worst = max(rows, key=lambda row: int(row["proof"]["threat_count"]))
+            weak_out = min(rows, key=lambda row: int(row["proof"]["unreachable_count"]))
+            cells.append({
+                "own_result": own_branch,
+                "key_result": key_branch,
+                "own_label": {"G": "Gana", "E": "Empata", "P": "Pierde"}[own_branch],
+                "key_label": {"G": f"{key_team} gana", "E": f"{key_team} empata", "P": f"{key_team} pierde"}[key_branch],
+                "total_combinations": total,
+                **counts,
+                "sufficient_condition": sufficient,
+                "necessary_condition": necessary,
+                "proof": {
+                    "verified_combinations": total,
+                    "team_points": int(worst["proof"]["team_points"]),
+                    "team_ceiling": int(worst["proof"]["team_ceiling"]),
+                    "max_threat_count": int(worst["proof"]["threat_count"]),
+                    "worst_threats": list(worst["proof"]["threats"]),
+                    "min_unreachable_count": int(weak_out["proof"]["unreachable_count"]),
+                    "weakest_unreachable": list(weak_out["proof"]["unreachable"]),
+                    "cutoff": int(cutoff),
+                },
+            })
+    return {
+        "available": True,
+        "team": team,
+        "key_team": key_team,
+        "own_match": own,
+        "key_match": key_match,
+        "remaining_matches": remaining,
+        "cells": cells,
+        "frequency_note": "Los demás resultados se enumeran exactamente; no se asignan probabilidades.",
     }

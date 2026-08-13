@@ -25,7 +25,7 @@ from lpf_simulation import (
     match_outcome_probabilities,
 )
 
-LPF_RUNTIME_API = 15
+LPF_RUNTIME_API = 16
 
 
 # Los playoffs 2025/26 comparten formato de 16 partidos por zona. La muestra se

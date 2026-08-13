@@ -5,7 +5,7 @@ Todos los renderizadores deberían consumir estos objetos o sus ``to_dict``.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 15
+LPF_RUNTIME_API = 16
 
 
 from dataclasses import asdict, dataclass, field

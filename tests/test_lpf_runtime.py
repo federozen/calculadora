@@ -51,5 +51,5 @@ def test_main_chequea_runtime_antes_de_importar_modulos_sensibles():
     assert check_pos < required_pos < stop_pos < form_import_pos
     assert check_pos < required_pos < stop_pos < simulation_import_pos
     assert check_pos < required_pos < stop_pos < competitive_context_import_pos
-    assert "_REQUIRED_RUNTIME_API = 14" in text
+    assert "_REQUIRED_RUNTIME_API = 16" in text
     assert 'Motor de cálculo · v{__version__}' in text

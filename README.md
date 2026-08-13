@@ -1,4 +1,4 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.39
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.41
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
@@ -11,6 +11,30 @@ La versión 3 prioriza tres objetivos:
 3. **Uso guiado:** ya no es necesario recordar preguntas del chat; el Explorador permite elegir equipo, objetivo y tarea.
 
 
+
+## Novedad 3.8.41 · Definición visual exacta
+
+- **Últimas fechas** deja de apoyarse en gráficos de margen abstractos y pasa a una lectura periodística: **Zona de pelea**, **matriz G/E/P seleccionable**, **semáforo compacto**, **matriz de rival clave**, **árbol reducido** y **reloj de definición**.
+- El objetivo activo puede ser **Playoffs, Libertadores o al menos Sudamericana**. Para copas se usa la Tabla Anual sin los clasificados directos a Libertadores y el corte efectivo correspondiente; las vías directas se muestran aparte.
+- Las dos matrices permiten elegir equipos. En la doble entrada se selecciona el equipo principal y el rival a cruzar; los demás partidos quedan abiertos y se enumeran exactamente dentro de cada celda.
+- Nuevo **“¿Por qué?”** a demanda: cuando una rama asegura o elimina, explica la prueba matemática (puntos tras la fecha, combinaciones verificadas y cantidad máxima/mínima de rivales que todavía pueden superarlo). Las condiciones suficientes se distinguen de las meramente necesarias.
+- `lpf_editorial_definition.py` concentra la transformación editorial sin Streamlit. `lpf_conditionals.py` agrega prueba auditable y matriz de rival clave. `LPF_RUNTIME_API` sube a **16** porque el nuevo módulo entra al núcleo crítico. Suite: **309 pruebas**.
+
+
+## Novedad 3.8.40 · El objetivo no se pierde al cambiar de vista
+
+- Playoffs, Libertadores, al menos Sudamericana y Descenso comparten un **objetivo activo** entre Panel por equipo, Mesa de redacción, Visualizaciones y chat.
+- El explorador del chat muestra ese objetivo y sus atajos genéricos ya no fuerzan Playoffs.
+- Previa y “La otra cancha” permiten elegir una **fecha oficial específica** en todas las vistas principales; el chat entiende también “Fecha N”.
+- La otra cancha no fabrica recomendaciones si la clasificación internacional ya está resuelta por una vía directa o si el equipo está fuera del área de riesgo de descenso usada por esa herramienta.
+- Suite: **301 pruebas**. Runtime interno: **15**.
+
+## Novedad 3.8.39 · Previa y probabilidades con criterios visibles
+
+- Las simulaciones publicables generales quedaron unificadas en **6.000** corridas.
+- La Previa distingue próximo partido real, fecha oficial y fecha + postergados.
+- Los interzonales de playoffs usan el rival real; la narrativa separa PJ, partidos por jugar y puntos totales.
+- Suite: **296 pruebas**.
 
 ## Novedad 3.8.38 · Qué tiene que pasar + descenso sin desempates falsos
 
@@ -210,7 +234,7 @@ La versión 3 prioriza tres objetivos:
 
 - Streamlit comprueba al arrancar que los módulos críticos pertenecen al mismo nivel de compatibilidad antes de importarlos.
 - Si detecta un archivo viejo o faltante, se detiene con un mensaje claro que enumera qué módulos hay que actualizar, en vez de terminar más adelante con un `NameError` o `AttributeError`.
-- El sidebar muestra la versión efectiva del motor (`Motor de cálculo · v3.8.36`) para verificar rápidamente qué commit tomó Streamlit Cloud.
+- El sidebar muestra la versión efectiva del motor (la toma de `lpf_version.__version__`) para verificar rápidamente qué commit tomó Streamlit Cloud.
 - Este cambio no toca ninguna fórmula ni resultado. Suite: **154 pruebas**.
 
 ## Novedad 3.8.11 · Total seguro vs. mínimo que asegura

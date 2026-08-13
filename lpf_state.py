@@ -7,7 +7,7 @@ reporte de calidad.
 """
 from __future__ import annotations
 
-LPF_RUNTIME_API = 15
+LPF_RUNTIME_API = 16
 
 
 from collections.abc import Mapping, Sequence

@@ -1,3 +1,25 @@
+## 3.8.41 · 2026-08-13
+
+### Definición visual exacta y explicación auditable
+
+- **Zona de pelea** queda visible también con el torneo abierto: recorta la tabla alrededor del equipo y del corte, con puntos, partidos por jugar y techo matemático.
+- Nueva **matriz general G/E/P** con multiselección de equipos y vista alternativa de **semáforo compacto**. Los colores resumen estado matemático; el texto conserva la condición exacta y nunca representa probabilidad.
+- Nueva **matriz de rival clave**: cruza G/E/P del equipo con G/E/P de otra cancha elegida. Los demás partidos quedan abiertos y se enumeran exactamente; el rival sugerido surge de sensibilidad combinatoria, pero puede cambiarse manualmente.
+- Nuevo **árbol reducido**: corta ramas terminales y sólo abre condiciones que cambian el estado. Nuevo **reloj de definición**: muestra qué puede resolverse en la próxima fecha y cuándo puede alcanzarse un mínimo que asegura ya probado por el solver.
+- Nuevo **“¿Por qué?”** opcional: explica por qué una rama asegura o elimina con puntos tras la fecha, combinaciones verificadas y rivales todavía capaces de igualar/superar. Una condición necesaria no se presenta como suficiente.
+- El paquete visual comparte el objetivo global para **Playoffs, Libertadores y al menos Sudamericana**. En copas usa la Tabla Anual reducida y separa clasificados por vías directas. Descenso conserva su tratamiento específico Anual+Promedios para no simplificarlo de forma engañosa.
+- Nuevo `lpf_editorial_definition.py` puro, reutilizable por Streamlit/API. `lpf_conditionals.py` amplía su contrato con prueba estructurada y doble entrada de rival clave. `LPF_RUNTIME_API` sube a **16** y el nuevo módulo entra al núcleo crítico. Suite: **309 pruebas**.
+
+## 3.8.40 · 2026-08-13
+
+### Objetivo compartido y ventanas coherentes entre chat y paneles
+
+- **Objetivo activo único:** Playoffs, Libertadores, al menos Sudamericana o Descenso se conserva entre el chat, Panel por equipo, Mesa de redacción y Visualizaciones. Entrar a una vista ya no vuelve silenciosamente a Playoffs ni pisa el último objetivo consultado.
+- El explorador del chat incorpora un selector visible de **Objetivo activo**. Sus atajos genéricos “Qué necesita” y “Qué le conviene” generan la consulta para ese objetivo, en vez de forzar Playoffs.
+- **Previa** y **La otra cancha** aceptan fecha oficial específica también en Panel por equipo y Visualizaciones; el chat reconoce consultas como “Fecha 8” y entrega esa fecha al mismo resolvedor de agenda. La opción “Fecha + postergados” conserva la ampliación con atrasados anteriores.
+- “La otra cancha” evita recomendaciones engañosas: si el club ya tiene una plaza directa de Libertadores, el objetivo no depende de resultados ajenos; para descenso no publica una recomendación cuando el club queda fuera de la zona de riesgo editorial (últimos seis de Promedios o Tabla Anual).
+- `LPF_RUNTIME_API` permanece en **15**: no cambia el contrato entre módulos críticos. Suite: **301 pruebas**.
+
 ## 3.8.39 · 2026-08-13
 
 ### Previa y simulación: criterios visibles y coherentes

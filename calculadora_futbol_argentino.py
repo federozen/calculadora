@@ -11,7 +11,7 @@ from lpf_version import __version__
 import streamlit as st
 from lpf_runtime import LPF_RUNTIME_API, runtime_compatibility, runtime_error_message
 
-_REQUIRED_RUNTIME_API = 15
+_REQUIRED_RUNTIME_API = 16
 _RUNTIME_REPORT = runtime_compatibility()
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
@@ -45,7 +45,8 @@ from lpf_pisos import (
     promedio_totales, tabla_pisos_objetivo,
 )
 from lpf_competitive_context import competition_context, historical_reference
-from lpf_conditionals import next_round_conditionals
+from lpf_conditionals import branch_explanation, key_rival_matrix, next_round_conditionals
+from lpf_editorial_definition import all_teams_matrix, branch_cell, definition_clock, fight_zone
 from lpf_relegation import current_relegation_picture
 from lpf_preview import preview_objective as _preview_objective, team_preview_text as _team_preview_text_core
 from lpf_display import display_team, editorialize_frame, editorialize_spec, editorialize_text
@@ -5833,6 +5834,74 @@ if "LLM_MODEL" not in st.session_state: st.session_state.LLM_MODEL = _secret("AN
 if "LLM_ON"    not in st.session_state: st.session_state.LLM_ON    = bool(str(st.session_state.LLM_KEY).strip())
 
 
+_LPF_OBJECTIVE_UI_OPTIONS = ("Playoffs", "Libertadores", "Al menos Sudamericana", "Descenso")
+_LPF_OBJECTIVE_BY_LABEL = {
+    "Playoffs": "playoffs",
+    "Libertadores": "libertadores",
+    "Al menos Sudamericana": "al_menos_sudamericana",
+    "Descenso": "descenso",
+}
+_LPF_OBJECTIVE_LABEL_BY_CODE = {
+    "playoffs": "Playoffs",
+    "libertadores": "Libertadores",
+    "al_menos_sudamericana": "Al menos Sudamericana",
+    # El chat puede pedir Sudamericana estricta. La UI conserva la familia de copa
+    # sin inventar una quinta opción que mezcle dos definiciones editoriales.
+    "sudamericana": "Al menos Sudamericana",
+    "descenso": "Descenso",
+}
+
+
+def _lpf_objective_label(code=None):
+    """Etiqueta de UI para el objetivo recordado entre chat y vistas."""
+    code = code or st.session_state.get("LPF_LAST_OBJECTIVE") or "playoffs"
+    return _LPF_OBJECTIVE_LABEL_BY_CODE.get(code, "Playoffs")
+
+
+def _remember_lpf_objective(value):
+    """Guarda un objetivo canónico a partir de su código o etiqueta visible."""
+    code = _LPF_OBJECTIVE_BY_LABEL.get(value, value)
+    if code in _LPF_OBJECTIVE_LABEL_BY_CODE:
+        st.session_state["LPF_LAST_OBJECTIVE"] = code
+        return code
+    return st.session_state.get("LPF_LAST_OBJECTIVE") or "playoffs"
+
+
+def _sync_lpf_objective_widget(key):
+    """Sincroniza un selector antes de crearlo sin pisar cambios del usuario.
+
+    Los callbacks de Streamlit corren antes del rerun: si el usuario cambió el
+    selector, ``LPF_LAST_OBJECTIVE`` ya contiene el valor nuevo cuando entra acá.
+    Si el objetivo cambió desde el chat, en cambio, este paso lleva ese valor a
+    la próxima vista antes de instanciar el widget.
+    """
+    desired = _lpf_objective_label()
+    if st.session_state.get(key) != desired:
+        st.session_state[key] = desired
+
+
+def _lpf_objective_widget_changed(key):
+    _remember_lpf_objective(st.session_state.get(key))
+
+
+def _lpf_objective_prompt(team, action):
+    """Consulta del explorador respetando el último objetivo elegido/consultado."""
+    code = st.session_state.get("LPF_LAST_OBJECTIVE") or "playoffs"
+    targets = {
+        "playoffs": "los playoffs",
+        "libertadores": "la Libertadores",
+        "al_menos_sudamericana": "entrar a las copas",
+        "sudamericana": "la Sudamericana",
+        "descenso": "salvarse",
+    }
+    target = targets.get(code, "los playoffs")
+    if action == "conviene":
+        return f"¿Qué le conviene a {team} para {target}?"
+    if action == "necesita":
+        if code == "descenso":
+            return f"¿Qué necesita {team} para no descender?"
+        return f"¿Qué necesita {team} para {target}?"
+    raise ValueError(f"Acción de objetivo desconocida: {action}")
 
 
 def _placa(spec, fname):
@@ -5939,11 +6008,14 @@ def _chat_catalog(E, team, other):
     team = team or ((E.get("equipos") or ["River Plate"])[0])
     other = other or team
     if E.get("modo") == "lpf2026":
+        active_objective = _lpf_objective_label()
+        need_prompt = _lpf_objective_prompt(team, "necesita")
+        conviene_prompt = _lpf_objective_prompt(team, "conviene")
         return {
             "⭐ Más usadas": [
                 ("Previa del equipo", "Partido, rango de puestos e impacto en playoffs, copas o descenso.", f"Previa de {team}"),
-                ("Qué necesita", "Mínimo que asegura o total seguro, cruces directos y caminos para alcanzar el objetivo.", f"¿Qué necesita {team} para los playoffs?"),
-                ("Qué le conviene", "Resultados de otras canchas que mejoran su escenario.", f"¿Qué le conviene a {team} para los playoffs?"),
+                (f"Qué necesita · {active_objective}", "Mínimo que asegura o total seguro, cruces directos y caminos para alcanzar el objetivo.", need_prompt),
+                (f"Qué le conviene · {active_objective}", "Resultados de otras canchas que mejoran su escenario.", conviene_prompt),
                 ("Tabla de las zonas", "Posiciones actuales y línea de clasificación.", "Tabla de las dos zonas"),
                 ("Libertadores", "Panorama general de los cupos por la Tabla Anual.", "¿Cómo está la clasificación a la Libertadores?"),
                 ("Sudamericana", "Panorama general de los cupos por la Tabla Anual.", "¿Cómo está la clasificación a la Sudamericana?"),
@@ -6087,9 +6159,22 @@ def _render_chat_explorer(E):
         st.session_state["chat_guide_team"] = default_team
 
     ui_markdown("#### 🧭 Encontrá una opción del chat")
-    ui_caption("No hace falta recordar frases: elegí un equipo y un tema, o buscá una función. Al tocar un botón, la consulta se envía al chat.")
-    c_team, c_other, c_search = st.columns([1.05, 1.05, 1.4])
+    ui_caption("No hace falta recordar frases: elegí un equipo, el objetivo activo y un tema. El objetivo se conserva también en Panel por equipo, Visualizaciones y seguimientos del chat.")
+    if E.get("modo") == "lpf2026":
+        _sync_lpf_objective_widget("chat_guide_objective")
+        c_team, c_obj, c_other, c_search = st.columns([1.0, 1.05, 1.0, 1.35])
+    else:
+        c_team, c_other, c_search = st.columns([1.05, 1.05, 1.4])
+        c_obj = None
     team = c_team.selectbox("Equipo principal", equipos_chat, index=default_idx, key="chat_guide_team")
+    if c_obj is not None:
+        c_obj.selectbox(
+            "Objetivo activo",
+            _LPF_OBJECTIVE_UI_OPTIONS,
+            key="chat_guide_objective",
+            on_change=_lpf_objective_widget_changed,
+            args=("chat_guide_objective",),
+        )
     otros = [e for e in equipos_chat if e != team] or [team]
     if "chat_guide_other" in st.session_state and st.session_state.get("chat_guide_other") not in otros:
         st.session_state["chat_guide_other"] = otros[0]
@@ -6276,12 +6361,22 @@ def _lpf_preview_scenario_games(window, pend, scope="next_team_match"):
     return games
 
 
+def _lpf_round_from_query(q):
+    """Fecha oficial pedida en lenguaje natural, si aparece explícita."""
+    text = _zlow(q)
+    match = re.search(r"\bfecha(?:\s+oficial)?\s*(?:n[°ºo]?\s*)?(\d{1,2})\b", text)
+    return int(match.group(1)) if match else None
+
+
 def _lpf_scope_from_query(q, default="next_team_day"):
     text = _zlow(q)
+    explicit_round = _lpf_round_from_query(q)
     if any(token in text for token in ("solo posterg", "sólo posterg")):
         return "postponed_only"
-    if any(token in text for token in ("fecha y posterg", "ventana completa", "fecha completa")):
+    if any(token in text for token in ("fecha y posterg", "fecha + posterg", "ventana completa", "fecha completa")):
         return "extended_window"
+    if explicit_round is not None:
+        return "extended_window" if "posterg" in text else "official_round"
     if "fecha oficial" in text:
         return "official_round"
     if any(token in text for token in ("proximo partido", "próximo partido", "partido real")):
@@ -6960,8 +7055,7 @@ def _objetivo_lpf(q):
     elif any(w in z for w in ("playoff", "octavos", "top 8", "zona")):
         explicit = "playoffs"
     if explicit:
-        st.session_state["LPF_LAST_OBJECTIVE"] = explicit
-        return explicit
+        return _remember_lpf_objective(explicit)
     remembered = st.session_state.get("LPF_LAST_OBJECTIVE")
     if remembered in ("playoffs", "libertadores", "al_menos_sudamericana", "sudamericana", "descenso"):
         return remembered
@@ -7051,6 +7145,23 @@ def lpf_conviene_obj(equipo, objetivo, ctx, pend, jugados, n=20000, seed=29, fec
     """La otra cancha para Anual/Promedios, con impacto y ruido explícitos."""
     import math
     eqs = ctx["equipos"]
+    if objetivo in ("libertadores", "sudamericana", "al_menos_sudamericana") and equipo not in ctx["reducida"]:
+        if equipo not in ctx["orden"]:
+            return f"## La otra cancha para {equipo}\n\n{equipo} no figura en la Tabla Anual cargada.", None, None
+        if objetivo == "sudamericana":
+            message = (f"**{equipo} ya tiene una plaza directa de Libertadores.** Por eso no puede terminar "
+                       "específicamente en Sudamericana por la Tabla Anual y ninguna otra cancha cambia esa vía directa.")
+        else:
+            message = (f"**{equipo} ya tiene una plaza directa de Libertadores.** El objetivo ya está cumplido por una vía "
+                       "que no depende de estos resultados ajenos, así que no corresponde recomendar una ‘otra cancha’.")
+        return f"## La otra cancha para {equipo}\n\n{message}", None, None
+    if objetivo == "descenso":
+        risk, _ = _lpf_riesgo_descenso(equipo, ctx)
+        if not risk:
+            return (f"## La otra cancha para {equipo} · salvarse del descenso\n\n"
+                    f"**{equipo} no está hoy en la zona de riesgo usada por esta herramienta** "
+                    "(últimos seis de Promedios o Tabla Anual). No publico una recomendación de otra cancha "
+                    "a partir de diferencias residuales del Monte Carlo."), None, None
     base_all = {team: row for base in ctx["Z"].values() for team, row in base.items()}
     strength = _fuerza_lpf(base_all, jugados)
     fmap = _lpf_fecha_de(pend)
@@ -7230,23 +7341,22 @@ def _router_lpf(acc, E):
         if not equipo:
             return [("warning", "Decime el equipo. Ej.: «qué le conviene a River» o «qué le conviene a River para la Libertadores».")]
         obj = _objetivo_lpf(q)
+        _scope = _lpf_scope_from_query(q)
+        _round = _lpf_round_from_query(q)
         if obj == "playoffs":
-            txt, dfc = lpf_otros_resultados_sim(equipo, Z, rest, pend, jugados=jugados, scope=_lpf_scope_from_query(q))
+            txt, dfc = lpf_otros_resultados_sim(
+                equipo, Z, rest, pend, jugados=jugados, scope=_scope, fecha=_round
+            )
             if dfc is None:
                 return [("info", f"En la ventana elegida no hay partidos de rivales de zona de {equipo} que le muevan la tabla "
                                  f"(o {equipo} no está en zona de playoffs).")]
             return [("md", txt), ("df", dfc, f"{equipo}: qué te conviene en la otra cancha (playoffs)")]
         ctx = _lpf_ctx(Z, rest, ap, (c1, c2, c3), (xl, xs), prev, na, npro)
-        if obj in ("libertadores", "sudamericana", "al_menos_sudamericana") and equipo not in ctx["reducida"]:
-            return [("info", f"{equipo} no está en la tabla que reparte copas por la anual (o ya tiene plaza como campeón).")]
-        if obj == "descenso":
-            if not prev:
-                return [("info", "Para el descenso necesito los **promedios** cargados. Tocá «📥 Cargar TODO».")]
-            riesgo, _ = _lpf_riesgo_descenso(equipo, ctx)
-            if not riesgo:
-                return [("info", f"{equipo} no está en zona de riesgo: no aparece entre los últimos 6 de promedios ni de la anual, "
-                                 f"así que no calculo el descenso para él (podés pedir sus **chances de Libertadores/Sudamericana** o sus **playoffs**).")]
-        txt, dfc, dfx = lpf_conviene_obj(equipo, obj, ctx, pend, jugados, scope=_lpf_scope_from_query(q))
+        if obj == "descenso" and not prev:
+            return [("info", "Para el descenso necesito los **promedios** cargados. Tocá «📥 Cargar TODO».")]
+        txt, dfc, dfx = lpf_conviene_obj(
+            equipo, obj, ctx, pend, jugados, scope=_scope, fecha=_round
+        )
         if txt is None:
             return [("info", "No hay partidos pendientes para analizar la otra cancha.")]
         out = [("md", txt)]
@@ -7341,7 +7451,9 @@ def _router_lpf(acc, E):
     if intent in ("previa", "juega"):
         if equipo:
             txt, dfe = lpf_previa_equipo_texto(
-                equipo, Z, rest, pend, anual, prev, scope="next_team_match",
+                equipo, Z, rest, pend, anual, prev,
+                fecha=_lpf_round_from_query(q),
+                scope=_lpf_scope_from_query(q, default="next_team_match"),
                 objective=_objetivo_lpf(q) or "Playoffs",
             )
             if dfe is not None:
@@ -8390,8 +8502,11 @@ def render_newsroom(E):
     with report_tab:
         col_team, col_obj, col_mode = st.columns([1.4, 1, 0.8])
         team = col_team.selectbox("Equipo", teams, index=teams.index("River Plate") if "River Plate" in teams else 0)
-        objective = col_obj.selectbox("Objetivo", ["Playoffs", "Libertadores", "Al menos Sudamericana", "Descenso"])
-        st.session_state["LPF_LAST_OBJECTIVE"] = {"Playoffs": "playoffs", "Libertadores": "libertadores", "Al menos Sudamericana": "al_menos_sudamericana", "Descenso": "descenso"}[objective]
+        _sync_lpf_objective_widget("rd_report_objective")
+        objective = col_obj.selectbox(
+            "Objetivo", _LPF_OBJECTIVE_UI_OPTIONS, key="rd_report_objective",
+            on_change=_lpf_objective_widget_changed, args=("rd_report_objective",),
+        )
         mode = col_mode.radio("Momento", ["Previa", "Post"], horizontal=True)
         lab = lpf_zona_de_equipo(team, Z)
         _domain = ("playoffs" if objective == "Playoffs" else
@@ -9023,194 +9138,319 @@ def _render_exact_next_round_conditionals(team, base, rest, pending):
         )
 
 
+def _definition_objective_context(E, objective, zone=None):
+    """Adapta Playoffs/Copas a una tabla + corte comunes para los visuales exactos."""
+    Z = E.get("zonas_lpf") or {}
+    rest = E.get("rest") or {}
+    annual = lpf_anual_base(Z, E.get("apertura") or {})
+    if objective == "Playoffs":
+        lab = zone if zone in Z else (sorted(Z)[0] if Z else None)
+        if lab is None:
+            return None
+        return {
+            "base": Z[lab], "cutoff": _LPF_TOP_OCTAVOS, "label": "Playoffs",
+            "scope": f"Zona {lab}", "zone": lab, "direct": [], "annual": annual,
+        }
+    if objective not in ("Libertadores", "Al menos Sudamericana") or not annual:
+        return None
+    camps = E.get("camps") or ("", "", "")
+    extras = E.get("intl") or ("", "")
+    allocation = lpf_plazas_copas(Z, E.get("apertura") or {}, camps, extras)
+    reduced = [team for team in allocation.get("reducida", []) if team in annual]
+    base = {team: annual[team] for team in reduced}
+    n_lib = int(allocation.get("n_tabla_lib") or 0)
+    cutoff = n_lib if objective == "Libertadores" else n_lib + 6
+    direct = [team for team in allocation.get("orden", []) if team not in set(reduced)]
+    label = "Libertadores por Tabla Anual" if objective == "Libertadores" else "Al menos Sudamericana por Tabla Anual"
+    return {
+        "base": base, "cutoff": min(cutoff, len(base)), "label": label,
+        "scope": "Tabla Anual sin clasificados directos a Libertadores", "zone": None,
+        "direct": direct, "annual": annual, "allocation": allocation,
+    }
+
+
+def _definition_tree_dot(team, objective_label, report):
+    """Árbol corto: sólo abre condiciones que cambian el estado matemático."""
+    if not report or not report.get("available"):
+        return None
+    points = int(report.get("branches", [{}])[0].get("proof", {}).get("team_points", 0) or 0)
+    lines = [
+        'digraph {',
+        'graph [rankdir=LR, bgcolor="transparent", pad="0.2", nodesep="0.28", ranksep="0.45"];',
+        'node [shape=box, style="rounded,filled", fontname="Arial", color="#cbd5e1"];',
+        f'start [label="{team}\\n{objective_label}", fillcolor="#e2e8f0"];',
+    ]
+    for idx, branch in enumerate(report.get("branches", [])):
+        state_total = max(1, int(branch.get("total_combinations", 0) or 0))
+        inside = int(branch.get("season_in", 0) or 0)
+        outside = int(branch.get("season_out", 0) or 0)
+        label = str(branch.get("result_label", ""))
+        pts = int(branch.get("final_points_after_round", points) or points)
+        bid = f"b{idx}"
+        if inside == state_total:
+            text, fill = f"{label}\\n{pts} pts\\nASEGURA", "#dcfce7"
+        elif outside == state_total:
+            text, fill = f"{label}\\n{pts} pts\\nELIMINADO", "#fee2e2"
+        else:
+            text, fill = f"{label}\\n{pts} pts\\nSIGUE ABIERTO", "#fef3c7"
+        lines.append(f'{bid} [label="{text}", fillcolor="{fill}"];')
+        lines.append(f'start -> {bid} [label=" {branch.get("result", "")}"];')
+        condition = str(branch.get("sufficient_condition") or "").strip()
+        if inside != state_total and outside != state_total and condition and condition != "No depende de otros resultados":
+            safe = condition.replace('"', "'")
+            cid = f"c{idx}"
+            lines.append(f'{cid} [label="{safe}\\n→ condición suficiente", fillcolor="#dcfce7"];')
+            lines.append(f'{bid} -> {cid};')
+    lines.append('}')
+    return "\n".join(lines)
+
+
+def _definition_guarantee(base, pending, team, cutoff, rest):
+    left = int(rest.get(team, 0))
+    if not (0 < left <= VENTANA_EXACTA):
+        return None, None
+    exact = point_ladder(base, pending, team, cutoff, max_rows=4, max_matches=110)
+    if not exact.get("available"):
+        return None, None
+    guarantee = exact.get("guarantee")
+    if guarantee is None:
+        return None, exact
+    return int(guarantee), exact
+
+
+def _definition_guarantee_round(team, pending, current, guarantee):
+    if guarantee is None or guarantee <= current:
+        return "Hoy" if guarantee is not None else None
+    games_needed = (int(guarantee) - int(current) + 2) // 3
+    fmap = _lpf_fecha_de(pending)
+    rounds = sorted({rnd for match, rnd in fmap.items() if rnd is not None and team in match})
+    if games_needed > 0 and len(rounds) >= games_needed:
+        return f"Fecha {rounds[games_needed - 1]}"
+    return f"Tras {games_needed} partido(s) propios"
+
+
 def render_definition_radar(E):
-    """Tablero de definición para las últimas fechas de cada zona."""
+    """Visuales periodísticos exactos para el tramo abierto y la definición."""
     Z = E.get("zonas_lpf") or {}
     rest = E.get("rest") or {}
     pending = E.get("pendientes") or []
     if not Z:
         ui_warning("Cargá las zonas.")
         return
-    min_left = min((v for v in rest.values() if v is not None), default=0)
-    max_left = max(rest.values(), default=0)
+
     ui_markdown("## Últimas fechas · tablero de definición")
     ui_caption(
-        "Combina estado matemático, calendario y condicionales. La matriz ‘Qué tiene que pasar’ es EXACTA para la próxima fecha; "
-        "las frecuencias de combinaciones NO son probabilidades. El impacto Monte Carlo sigue separado como ESTIMADO."
+        "EXACTO = cuentas matemáticas con puntos y fixture. Los semáforos, matrices, árbol, zona de pelea y reloj "
+        "no usan probabilidades. Las estimaciones Monte Carlo siguen fuera de este bloque."
     )
-    if min_left > VENTANA_EXACTA:
+
+    _sync_lpf_objective_widget("radar_objective")
+    objective = ui_selectbox(
+        "Objetivo", _LPF_OBJECTIVE_UI_OPTIONS, key="radar_objective",
+        on_change=_lpf_objective_widget_changed, args=("radar_objective",),
+    )
+    if objective == "Descenso":
         ui_info(
-            f"El tablero exacto se activa por equipo cuando le quedan {VENTANA_EXACTA} fechas o menos. "
-            f"Hoy el mínimo es {min_left} partidos."
+            "Para descenso no mezclo este semáforo con una simplificación incompleta: la definición combina Tabla Anual, "
+            "Promedios y la regla de reasignación. Usá el Panel por equipo/Descenso; este paquete visual queda por ahora "
+            "reservado a Playoffs y copas."
         )
         return
-    if max_left > VENTANA_EXACTA:
-        ui_caption(
-            f"Algunos equipos todavía tienen hasta {max_left} partidos (postergados): para esos se "
-            "muestra un total seguro hasta que entren en la ventana exacta. El resto ya usa el motor exacto."
-        )
-    lab = ui_selectbox("Zona", sorted(Z), key="radar_zone")
-    base = Z[lab]
+
+    lab = None
+    if objective == "Playoffs":
+        lab = ui_selectbox("Zona", sorted(Z), key="radar_zone")
+    ctx = _definition_objective_context(E, objective, lab)
+    if not ctx or not ctx.get("base") or int(ctx.get("cutoff") or 0) <= 0:
+        ui_warning("No hay una tabla/corte válido para construir este objetivo con los datos cargados.")
+        return
+    base = ctx["base"]
+    cutoff = int(ctx["cutoff"])
     ordered = list(liga_tabla_df(base)["Equipo"])
-    if st.button("Calcular tablero exacto", type="primary", use_container_width=True):
-        radar = []
-        progress = st.progress(0.0, text="Calculando mínimos exactos y caminos…")
-        for index, team in enumerate(ordered):
-            team_left = int(rest.get(team, 0))
-            pos = index + 1
-            ceiling = int(base[team]["pts"]) + 3 * team_left
-            state = _liga_in_out(team, base, rest, 8)
-            minimum = guarantee = None
-            tipo = "—"
-            # El motor exacto se activa para ESTE equipo si sus propios pendientes
-            # ya son pocos, sin importar los postergados de otras canchas.
-            if 0 < team_left <= VENTANA_EXACTA:
-                exact = point_ladder(base, pending, team, 8, max_rows=4, max_matches=110)
-                if exact.get("available"):
-                    minimum = exact.get("minimum_possible")
-                    guarantee = exact.get("guarantee")
-                    tipo = "Exacto"
-            if guarantee is None and state == "pelea":
-                # Total seguro mientras el equipo tenga por delante más fechas que la ventana exacta.
-                linea = _linea_garantia(base, rest, pending, team, 8)
-                if linea is not None:
-                    guarantee = min(ceiling, max(int(base[team]["pts"]), linea + 1))
-                    tipo = "Conservador"
-            radar.append({
-                "Pos": pos, "Equipo": team, "PTS": int(base[team]["pts"]),
-                "Restan": team_left, "Techo": ceiling,
-                "Mínimo posible": minimum,
-                "Mínimo que asegura": guarantee if tipo == "Exacto" else None,
-                "Total seguro": guarantee if tipo == "Conservador" else None,
-                "Tipo": tipo,
-                "Estado": {"in": "Clasificado", "out": "Eliminado", "pelea": "En carrera"}.get(state, state),
-            })
-            progress.progress((index + 1) / len(ordered), text=f"Calculando {team}…")
-        progress.empty()
-        st.session_state.RADAR_CACHE = {"zone": lab, "rows": radar}
-
-    cache = st.session_state.get("RADAR_CACHE") or {}
-    if cache.get("zone") != lab:
-        ui_caption("Calculá el tablero para ver posibilidades, gráficos y condicionales de esta zona.")
+    current_round, games, _postponed = lpf_jornada_actual(pending or [])
+    if current_round is None or not games:
+        ui_info("No hay una fecha oficial pendiente para construir los condicionales.")
         return
+    ui_caption(f"Ámbito: **{ctx['scope']}** · corte del objetivo: **puesto {cutoff}**.")
+    if ctx.get("direct"):
+        ui_caption("Clasificados por vías directas a Libertadores, fuera de esta tabla de pelea: " + ", ".join(ctx["direct"]))
 
-    radar_frame = pd.DataFrame(cache["rows"])
-    ui_markdown("### Foto matemática de la definición")
-    ui_dataframe(radar_frame, use_container_width=True, hide_index=True, height=560)
-
-    chart_frame = radar_frame[["Equipo", "PTS", "Techo"]].copy()
-    chart_frame["Puntos todavía disponibles"] = chart_frame["Techo"] - chart_frame["PTS"]
-    ui_markdown("#### Puntos actuales y margen que queda")
-    st.bar_chart(chart_frame.set_index("Equipo")[["PTS", "Puntos todavía disponibles"]])
+    # 1) Zona de pelea: visible incluso cuando el torneo todavía está abierto.
+    ui_markdown("### Zona de pelea")
+    if "radar_team_focus" not in st.session_state or st.session_state.get("radar_team_focus") not in ordered:
+        default_idx = min(max(cutoff, 1), len(ordered)) - 1
+        st.session_state["radar_team_focus"] = ordered[default_idx]
+    team_focus = ui_selectbox("Equipo bajo la lupa", ordered, key="radar_team_focus")
+    fight = pd.DataFrame(fight_zone(base, rest, team_focus, cutoff, radius=2))
+    ui_dataframe(fight, use_container_width=True, hide_index=True)
     ui_caption(
-        "El segundo valor no es una proyección: son los puntos que todavía están matemáticamente disponibles "
-        "para cada equipo."
+        "Techo = puntos actuales + todos los puntos propios todavía disponibles. Sirve para ver quién puede alcanzar a quién; "
+        "no es una proyección."
     )
 
-    fmap = _lpf_fecha_de(pending)
-    rounds = sorted({f for f in fmap.values() if f is not None})[:6]
-    fixture_rows = []
-    for team in ordered:
-        row = {"Equipo": team}
-        for rnd in rounds:
-            matches = [match for match, f in fmap.items() if f == rnd and team in match]
-            labels = []
-            for local, visitor in matches:
-                rival = visitor if local == team else local
-                labels.append(("L" if local == team else "V") + " · " + rival)
-            row[f"F{rnd}"] = " / ".join(labels) or "—"
-        fixture_rows.append(row)
-    ui_markdown("### Calendario comparado")
-    ui_dataframe(pd.DataFrame(fixture_rows), use_container_width=True, hide_index=True, height=560)
-    ui_caption("L = local · V = visitante. Los postergados conservan su fecha original en la auditoría.")
+    # 2) Matriz general / semáforo, con selección libre de equipos.
+    ui_markdown("### Matriz de la fecha · todos los equipos que quieras seguir")
+    around = fight.loc[fight["Equipo"] != "…", "Equipo"].tolist() if not fight.empty else ordered[:6]
+    default_matrix = [team for team in around if team in ordered][:7]
+    selected_teams = st.multiselect(
+        "Equipos a mostrar", ordered, default=default_matrix,
+        key=f"radar_matrix_teams_{objective}_{ctx.get('zone') or 'annual'}",
+        help="Podés elegir uno, varios o todos. La cuenta G/E/P se recalcula para cada equipo.",
+    )
+    if selected_teams:
+        rows = all_teams_matrix(base, rest, games, selected_teams, cutoff, max_other_matches=8)
+        view = st.radio(
+            "Lectura", ["Matriz detallada", "Semáforo compacto"], horizontal=True,
+            key=f"radar_matrix_view_{objective}_{ctx.get('zone') or 'annual'}",
+        )
+        if view == "Matriz detallada":
+            visible = [{k: v for k, v in row.items() if not str(k).startswith("_")} for row in rows]
+        else:
+            visible = []
+            for row in rows:
+                report = row.get("_report") or {}
+                branches = {b["result"]: b for b in report.get("branches", [])} if report.get("available") else {}
+                visible.append({
+                    "Equipo": row["Equipo"], "PTS": row["PTS"],
+                    "Gana": branch_cell(branches["G"], with_detail=False) if "G" in branches else "—",
+                    "Empata": branch_cell(branches["E"], with_detail=False) if "E" in branches else "—",
+                    "Pierde": branch_cell(branches["P"], with_detail=False) if "P" in branches else "—",
+                })
+        ui_dataframe(pd.DataFrame(visible), use_container_width=True, hide_index=True)
+        ui_caption("🟢 estado cerrado a favor · 🟡 el objetivo sigue condicionado · 🔴 estado cerrado en contra. El texto manda sobre el color.")
 
-    ui_markdown("### Condicionales de un equipo")
-    team_focus = ui_selectbox("Equipo bajo la lupa", ordered, key="radar_team_focus")
-    focus_row = radar_frame.loc[radar_frame["Equipo"] == team_focus].iloc[0]
-    current = int(focus_row["PTS"])
-    team_left = int(focus_row["Restan"])
-    ceiling = int(focus_row["Techo"])
-    guarantee = focus_row.get("Mínimo que asegura")
-    safe_total = focus_row.get("Total seguro")
+    # Informe exacto del equipo seleccionado.
+    report = next_round_conditionals(base, rest, games, team_focus, cutoff, max_other_matches=8)
+    if not report.get("available"):
+        ui_info(report.get("reason") or "El equipo no tiene un condicional exacto para esta fecha.")
+        return
+
+    current = int((base[team_focus] or {}).get("pts", 0))
+    left = int(rest.get(team_focus, 0))
+    guarantee, ladder = _definition_guarantee(base, pending, team_focus, cutoff, rest)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Puntos", current)
-    c2.metric("Partidos restantes", team_left)
-    c3.metric("Techo", ceiling)
-    c4.metric(
-        "Objetivo de referencia",
-        int(guarantee) if pd.notna(guarantee) else int(safe_total) if pd.notna(safe_total) else "—",
-        help="Mínimo que asegura si ya fue probado exactamente; si no, total seguro conservador.",
-    )
+    c2.metric("PJ por jugar", left)
+    c3.metric("Techo", current + 3 * left)
+    c4.metric("Mínimo que asegura", guarantee if guarantee is not None else "—")
 
-    annual = lpf_anual_base(Z, E.get("apertura") or {})
-    preview_text, preview_frame = lpf_previa_equipo_texto(
-        team_focus, Z, rest, pending, annual, st.session_state.get("PROMEDIOS") or {},
-        scope="next_team_match", objective="Playoffs",
-    )
-    if preview_text:
-        with st.expander("Lectura del próximo partido", expanded=False):
-            ui_markdown(preview_text)
-    if preview_frame is not None and not preview_frame.empty:
-        zone_frame = preview_frame[preview_frame["Tabla"].str.contains("Playoffs")].copy()
-        if not zone_frame.empty:
-            ui_markdown("#### Si gana, empata o pierde")
-            ui_dataframe(zone_frame, use_container_width=True, hide_index=True)
-            result_col = next((col for col in zone_frame.columns if str(col).startswith("Si ")), None)
-            if result_col:
-                rank_chart = zone_frame[[result_col, "Mejor puesto", "Peor puesto"]].copy()
-                rank_chart["Mejor puesto"] = rank_chart["Mejor puesto"].str.replace("º", "", regex=False).astype(int)
-                rank_chart["Peor puesto"] = rank_chart["Peor puesto"].str.replace("º", "", regex=False).astype(int)
-                st.bar_chart(rank_chart.set_index(result_col))
-                ui_caption("En puestos, una barra menor es mejor. El intervalo muestra la incertidumbre del desempate futuro.")
-
-    if 0 < team_left <= VENTANA_EXACTA:
-        _render_exact_next_round_conditionals(team_focus, base, rest, pending)
-
-    if 0 < team_left <= VENTANA_EXACTA:
-        if st.button(
-            "Abrir escalera exacta de puntos",
-            use_container_width=True,
-            key=f"radar_ladder_{lab}_{team_focus}",
-        ):
-            _render_point_ladder(
-                team_focus, base, rest, pending, 8,
-                f"{team_focus} · posibilidades exactas por puntaje final",
-            )
-    elif team_left > VENTANA_EXACTA:
-        ui_info(
-            f"La escalera exacta de {team_focus} se habilita cuando le queden {VENTANA_EXACTA} partidos o menos."
+    # 3) Matriz de rival clave, seleccionable y con sugerencia automática.
+    ui_markdown("### Matriz de rival clave")
+    other_matches = list(report.get("other_matches") or [])
+    candidate_scores = {}
+    for branch in report.get("branches", []):
+        for lever in branch.get("levers", []):
+            candidate_scores[lever["match"]] = max(candidate_scores.get(lever["match"], 0.0), float(lever.get("spread", 0.0)))
+    key_options = []
+    match_by_team = {}
+    score_by_team = {}
+    positions = {team: idx for idx, team in enumerate(ordered)}
+    for match in other_matches:
+        label = f"{match[0]} – {match[1]}"
+        for candidate in match:
+            if candidate in base and candidate != team_focus:
+                key_options.append(candidate)
+                match_by_team[candidate] = match
+                score_by_team[candidate] = candidate_scores.get(label, 0.0)
+    key_options = sorted(set(key_options), key=lambda t: (-score_by_team.get(t, 0.0), abs(positions.get(t, 999) - positions.get(team_focus, 0)), t))
+    if key_options:
+        key_state = f"radar_key_team_{objective}_{team_focus}"
+        if st.session_state.get(key_state) not in key_options:
+            st.session_state[key_state] = key_options[0]
+        key_team = ui_selectbox(
+            "Rival a cruzar", key_options, key=key_state,
+            help="Se sugiere primero la otra cancha que más cambia las ramas exactas; podés elegir cualquier otro equipo de la fecha.",
         )
+        key_report = key_rival_matrix(base, rest, games, team_focus, key_team, cutoff)
+        if key_report.get("available"):
+            cells = {(c["own_result"], c["key_result"]): c for c in key_report["cells"]}
+            matrix_rows = []
+            for own_code, own_label in (("G", "Gana"), ("E", "Empata"), ("P", "Pierde")):
+                matrix_rows.append({
+                    team_focus: own_label,
+                    f"{key_team} gana": branch_cell(cells[(own_code, "G")]),
+                    f"{key_team} empata": branch_cell(cells[(own_code, "E")]),
+                    f"{key_team} pierde": branch_cell(cells[(own_code, "P")]),
+                })
+            ui_dataframe(pd.DataFrame(matrix_rows), use_container_width=True, hide_index=True)
+            ui_caption("Los demás partidos de la fecha quedan abiertos y se enumeran exactamente dentro de cada celda.")
 
-    if st.button(
-        "Calcular qué resultados ajenos lo condicionan en la fecha",
-        use_container_width=True,
-        key=f"radar_other_{lab}_{team_focus}",
-    ):
-        with st.spinner("Midiendo el impacto de cada resultado ajeno…"):
-            other_text, other_frame = lpf_otros_resultados_sim(
-                team_focus, Z, rest, pending, jugados=E.get("jugados") or [], scope="official_round"
-            )
-        st.session_state.RADAR_OTHER_CACHE = {
-            "zone": lab, "team": team_focus, "text": other_text, "frame": other_frame
-        }
-    other_cache = st.session_state.get("RADAR_OTHER_CACHE") or {}
-    if other_cache.get("zone") == lab and other_cache.get("team") == team_focus:
-        if other_cache.get("text"):
-            ui_markdown(other_cache["text"])
-        other_frame = other_cache.get("frame")
-        if isinstance(other_frame, pd.DataFrame) and not other_frame.empty:
-            ui_dataframe(other_frame, use_container_width=True, hide_index=True)
-            if "Diferencia" in other_frame.columns:
-                impact = other_frame[["Partido", "Diferencia"]].copy()
-                impact["Impacto (pp)"] = pd.to_numeric(
-                    impact["Diferencia"].astype("string").str.replace(" pp", "", regex=False).str.replace(",", ".", regex=False),
-                    errors="coerce",
+            with st.expander("¿Por qué? · explicar una celda", expanded=False):
+                ec1, ec2 = st.columns(2)
+                own_explain = ec1.selectbox("Resultado de " + team_focus, ["Gana", "Empata", "Pierde"], key=f"why_own_{team_focus}_{key_team}")
+                key_explain = ec2.selectbox("Resultado de " + key_team, ["Gana", "Empata", "Pierde"], key=f"why_key_{team_focus}_{key_team}")
+                rev = {"Gana": "G", "Empata": "E", "Pierde": "P"}
+                cell = dict(cells[(rev[own_explain], rev[key_explain])])
+                cell["result_label"] = f"Si {team_focus} {own_explain.lower()} y {key_team} {key_explain.lower()}"
+                ui_markdown(branch_explanation(cell, ctx["label"]))
+        else:
+            ui_info(key_report.get("reason") or "No se pudo construir la doble entrada.")
+    else:
+        ui_caption("No hay otra cancha independiente para cruzar en esta fecha.")
+
+    # 4) Árbol reducido: sólo ramas con información nueva.
+    ui_markdown("### Árbol reducido del camino")
+    tree = _definition_tree_dot(team_focus, ctx["label"], report)
+    if tree:
+        _ST_GRAPHVIZ(tree, use_container_width=True)
+        ui_caption("El árbol corta las ramas terminales y no dibuja todas las combinaciones del torneo. Sólo muestra qué cambia el estado.")
+
+    # 5) Explicación exacta de G/E/P, a demanda.
+    with st.expander("¿Por qué? · explicar gana / empata / pierde", expanded=False):
+        for branch in report.get("branches", []):
+            ui_markdown(f"**{branch['result_label']}**")
+            ui_markdown(branch_explanation(branch, ctx["label"]))
+
+    # 6) Reloj: próximo posible cierre + llegada al mínimo que asegura.
+    ui_markdown("### Reloj de definición")
+    guarantee_round = _definition_guarantee_round(team_focus, pending, current, guarantee)
+    clock = definition_clock(
+        report, current_points=current, guarantee=guarantee,
+        guarantee_round_label=guarantee_round,
+    )
+    if clock:
+        ui_dataframe(pd.DataFrame(clock).rename(columns={"when": "Cuándo", "status": "Qué puede pasar", "detail": "Por qué"}),
+                     use_container_width=True, hide_index=True)
+    if guarantee is None:
+        if left > VENTANA_EXACTA:
+            ui_caption(f"El mínimo exacto que asegura se incorpora al reloj cuando queden {VENTANA_EXACTA} partidos o menos.")
+        else:
+            ui_caption("Todavía no hay un mínimo que asegure demostrado por el solver exacto.")
+
+    # Herramientas técnicas quedan disponibles, pero fuera de la lectura principal.
+    with st.expander("Detalle técnico exacto", expanded=False):
+        preview_text, preview_frame = lpf_previa_equipo_texto(
+            team_focus, Z, rest, pending, ctx.get("annual") or {}, st.session_state.get("PROMEDIOS") or {},
+            scope="next_team_match", objective=objective,
+        )
+        if preview_text:
+            ui_markdown(preview_text)
+        if preview_frame is not None and not preview_frame.empty:
+            ui_dataframe(preview_frame, use_container_width=True, hide_index=True)
+        _render_exact_next_round_conditionals(team_focus, base, rest, pending)
+        if ladder and ladder.get("available"):
+            if st.button("Abrir escalera exacta de puntos", key=f"radar_ladder_new_{objective}_{team_focus}"):
+                _render_point_ladder(
+                    team_focus, base, rest, pending, cutoff,
+                    f"{team_focus} · posibilidades exactas por puntaje final",
                 )
-                impact = impact.dropna(subset=["Impacto (pp)"]).set_index("Partido")[["Impacto (pp)"]]
-                if not impact.empty:
-                    st.bar_chart(impact)
-                    ui_caption("ESTIMADO · diferencia entre el mejor y el peor desenlace de cada partido ajeno.")
+            else:
+                ui_caption("La escalera exacta completa sigue disponible en Puntos por objetivo.")
 
+    with st.expander("Estimaciones separadas", expanded=False):
+        ui_caption("El impacto Monte Carlo sigue separado como ESTIMADO y no modifica ninguno de los estados exactos de esta pantalla.")
+        if objective == "Playoffs":
+            if st.button("Calcular impacto estimado de otras canchas", key=f"radar_estimated_other_{team_focus}"):
+                other_text, other_frame = lpf_otros_resultados_sim(
+                    team_focus, Z, rest, pending, jugados=E.get("jugados") or [], scope="official_round"
+                )
+                if other_text:
+                    ui_markdown(other_text)
+                if isinstance(other_frame, pd.DataFrame) and not other_frame.empty:
+                    ui_dataframe(other_frame, use_container_width=True, hide_index=True)
+        else:
+            ui_caption("Para copas, el impacto estimado de otras canchas se consulta en Visualizaciones → La otra cancha con el mismo objetivo activo.")
+        ui_caption("ESTIMADO · diferencia entre el mejor y el peor desenlace de cada partido ajeno: se consulta en Visualizaciones → La otra cancha.")
 
 def _scenario_window_games(pending, scope="official_round"):
     jornada, juegos, atrasados = lpf_jornada_actual(pending or [])
@@ -9599,19 +9839,26 @@ def render_visualizations_workspace(E):
         annual = lpf_anual_base(Z, E.get("apertura") or {})
         _viz_preview_label = st.radio(
             "Alcance",
-            ["Próximo partido real", "Día del próximo partido", "Fecha oficial", "Fecha + postergados"],
+            ["Próximo partido real", "Día del próximo partido", "Fecha oficial específica", "Fecha + postergados"],
             horizontal=True,
             key="viz_preview_scope",
         )
         _viz_preview_scope = {
             "Próximo partido real": "next_team_match",
             "Día del próximo partido": "next_team_day",
-            "Fecha oficial": "official_round",
+            "Fecha oficial específica": "official_round",
             "Fecha + postergados": "extended_window",
         }[_viz_preview_label]
+        _viz_rounds = sorted({f for _match, f in _lpf_fecha_de(pending).items() if f is not None})
+        _viz_preview_round = None
+        if _viz_preview_scope in ("official_round", "extended_window") and _viz_rounds:
+            _viz_preview_round = st.selectbox(
+                "Fecha oficial para la Previa", _viz_rounds, format_func=lambda value: f"Fecha {value}",
+                key="viz_preview_round",
+            )
         text, frame = lpf_previa_equipo_texto(
             team, Z, rest, pending, annual, st.session_state.get("PROMEDIOS") or {},
-            scope=_viz_preview_scope,
+            fecha=_viz_preview_round, scope=_viz_preview_scope, objective=_lpf_objective_label(),
         )
         if text:
             ui_markdown(text)
@@ -9628,32 +9875,37 @@ def render_visualizations_workspace(E):
     with tab_other:
         _other_c1, _other_c2 = st.columns([1, 1.4])
         with _other_c1:
+            _sync_lpf_objective_widget("viz_other_objective")
             _viz_other_obj = st.radio(
                 "Objetivo",
-                ["Playoffs", "Libertadores", "Al menos Sudamericana", "Descenso"],
+                _LPF_OBJECTIVE_UI_OPTIONS,
                 key="viz_other_objective",
+                on_change=_lpf_objective_widget_changed,
+                args=("viz_other_objective",),
             )
         with _other_c2:
             _viz_other_label = st.radio(
                 "Partidos a analizar",
-                ["Día del próximo partido", "Fecha oficial", "Fecha + postergados"],
+                ["Día del próximo partido", "Fecha oficial específica", "Fecha + postergados"],
                 horizontal=True,
                 key="viz_other_scope",
             )
         _viz_other_scope = {
             "Día del próximo partido": "next_team_day",
-            "Fecha oficial": "official_round",
+            "Fecha oficial específica": "official_round",
             "Fecha + postergados": "extended_window",
         }[_viz_other_label]
-        st.session_state["LPF_LAST_OBJECTIVE"] = {
-            "Playoffs": "playoffs",
-            "Libertadores": "libertadores",
-            "Al menos Sudamericana": "al_menos_sudamericana",
-            "Descenso": "descenso",
-        }[_viz_other_obj]
+        _viz_other_rounds = sorted({f for _match, f in _lpf_fecha_de(pending).items() if f is not None})
+        _viz_other_round = None
+        if _viz_other_scope in ("official_round", "extended_window") and _viz_other_rounds:
+            _viz_other_round = st.selectbox(
+                "Fecha oficial para la otra cancha", _viz_other_rounds,
+                format_func=lambda value: f"Fecha {value}", key="viz_other_round",
+            )
         if _viz_other_obj == "Playoffs":
             text, frame = lpf_otros_resultados_sim(
-                team, Z, rest, pending, jugados=E.get("jugados") or [], scope=_viz_other_scope
+                team, Z, rest, pending, jugados=E.get("jugados") or [],
+                scope=_viz_other_scope, fecha=_viz_other_round,
             )
             crosses = None
         else:
@@ -9674,7 +9926,8 @@ def render_visualizations_workspace(E):
                     "Descenso": "descenso",
                 }[_viz_other_obj]
                 text, frame, crosses = lpf_conviene_obj(
-                    team, _other_obj, _other_ctx, pending, E.get("jugados") or [], scope=_viz_other_scope
+                    team, _other_obj, _other_ctx, pending, E.get("jugados") or [],
+                    scope=_viz_other_scope, fecha=_viz_other_round,
                 )
         if text:
             ui_markdown(text)
@@ -9708,13 +9961,18 @@ def render_guided_workspace(E):
 
     Z = E.get("zonas_lpf") or {}
     teams = sorted(E.get("equipos") or [])
+    pending = E.get("pendientes") or []
+    _guide_rounds = sorted({f for _match, f in _lpf_fecha_de(pending).items() if f is not None})
     if not teams:
         ui_warning("Primero cargá la LPF desde el panel lateral.")
         return
     c1, c2, c3 = st.columns([1.15, 1.15, 1.7])
     team = c1.selectbox("Equipo", teams, index=teams.index("River Plate") if "River Plate" in teams else 0, key="guide_team")
-    objective = c2.selectbox("Objetivo", ["Playoffs", "Libertadores", "Al menos Sudamericana", "Descenso"], key="guide_objective")
-    st.session_state["LPF_LAST_OBJECTIVE"] = {"Playoffs": "playoffs", "Libertadores": "libertadores", "Al menos Sudamericana": "al_menos_sudamericana", "Descenso": "descenso"}[objective]
+    _sync_lpf_objective_widget("guide_objective")
+    objective = c2.selectbox(
+        "Objetivo", _LPF_OBJECTIVE_UI_OPTIONS, key="guide_objective",
+        on_change=_lpf_objective_widget_changed, args=("guide_objective",),
+    )
     task = c3.selectbox("Vista", [
         "Resumen completo",
         "Situación general del equipo",
@@ -9729,40 +9987,51 @@ def render_guided_workspace(E):
         "Herramientas de escenarios adaptadas del Mundial",
     ], key="guide_task")
     scope = "next_team_match"
+    preview_round = None
     other_scope = "next_team_day"
+    other_round = None
     if task == "Cómo puede terminar el próximo partido o la fecha":
         scope_label = st.radio(
             "Alcance",
-            ["Próximo partido real", "Día del próximo partido", "Fecha oficial", "Sólo postergados", "Fecha + postergados"],
+            ["Próximo partido real", "Día del próximo partido", "Fecha oficial específica", "Sólo postergados", "Fecha + postergados"],
             horizontal=True,
             key="guide_scope",
         )
         scope = {
             "Próximo partido real": "next_team_match",
             "Día del próximo partido": "next_team_day",
-            "Fecha oficial": "official_round",
+            "Fecha oficial específica": "official_round",
             "Sólo postergados": "postponed_only",
             "Fecha + postergados": "extended_window",
         }[scope_label]
+        if scope in ("official_round", "extended_window") and _guide_rounds:
+            preview_round = st.selectbox(
+                "Fecha oficial para la Previa", _guide_rounds, format_func=lambda value: f"Fecha {value}",
+                key="guide_preview_round",
+            )
     if task == "Qué resultados ajenos le convienen":
         other_label = st.radio(
             "Partidos a analizar",
-            ["Día del próximo partido", "Fecha oficial", "Fecha + postergados"],
+            ["Día del próximo partido", "Fecha oficial específica", "Fecha + postergados"],
             horizontal=True,
             key="guide_other_scope",
         )
         other_scope = {
             "Día del próximo partido": "next_team_day",
-            "Fecha oficial": "official_round",
+            "Fecha oficial específica": "official_round",
             "Fecha + postergados": "extended_window",
         }[other_label]
+        if other_scope in ("official_round", "extended_window") and _guide_rounds:
+            other_round = st.selectbox(
+                "Fecha oficial para la otra cancha", _guide_rounds, format_func=lambda value: f"Fecha {value}",
+                key="guide_other_round",
+            )
     other = None
     if task == "Comparar con otro equipo":
         other = ui_selectbox("Segundo equipo", [x for x in teams if x != team], key="guide_other")
 
     ui_caption("Las consultas habituales están reunidas en este panel. Para preguntas excepcionales o redacción libre, usá **Mesa de redacción → Consultas y chat**.")
     rest = E.get("rest") or {}
-    pending = E.get("pendientes") or []
     annual = lpf_anual_base(Z, E.get("apertura") or {})
     previous = st.session_state.get("PROMEDIOS") or {}
     lab = lpf_zona_de_equipo(team, Z)
@@ -9842,7 +10111,9 @@ def render_guided_workspace(E):
                 Z, rest, E.get("apertura") or {}, previous, E.get("n_anual", 1), E.get("n_prom", 1)
             ))
     elif task == "Cómo puede terminar el próximo partido o la fecha":
-        text, frame = lpf_previa_equipo_texto(team, Z, rest, pending, annual, previous, scope=scope, objective=objective)
+        text, frame = lpf_previa_equipo_texto(
+            team, Z, rest, pending, annual, previous, fecha=preview_round, scope=scope, objective=objective
+        )
         if text: ui_markdown(text)
         if frame is not None: ui_dataframe(frame, use_container_width=True, hide_index=True)
     elif task == "Qué necesita para alcanzar el objetivo":
@@ -9854,13 +10125,17 @@ def render_guided_workspace(E):
             ui_markdown(lpf_descenso_texto(Z, rest, E.get("apertura") or {}, previous, E.get("n_anual", 1), E.get("n_prom", 1), team, pending))
     elif task == "Qué resultados ajenos le convienen":
         if objective == "Playoffs":
-            text, frame = lpf_otros_resultados_sim(team, Z, rest, pending, jugados=E.get("jugados") or [], scope=other_scope)
+            text, frame = lpf_otros_resultados_sim(
+                team, Z, rest, pending, jugados=E.get("jugados") or [], scope=other_scope, fecha=other_round
+            )
             if text: ui_markdown(text)
             if frame is not None: ui_dataframe(frame, use_container_width=True, hide_index=True)
         else:
             ctx = _lpf_ctx(Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""), E.get("intl") or ("", ""), previous, E.get("n_anual", 1), E.get("n_prom", 1))
             obj = {"Libertadores": "libertadores", "Al menos Sudamericana": "al_menos_sudamericana", "Descenso": "descenso"}[objective]
-            text, frame, crosses = lpf_conviene_obj(team, obj, ctx, pending, E.get("jugados") or [], scope=other_scope)
+            text, frame, crosses = lpf_conviene_obj(
+                team, obj, ctx, pending, E.get("jugados") or [], scope=other_scope, fecha=other_round
+            )
             if text: ui_markdown(text)
             if frame is not None: ui_dataframe(frame, use_container_width=True, hide_index=True)
             if crosses is not None: ui_dataframe(crosses, use_container_width=True, hide_index=True)

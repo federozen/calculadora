@@ -15,7 +15,7 @@ from lpf_display import display_team
 from lpf_scenarios import exact_result_scenarios
 from lpf_standings import liga_tabla_df
 
-LPF_RUNTIME_API = 15
+LPF_RUNTIME_API = 16
 
 
 def _ord(position):

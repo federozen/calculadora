@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-LPF_RUNTIME_API = 15
+LPF_RUNTIME_API = 16
 
 # Sólo módulos cuyo contrato cruza capas y cuya mezcla de versiones puede romper
 # el arranque o la UI. El nivel se incrementa únicamente cuando cambia ese contrato.
@@ -24,6 +24,7 @@ CRITICAL_COMPONENTS = (
     'lpf_simulation.py',
     'lpf_competitive_context.py',
     'lpf_conditionals.py',
+    'lpf_editorial_definition.py',
     'lpf_relegation.py',
     'lpf_scenarios.py',
     'lpf_exact.py',

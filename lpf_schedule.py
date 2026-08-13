@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 
 from lpf_clubs import canon_club
 
-LPF_RUNTIME_API = 15
+LPF_RUNTIME_API = 16
 
 
 def parse_datetime(value):

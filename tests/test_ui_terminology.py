@@ -105,10 +105,14 @@ def test_chat_libre_se_integra_en_mesa_de_redaccion():
 def test_ultimas_fechas_muestra_tablero_y_condicionales():
     assert '"Últimas fechas"' in MAIN
     assert "Últimas fechas · tablero de definición" in MAIN
-    assert "Puntos actuales y margen que queda" in MAIN
-    assert "Si gana, empata o pierde" in MAIN
+    assert "Zona de pelea" in MAIN
+    assert "Matriz de la fecha · todos los equipos que quieras seguir" in MAIN
+    assert "Semáforo compacto" in MAIN
+    assert "Matriz de rival clave" in MAIN
+    assert "Árbol reducido del camino" in MAIN
+    assert "Reloj de definición" in MAIN
+    assert "¿Por qué? · explicar gana / empata / pierde" in MAIN
     assert "Abrir escalera exacta de puntos" in MAIN
-    assert "Calcular qué resultados ajenos lo condicionan en la fecha" in MAIN
     assert "lpf_otros_resultados_sim(" in MAIN
     assert "lpf_previa_equipo_texto(" in MAIN
 
@@ -151,3 +155,60 @@ def test_probabilidades_playoffs_no_descartan_interzonales_reales():
     assert "sa = float(s.get(a, 1.0))" in segment
     assert "sb = float(s.get(b, 1.0))" in segment
     assert "if a in idx and b in idx" not in segment
+
+
+def test_objetivo_activo_se_comparte_entre_chat_panel_redaccion_y_visualizaciones():
+    assert '_LPF_OBJECTIVE_UI_OPTIONS = ("Playoffs", "Libertadores", "Al menos Sudamericana", "Descenso")' in MAIN
+    assert '_sync_lpf_objective_widget("chat_guide_objective")' in MAIN
+    assert '_sync_lpf_objective_widget("rd_report_objective")' in MAIN
+    assert '_sync_lpf_objective_widget("viz_other_objective")' in MAIN
+    assert '_sync_lpf_objective_widget("guide_objective")' in MAIN
+    assert MAIN.count('on_change=_lpf_objective_widget_changed') >= 4
+    assert 'El objetivo se conserva también en Panel por equipo, Visualizaciones y seguimientos del chat.' in MAIN
+
+
+def test_explorador_no_fuerza_playoffs_en_atajos_genericos():
+    tree = ast.parse(MAIN)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_chat_catalog")
+    segment = ast.get_source_segment(MAIN, fn) or ""
+    assert 'active_objective = _lpf_objective_label()' in segment
+    assert 'need_prompt = _lpf_objective_prompt(team, "necesita")' in segment
+    assert 'conviene_prompt = _lpf_objective_prompt(team, "conviene")' in segment
+    assert '(f"Qué necesita · {active_objective}"' in segment
+    assert '(f"Qué le conviene · {active_objective}"' in segment
+    # Los accesos de la categoría Playoffs siguen siendo explícitos, pero el bloque
+    # "Más usadas" ya no debe clavar el objetivo por su cuenta.
+    more_used = segment.split('"⭐ Más usadas": [', 1)[1].split('],', 1)[0]
+    assert 'para los playoffs' not in more_used
+
+
+def test_parser_explicito_actualiza_la_memoria_por_un_unico_helper():
+    tree = ast.parse(MAIN)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_objetivo_lpf")
+    segment = ast.get_source_segment(MAIN, fn) or ""
+    assert 'return _remember_lpf_objective(explicit)' in segment
+    assert 'st.session_state["LPF_LAST_OBJECTIVE"] = explicit' not in segment
+
+
+def test_previa_y_otra_cancha_comparten_fecha_oficial_especifica_en_todas_las_vistas():
+    assert 'def _lpf_round_from_query(q):' in MAIN
+    assert 'fecha=_lpf_round_from_query(q)' in MAIN
+    assert 'scope=_lpf_scope_from_query(q, default="next_team_match")' in MAIN
+    assert '"Fecha oficial para la Previa"' in MAIN
+    assert '"Fecha oficial para la otra cancha"' in MAIN
+    assert 'fecha=_viz_preview_round' in MAIN
+    assert 'scope=_viz_other_scope, fecha=_viz_other_round' in MAIN
+    assert 'fecha=preview_round, scope=scope, objective=objective' in MAIN
+    assert 'scope=other_scope, fecha=other_round' in MAIN
+
+
+def test_otra_cancha_no_recomienda_si_objetivo_ya_esta_cumplido_o_no_hay_riesgo():
+    tree = ast.parse(MAIN)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "lpf_conviene_obj")
+    segment = ast.get_source_segment(MAIN, fn) or ""
+    assert 'equipo not in ctx["reducida"]' in segment
+    assert 'ya tiene una plaza directa de Libertadores' in segment
+    assert 'no corresponde recomendar una ‘otra cancha’' in segment
+    assert 'risk, _ = _lpf_riesgo_descenso(equipo, ctx)' in segment
+    assert 'no está hoy en la zona de riesgo usada por esta herramienta' in segment
+    assert 'No publico una recomendación de otra cancha' in segment
