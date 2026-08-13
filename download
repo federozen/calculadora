@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Streamlit / secretos
+.streamlit/secrets.toml
+
+# Pruebas y cachés de herramientas
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Sistema operativo / editores
+.DS_Store
+.idea/
+.vscode/

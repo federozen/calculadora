@@ -87,3 +87,17 @@ En **Datos y auditoría** se puede:
 5. registrar al reemplazo de ARGENTINA 3 si el campeón ya tenía plaza.
 
 La fuente oficial debe prevalecer. El cotejo ESPN no se aplica cuando devuelve una fase incompleta.
+
+## Trazabilidad y frescura del snapshot · 3.8.50
+
+Cada snapshot canónico nuevo conserva metadatos de procedencia separados de los cálculos:
+
+- **Snapshot ID:** huella del contenido competitivo. Sirve para demostrar que dos proveedores entregaron la misma foto aunque tengan distinta procedencia.
+- **Fuente / proveedor:** quién entregó la entrada (`current`, `csv`, futuro `opta`) y qué fuentes concretas declaró.
+- **Actualizado / data as of:** timestamp informado por la fuente. Si no existe, la app muestra que la antigüedad es desconocida; no inventa una hora.
+- **Cobertura:** cantidad de resultados confirmados, pendientes, partidos del fixture, última fecha oficial con resultados confirmados y fecha máxima del fixture.
+- **Calidad:** `ok`, `warning` o `blocked`, cantidad de incidencias y dominios bloqueados.
+
+En **Datos y auditoría → Contrato público usado por Streamlit** se puede ver esta información antes de publicar una conclusión. `generated_at` es la hora de construcción del snapshot y no debe confundirse con la hora de actualización de la fuente.
+
+Para una integración externa, `ProviderData.provenance` debe usar timestamps ISO-8601 y no debe deducir frescura a partir del número de fecha ni del PJ. Un futuro OptaProvider debe trasladar el timestamp real que entregue Opta; si no existe, debe dejarlo vacío.

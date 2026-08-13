@@ -59,6 +59,21 @@ def test_total_seguro_explica_que_puede_no_ser_el_minimo():
     assert "Puede que alcance con menos" in MAIN or "Puede alcanzar con menos" in MAIN
 
 
+def test_que_necesita_recupera_referencia_de_trabajo_y_combinaciones():
+    tree = ast.parse(MAIN)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_copas_bloque_objetivo")
+    segment = ast.get_source_segment(MAIN, fn) or ""
+    assert "### 📌 Referencia de trabajo" in segment
+    assert "necesita sumar **{faltan_ref} de los {3 * gx} puntos**" in segment
+    assert "_texto_combos(faltan_ref, gx)" in segment
+    assert "Caminos para alcanzar esta referencia" in segment
+    assert "referencia prudente de trabajo" in segment
+    assert "no el mínimo exacto ni una garantía matemática" in segment
+    assert "No hay una combinación propia que alcance esa referencia" in segment
+    assert "Eso no demuestra que el objetivo sea imposible ni que necesite ayuda" in segment
+    assert "### 📌 Total seguro" not in segment
+
+
 def test_escenarios_usa_nombre_claro_para_puntos_y_puesto_final():
     assert '"Puntos y puesto final"' in MAIN
     assert MAIN.count('"Puntaje y puesto"') == 1  # sólo migración de sesión vieja

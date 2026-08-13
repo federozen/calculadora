@@ -1,3 +1,13 @@
+## 3.8.53 · 2026-08-13
+
+### Regresión corregida: vuelve la narrativa de qué necesita
+
+- Playoffs, Libertadores, Sudamericana y la vía de Tabla Anual del descenso vuelven a mostrar una **Referencia de trabajo** cuando el equipo sigue en carrera y el mínimo exacto todavía no está disponible.
+- La salida vuelve a decir cuántos puntos necesita sumar el equipo para alcanzar esa referencia y agrega combinaciones posibles cuando la marca está dentro de su techo.
+- Si la referencia prudente queda por encima del máximo alcanzable, se informa la distancia al techo sin convertirla en una exigencia real ni concluir automáticamente que el equipo necesita ayuda.
+- La **referencia prudente** queda separada de la **garantía matemática**: sólo el Radar exacto puede publicar el menor total que asegura el objetivo.
+- Se agrega una regresión editorial para impedir que el bloque vuelva a ocultarse o a presentarse como `Total seguro`.
+
 ## 3.8.52 · 2026-08-13
 
 ### Cierre visual de Últimas fechas con doble entrada por partido
