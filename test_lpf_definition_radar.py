@@ -86,3 +86,46 @@ def test_definition_radar_exposes_all_configuration_before_results():
     assert "disabled=True" in source
     assert "Elegir un equipo no abre una vista distinta ni termina el flujo" in source
     assert "recién debajo se mostrará el resultado" in source
+
+
+
+def test_definition_radar_streamlit_widget_updates_use_callbacks():
+    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    start = source.index('ui_markdown("**Comparadores de la matriz G/E/P**")')
+    end = source.index('selected_teams = [team_focus] +', start)
+    block = source[start:end]
+    assert "on_click=_radar_add_suggested_comparators" in block
+    assert "on_click=_radar_clear_comparators" in block
+    assert "if add_col.button(" not in block
+    assert "if clear_col.button(" not in block
+    assert "st.rerun()" not in block
+    # El bug de Streamlit Cloud era mutar el key del multiselect después de crearlo.
+    after_widget = block[block.index('comparators = st.multiselect('):]
+    assert 'st.session_state[matrix_state_key] = list(dict.fromkeys' not in after_widget
+    assert 'st.session_state[matrix_state_key] = []' not in after_widget
+
+
+def test_definition_radar_surfaces_mundial_visuals_instead_of_hiding_them():
+    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    for label in (
+        "Visuales tipo Mundial visibles en esta pantalla",
+        "Mapa de puestos después de esta fecha · EXACTO",
+        "Cara a cara · principal vs comparadores",
+        "Versión visual del partido bisagra del Mundial",
+        "ESTIMADO · visual de chances",
+        "Calcular visual de chances",
+    ):
+        assert label in source
+    assert "_definition_rank_map_spec" in source
+    assert "_definition_compare_spec" in source
+    assert 'st.bar_chart(decisive_chart.set_index("Partido")' in source
+    assert "placa_chances_mc_png" in source
+    assert 'with st.expander("Estimaciones separadas"' not in source
+
+
+def test_definition_rank_map_is_exact_and_not_a_fake_probability():
+    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    block = source[source.index("def _definition_rank_map_spec"):source.index("def _definition_compare_spec")]
+    assert "scenario_rank_bounds" in block
+    assert "mejor y peor puesto matemáticamente posible" in source
+    assert "sin convertir conteos de marcadores en probabilidad" in source

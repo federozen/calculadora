@@ -1,3 +1,25 @@
+Metadata-Version: 2.4
+Name: calculadora-futbol-argentino
+Version: 3.8.55
+Summary: Calculadora editorial de escenarios de la LPF 2026 (Streamlit).
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pandas>=2.0
+Requires-Dist: numpy>=1.26
+Requires-Dist: requests>=2.31
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: scipy>=1.11
+Requires-Dist: lxml>=5.0
+Requires-Dist: beautifulsoup4>=4.12
+Requires-Dist: html5lib>=1.1
+Provides-Extra: ui
+Requires-Dist: streamlit>=1.36; extra == "ui"
+Provides-Extra: api
+Requires-Dist: fastapi[standard]; extra == "api"
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: ruff>=0.5; extra == "dev"
+
 # Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.55
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.

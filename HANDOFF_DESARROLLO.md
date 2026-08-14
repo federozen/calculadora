@@ -1,4 +1,26 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.53
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.55
+
+## Hotfix UI 3.8.55
+
+- Streamlit no permite mutar `st.session_state[key]` de un widget después de instanciarlo en el mismo rerun. Los botones **Agregar sugeridos** y **Quitar comparadores** usan callbacks (`on_click`) para modificar el multiselect antes del rerun. Mantener este patrón en futuras acciones sobre widgets.
+- `Últimas fechas` deja visibles los visuales tipo Mundial adaptados a LPF: grilla G/E/P, mapa exacto de puestos tras la fecha, cara a cara, doble entrada, árbol, partido bisagra visual, chances estimadas y reloj.
+- La semántica sigue separada: mapa/grillas/árbol/bisagra son **EXACTOS**; el termómetro de chances es **ESTIMADO** y pasa por `objective_chances`.
+
+
+## Bootstrap de producción · 3.8.54
+
+Leer también `PRODUCTION_BOOTSTRAP.md`. Se entregan:
+
+- `api/`: FastAPI con health/readiness/capabilities + siete endpoints.
+- `providers/opta.py`: `OptaTransport + OptaNormalizer -> OptaProvider`.
+- `Dockerfile.api`, `.env.example` y `Makefile`.
+- `tools/build_snapshot.py`, `tools/smoke_api.py`, `tools/production_acceptance.py` y `tools/build_runtime_bundle.py`.
+- siete casos dorados en `tests/fixtures/production/`.
+- bundle mínimo de runtime/API regenerable para despliegues, separado del repo completo.
+- empaquetado Setuptools explícito: API sin dependencia obligatoria de Streamlit.
+
+El objetivo es que el primer sprint empiece por payloads reales de Opta e infraestructura, no por descubrir cómo invocar los motores.
+
 
 ## Qué se entrega
 
@@ -11,7 +33,7 @@ Esta versión deja separados los cuatro contratos que el equipo debe tratar como
 | Snapshot | `schema 3` | Foto canónica de competencia + objetivos + trazabilidad. |
 | Runtime interno | `21` | Evitar despliegues con módulos críticos mezclados. |
 
-No hay FastAPI ni SDK Opta en esta entrega. Esa ausencia es deliberada.
+Desde 3.8.54 hay un **bootstrap FastAPI** y una **plantilla Opta**, pero no hay credenciales, endpoints ni schema inventado del producto Opta contratado. Ver `PRODUCTION_BOOTSTRAP.md`.
 
 ## Arquitectura que debe preservarse
 
@@ -198,7 +220,7 @@ El consumidor no debe reconstruir `base`, `cutoff` ni la Tabla Anual reducida.
 
 - La matriz de **rival clave** conserva un helper exacto directo por rendimiento; no es una segunda lógica matemática.
 - Las tablas comparativas completas de probabilidades y la probabilidad de descenso conservan temporalmente el simulador contextual directo; la cifra individual de Playoffs/Copas ya cruza `objective_chances`.
-- No existe todavía FastAPI. Cuando se agregue, debe ser una capa fina `HTTP -> calculate() -> JSON`.
+- `api/` ya implementa la capa fina `HTTP -> calculate() -> JSON`; Desarrollo debe agregar autenticación/infraestructura según el entorno y conectar el snapshot server-side a Opta/cache.
 - `CurrentProvider` puede tener timestamp desconocido en carga offline/manual. Esto es correcto: no debe reemplazarse por la hora del snapshot.
 
 ## Archivos que conviene leer primero

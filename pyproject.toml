@@ -1,11 +1,10 @@
 [project]
 name = "calculadora-futbol-argentino"
-version = "3.8.53"
+version = "3.8.55"
 description = "Calculadora editorial de escenarios de la LPF 2026 (Streamlit)."
 requires-python = ">=3.10"
 readme = "README.md"
 dependencies = [
-    "streamlit>=1.36",
     "pandas>=2.0",
     "numpy>=1.26",
     "requests>=2.31",
@@ -17,6 +16,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ui = ["streamlit>=1.36"]
+api = ["fastapi[standard]"]
 dev = ["pytest>=8.0", "ruff>=0.5"]
 
 [tool.pytest.ini_options]
@@ -29,3 +30,51 @@ line-length = 120
 # módulos nuevos y de soporte.
 [tool.ruff.lint]
 select = ["F", "E9"]
+
+[tool.setuptools]
+py-modules = [
+    "calculadora_futbol_argentino",
+    "competition_html_adapters",
+    "lpf_averages",
+    "lpf_clubs",
+    "lpf_competition_narratives",
+    "lpf_competitive_context",
+    "lpf_conditionals",
+    "lpf_data_2026",
+    "lpf_data_provider",
+    "lpf_data_quality",
+    "lpf_derive",
+    "lpf_display",
+    "lpf_editorial_definition",
+    "lpf_exact",
+    "lpf_fixture_sources",
+    "lpf_form",
+    "lpf_http",
+    "lpf_intents",
+    "lpf_loading",
+    "lpf_models",
+    "lpf_parsers",
+    "lpf_pisos",
+    "lpf_preview",
+    "lpf_provider_adapters",
+    "lpf_qualification",
+    "lpf_reconcile",
+    "lpf_relegation",
+    "lpf_result_updates",
+    "lpf_runtime",
+    "lpf_scenarios",
+    "lpf_schedule",
+    "lpf_services",
+    "lpf_simulation",
+    "lpf_snapshot",
+    "lpf_standings",
+    "lpf_state",
+    "lpf_table_backup",
+    "lpf_table_selection",
+    "lpf_text",
+    "lpf_version",
+]
+
+[tool.setuptools.packages.find]
+include = ["api*", "providers*"]
+exclude = ["tests*", "tools*", "legacy*", "data*", "_original_referencia*"]

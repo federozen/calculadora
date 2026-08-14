@@ -1,3 +1,26 @@
+## 3.8.55 · 2026-08-13
+
+### Hotfix de Session State y visuales tipo Mundial
+
+- Corrige `StreamlitAPIException` en `Últimas fechas`: los botones de comparadores ya no escriben el key del `multiselect` después de que el widget fue instanciado; usan callbacks seguros antes del rerun.
+- Añade **Mapa de puestos después de esta fecha · EXACTO** para principal y comparadores.
+- Añade **Cara a cara** visual usando el mismo motor G/E/P exacto.
+- `Partidos que más definen` suma una barra visual de sensibilidad exacta, inspirada en el partido bisagra del Mundial.
+- El termómetro de chances del Mundial queda visible como bloque separado **ESTIMADO**, alimentado por `objective_chances` con 6.000 simulaciones.
+- 364 tests. Runtime API 21, Public Service v1, DataProvider v2 y Snapshot schema 3 sin cambios.
+
+## 3.8.54 · 2026-08-13
+
+### Developer / Production Bootstrap
+
+- Se agrega `api/` con una capa FastAPI delgada para las siete operaciones públicas, `/health`, `/ready` y `/v1/capabilities`. `ContractError` se traduce a HTTP 422 y no se replica matemática.
+- Staging puede usar `LPF_SNAPSHOT_FILE`; producción puede construir `create_app(snapshot_loader=...)` con un loader Opta/cache sin cambiar endpoints.
+- Nuevo `providers/opta.py` con fronteras `OptaTransport` y `OptaNormalizer`; `OptaProvider` termina obligatoriamente en `ProviderData`.
+- Se corrige el empaquetado Python: Setuptools recibe módulos/paquetes explícitos y deja de confundir `legacy`/`data` con runtime. Streamlit pasa al extra `ui`; FastAPI al extra `api`.
+- Se suman `Dockerfile.api`, `.dockerignore`, `.env.example`, `Makefile`, `tools/build_snapshot.py`, `tools/smoke_api.py`, `tools/production_acceptance.py` y `tools/build_runtime_bundle.py`.
+- Acceptance kit con **7 casos dorados**, uno por operación pública, y prueba de equivalencia OptaProvider/CurrentProvider por `snapshot_id`.
+- No cambian Public Service v1, DataProvider v2, snapshot schema 3 ni Runtime API 21. Suite final: **361 pruebas**; acceptance kit y build de wheel OK.
+
 ## 3.8.53 · 2026-08-13
 
 ### Configuración completa antes del análisis
