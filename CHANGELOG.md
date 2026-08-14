@@ -1,3 +1,12 @@
+## 3.8.59 · 2026-08-14
+
+- Corrige la paridad visual de Copas: `Visualizaciones → Copas y descenso` muestra ahora **Qué pasa si gana, empata o pierde · EXACTO** para Libertadores/Sudamericana.
+- La matriz G/E/P reutiliza el contrato `definition` y la misma especificación visual que Playoffs; no crea una segunda lógica de clasificación.
+- Para clubes con objetivo ya resuelto por vía directa, la matriz conserva las tres ramas y las marca como **YA CLASIFICADO / OBJETIVO CUMPLIDO**, porque G/E/P ya no modifica el cupo.
+- El termómetro individual se muestra también cuando el objetivo está resuelto: usa una marca exacta al 100% y texto `OBJETIVO RESUELTO`, no una falsa simulación de 6.000 casos.
+- `Últimas fechas` ya no corta sin visuales ante una vía directa: conserva G/E/P, medidor de estado y acceso al heatmap comparativo de Copas.
+- Heatmap y otra cancha estimada de 3.8.58 permanecen sin cambios. Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.58 · 2026-08-14
 
 - Da paridad visual a **Libertadores/Sudamericana**: `Visualizaciones → Copas y descenso` deja de ser casi sólo narrativa y suma tablero de Tabla Anual.

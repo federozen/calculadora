@@ -1,4 +1,13 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.58
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.59
+## Paridad visual de Copas · 3.8.59
+
+Además del mapa exacto, heatmap y otra cancha, Copas debe preservar los dos visuales base de Playoffs:
+
+1. **G/E/P · EXACTO:** usa `definition` sobre Tabla Anual. Si el club ya está clasificado por vía directa, las tres ramas quedan cerradas a favor; no ocultar la matriz.
+2. **¿Cómo viene?**: usa `objective_chances` cuando el objetivo está abierto. Si `objective_chances` devuelve `resolved=true`, mostrar 100% como **estado exacto resuelto**, sin rotularlo como Monte Carlo.
+
+Esta regla aplica tanto a `Visualizaciones → Copas y descenso` como a `Últimas fechas`. El heatmap comparativo sigue siendo ESTIMADO y no reemplaza al termómetro individual.
+
 ## Paridad visual de Copas · 3.8.58
 
 Libertadores y Sudamericana deben conservar cuatro capas distintas y no mezclarlas:

@@ -1,4 +1,4 @@
-# Developer / Production Bootstrap · 3.8.58
+# Developer / Production Bootstrap · 3.8.59
 
 Este paquete reduce el handoff a dos trabajos externos: **conectar el feed Opta real** y **desplegar la infraestructura**. La matemática sigue detrás de `lpf_services.calculate()`.
 
@@ -117,6 +117,10 @@ Con acceso a credenciales, documentación y ejemplos reales de Opta desde el dí
 - **2–5 días:** validación editorial/casos reales + carga + salida controlada.
 
 Un equipo de dos desarrolladores puede apuntar a **staging en 3–5 días hábiles** y a una **primera producción en 7–12 días hábiles**, siempre que Opta y la infraestructura estén disponibles sin bloqueos. Si el feed contratado requiere investigación o faltan IDs/documentación, ese riesgo queda fuera del código y puede extender el plazo.
+
+## UI de Copas 3.8.59
+
+No cambia el bootstrap HTTP. Streamlit completa la paridad visual de Copas: matriz G/E/P exacta compartida con `definition` y termómetro individual siempre visible. Un `resolved=true` por vía directa debe mostrarse como estado exacto, no como resultado de Monte Carlo.
 
 ## UI de Copas 3.8.58
 

@@ -61,7 +61,7 @@ def test_definition_radar_separates_principal_context_comparators_and_key_match(
     assert "comparator_options = [name for name in ordered if (not team_selected or name != team_focus)]" in source
     assert "No se selecciona ninguno automáticamente" in source
     assert "Estos equipos aparecen automáticamente porque están cerca del equipo principal o del corte" in source
-    assert "Los controles quedan visibles arriba, pero no se construye doble entrada porque este club ya no disputa este cupo" in source
+    assert "No se construye doble entrada para el equipo principal porque ya no disputa este cupo" in source
     assert 'selection_ordered = list(liga_tabla_df(ctx["annual"])["Equipo"])' in source
 
 
@@ -197,6 +197,31 @@ def test_cup_visuals_restore_probability_heatmap_and_current_slot_map():
     ]
     assert "EXACTO" in slots["titulo"]
     assert "No es una proyección" in slots["footer"]
+
+
+def test_cup_dashboard_reuses_exact_gep_and_always_shows_focus_meter():
+    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    helper = source[source.index("def _render_cup_visual_dashboard"):source.index("def render_visualizations_workspace")]
+    assert "Qué pasa si gana, empata o pierde · EXACTO" in helper
+    assert "_cup_definition_visual_package" in helper
+    assert "_definition_general_matrix_spec" in helper
+    assert "_resolved_objective_gep_spec" in helper
+    assert "Verde/amarillo/rojo describen estados matemáticos, no probabilidades" in helper
+    assert 'verdict_override="YA CLASIFICÓ" if view == "Libertadores" else "OBJETIVO CUMPLIDO"' in helper
+    assert "OBJETIVO RESUELTO" in helper
+
+
+def test_resolved_cup_in_ultimas_fechas_keeps_gep_meter_and_heatmap_available():
+    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    radar = source[source.index("def render_definition_radar"):source.index("def _scenario_window_games")]
+    start = radar.index("if resolved:")
+    end = radar.index('        return\n\n    ui_markdown("## Lectura visual de la fecha")', start)
+    resolved_block = radar[start:end]
+    assert "_resolved_objective_gep_spec" in resolved_block
+    assert "placa_chances_mc_png" in resolved_block
+    assert "YA CLASIFICÓ" in resolved_block
+    assert "Ver mapa comparativo de Copas" in resolved_block
+    assert "_cup_probability_package" in resolved_block
 
 
 def test_libertadores_and_sudamericana_get_full_visual_dashboard():

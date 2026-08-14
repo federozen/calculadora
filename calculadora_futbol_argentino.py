@@ -2123,12 +2123,14 @@ def chances_mc(equipo, eqs, jug, pen, n=_LPF_PUBLIC_MC_RUNS):
     pct = float(fila[col].iloc[0]) if len(fila) else 0.0
     return pct, df
 
-def placa_chances_mc_png(equipo, pct, nota="Estimación por simulación"):
+def placa_chances_mc_png(equipo, pct, nota="Estimación por simulación", verdict_override=None):
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.colors import LinearSegmentedColormap
     from io import BytesIO
     verdict, _ = _chances_label(pct, {})
+    if verdict_override:
+        verdict = str(verdict_override)
     fig, ax = plt.subplots(figsize=(7.2, 2.2), dpi=200)
     cmap = LinearSegmentedColormap.from_list("c", ["#b71c1c", "#ef6c00", "#f9a825", "#7aa53d", "#1b5e20"])
     ax.imshow(np.linspace(0, 1, 256).reshape(1, -1), extent=[0, 100, 0, 1], aspect="auto", cmap=cmap)
@@ -9837,6 +9839,39 @@ def _cup_probability_package(E, objective, team):
     }
 
 
+def _resolved_objective_gep_spec(team, objective_label, message="Objetivo ya resuelto"):
+    """Matriz G/E/P informativa cuando el objetivo ya está cerrado a favor."""
+    label = "YA CLASIFICADO" if "libert" in str(objective_label).lower() else "OBJETIVO CUMPLIDO"
+    return {
+        "titulo": f"Qué pasa si gana, empata o pierde · {objective_label}",
+        "col_headers": ["Gana", "Empata", "Pierde"],
+        "row_headers": [f"★ {team}"],
+        "cells": [[(label, "#1b5e20"), (label, "#1b5e20"), (label, "#1b5e20")]],
+        "corner": "Equipo ↓ / resultado →",
+        "leyenda": [("#1b5e20", "objetivo ya cerrado a favor")],
+        "footer": f"{message}. El resultado de la próxima fecha no modifica este objetivo.",
+    }
+
+
+def _cup_definition_visual_package(E, objective, team):
+    """Paquete exacto de una fila G/E/P para Copas, compartido con el radar."""
+    ctx = _definition_objective_context(E, objective, None)
+    if not ctx or not ctx.get("base") or int(ctx.get("cutoff") or 0) <= 0:
+        return {"available": False, "reason": "No hay una tabla/corte válido para este objetivo."}
+    pending = E.get("pendientes") or []
+    current_round, games, _postponed = lpf_jornada_actual(pending)
+    base = ctx["base"]
+    rest = E.get("rest") or {}
+    try:
+        package = _lpf_definition_package(
+            E, objective, None, team, [team], current_round,
+            base=base, rest=rest, games=games or [], pending=pending, cutoff=int(ctx["cutoff"]),
+        )
+    except Exception as exc:
+        return {"available": False, "reason": str(exc), "context": ctx}
+    return {"available": True, "context": ctx, "package": package, "round": current_round}
+
+
 def _cup_cut_metrics(ctx, team):
     """Cortes de hoy en la tabla reducida, sin confundirlos con proyección final."""
     annual = ctx.get("anual") or {}
@@ -10065,11 +10100,61 @@ def render_definition_radar(E):
         ui_markdown(editorial_report)
 
     if resolved:
-        ui_success(str(package.get("message") or f"{team_focus} ya tiene resuelto este objetivo."))
+        resolved_message = str(package.get("message") or f"{team_focus} ya tiene resuelto este objetivo.")
+        ui_success(resolved_message)
         if package.get("via"):
             ui_caption(f"Vía: **{package['via']}**.")
+        ui_markdown("## Lectura visual de la fecha")
+        ui_markdown("### Qué pasa si gana, empata o pierde · EXACTO")
+        ui_markdown(
+            _html_tabla(_resolved_objective_gep_spec(team_focus, ctx["label"], resolved_message)),
+            unsafe_allow_html=True,
+        )
         ui_caption(
-            "Los controles quedan visibles arriba, pero no se construye doble entrada porque este club ya no disputa este cupo por la tabla del objetivo."
+            "El objetivo ya está cerrado a favor: ganar, empatar o perder la próxima fecha no cambia esa clasificación."
+        )
+        ui_markdown("### ¿Cómo viene? · objetivo resuelto")
+        st.image(
+            placa_chances_mc_png(
+                team_focus, 100.0,
+                nota=f"OBJETIVO RESUELTO · {ctx['label']}",
+                verdict_override="YA CLASIFICÓ" if objective == "Libertadores" else "OBJETIVO CUMPLIDO",
+            ),
+            use_container_width=True,
+        )
+        ui_caption(
+            "Esta marca es EXACTA y proviene de la vía de clasificación ya resuelta; no es una estimación Monte Carlo."
+        )
+        if objective in ("Libertadores", "Al menos Sudamericana"):
+            resolved_map_key = f"radar_resolved_cup_map_{objective}_{team_focus}"
+            if st.button(
+                f"Ver mapa comparativo de Copas · {_LPF_PUBLIC_MC_RUNS:,} simulaciones",
+                key=f"radar_resolved_cup_map_button_{objective}_{team_focus}",
+                use_container_width=True,
+            ):
+                try:
+                    st.session_state[resolved_map_key] = _cup_probability_package(E, objective, team_focus)
+                except Exception as exc:
+                    st.session_state.pop(resolved_map_key, None)
+                    ui_warning(f"No pude construir el mapa comparativo de Copas: {exc}")
+            resolved_map = st.session_state.get(resolved_map_key) or {}
+            resolved_rows = list(resolved_map.get("rows") or [])
+            if resolved_rows:
+                ui_markdown("### Mapa de probabilidades de Copas · ESTIMADO")
+                ui_markdown(
+                    _html_tabla(
+                        cup_probability_heatmap_spec(
+                            resolved_rows, active_objective=objective, focus_team=team_focus,
+                            simulations=int(resolved_map.get("simulations", _LPF_PUBLIC_MC_RUNS)),
+                        )
+                    ),
+                    unsafe_allow_html=True,
+                )
+                ui_caption(
+                    "El mapa compara al resto de los equipos mediante simulación. Para el equipo principal, la clasificación ya resuelta sigue siendo exacta."
+                )
+        ui_caption(
+            "No se construye doble entrada para el equipo principal porque ya no disputa este cupo por el corte de la Tabla Anual."
         )
         return
 
@@ -10797,6 +10882,47 @@ def _render_cup_visual_dashboard(E, team, view):
             unsafe_allow_html=True,
         )
 
+    ui_markdown("#### Qué pasa si gana, empata o pierde · EXACTO")
+    ui_caption(
+        "La misma matriz G/E/P del tablero de Playoffs, aplicada al corte real de la Tabla Anual. "
+        "Verde/amarillo/rojo describen estados matemáticos, no probabilidades."
+    )
+    definition_visual = _cup_definition_visual_package(E, objective, team)
+    if definition_visual.get("available"):
+        definition_package = definition_visual.get("package") or {}
+        definition_ctx = definition_visual.get("context") or {}
+        if definition_package.get("resolved") and not definition_package.get("definition_needed", True):
+            resolved_message = str(definition_package.get("message") or f"{team} ya tiene resuelto este objetivo.")
+            ui_markdown(
+                _html_tabla(
+                    _resolved_objective_gep_spec(team, definition_ctx.get("label") or view, resolved_message)
+                ),
+                unsafe_allow_html=True,
+            )
+            if definition_package.get("via"):
+                ui_caption(f"Vía resuelta: **{definition_package['via']}**.")
+        else:
+            definition_rows = list(definition_package.get("matrix") or [])
+            if definition_rows:
+                ui_markdown(
+                    _html_tabla(
+                        _definition_general_matrix_spec(
+                            definition_rows, team, definition_ctx.get("label") or view
+                        )
+                    ),
+                    unsafe_allow_html=True,
+                )
+                ui_caption(
+                    "★ = equipo elegido. G/E/P evalúa la próxima fecha oficial con el resto de los partidos compatibles abiertos."
+                )
+            else:
+                ui_caption(
+                    str((definition_package.get("report") or {}).get("reason") or definition_package.get("reason") or
+                        "No hay una matriz G/E/P exacta disponible para la próxima fecha.")
+                )
+    else:
+        ui_caption(str(definition_visual.get("reason") or "No hay una matriz G/E/P exacta disponible para este objetivo."))
+
     ui_markdown("#### Lectura editorial")
     if view == "Libertadores":
         ui_markdown(lpf_relato_libertadores_texto(
@@ -10844,7 +10970,19 @@ def _render_cup_visual_dashboard(E, team, view):
     focus_result = probability_package.get("focus") or {}
     if focus_result:
         if focus_result.get("resolved"):
+            pct = float(focus_result.get("qualification_percentage", 100.0) or 100.0)
+            st.image(
+                placa_chances_mc_png(
+                    team,
+                    pct,
+                    nota=f"OBJETIVO RESUELTO · {view}",
+                    verdict_override="YA CLASIFICÓ" if view == "Libertadores" else "OBJETIVO CUMPLIDO",
+                ),
+                use_container_width=True,
+            )
             ui_markdown(f"**{team}:** {focus_result.get('message') or 'objetivo ya resuelto.'}")
+            if focus_result.get("via"):
+                ui_caption(f"Vía: **{focus_result['via']}**. Esta marca es exacta; no sale de una simulación.")
         else:
             pct = float(focus_result.get("qualification_percentage", 0.0) or 0.0)
             st.image(
