@@ -614,3 +614,7 @@ En `render_definition_radar` no mezclar los roles de equipos. El **equipo princi
 
 En `render_definition_radar`, mantener un único `equipo principal`. La doble entrada debe seleccionar **un partido de otra cancha**, no un segundo equipo, y mostrar columnas `gana local / empate / gana visitante`. La lectura principal de G/E/P y de la doble entrada usa grillas visuales con texto + color. `Partidos que más definen` se deriva de los `levers` exactos y comunica **caminos exactos que cambian**, nunca probabilidad. Public Service v1, DataProvider v2, snapshot schema 3 y Runtime **21** no cambian. Suite **352 pruebas**.
 
+### 8t. Configuración visible antes del resultado — 3.8.53
+
+En `render_definition_radar`, no volver al wizard progresivo. Objetivo/zona, `Equipo principal`, `Comparar también con…` y `Partido de la otra cancha` deben renderizarse antes de `Resultado del análisis`. Si todavía no hay equipo, los dos últimos controles quedan visibles y deshabilitados. Elegir equipo sólo fija el protagonista; no debe ocultar ni crear después controles de configuración equivalentes. Public Service v1, DataProvider v2, snapshot schema 3 y Runtime **21** no cambian. Suite **353 pruebas**.
+

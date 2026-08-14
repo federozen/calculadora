@@ -19,8 +19,11 @@ def test_definition_radar_keeps_estimated_other_results_separate():
 def test_definition_radar_exposes_editorial_visual_suite_and_objectives():
     source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
     for label in (
-        "Elegí qué querés analizar",
-        "Elegí el equipo principal",
+        "Configurá el tablero",
+        "Equipo principal",
+        "Comparadores de la matriz G/E/P",
+        "Otra cancha para la doble entrada",
+        "Resultado del análisis",
         "Contexto automático · quiénes están alrededor",
         "Qué pasa si gana, empata o pierde",
         "Semáforo compacto",
@@ -39,7 +42,7 @@ def test_definition_radar_exposes_editorial_visual_suite_and_objectives():
     assert "— Elegí un equipo —" in source
     assert "Comparar también con… (opcional)" in source
     assert "no se agregan solas" in source
-    assert "Partido de la otra cancha (sugerido, editable)" in source
+    assert "Partido de la otra cancha" in source
     assert "filas = resultado propio; columnas = resultado completo de la otra cancha" in source
     assert "No se elige al azar" in source
     assert "no hace falta elegir un segundo equipo" in source
@@ -53,12 +56,12 @@ def test_definition_radar_separates_principal_context_comparators_and_key_match(
     assert "Equipo principal** = lo elegís vos" in source
     assert "Contexto automático** = clubes cercanos" in source
     assert "Comparadores** = únicamente los que vos agregás" in source
-    assert "la otra cancha se elige como partido" in source
+    assert "La otra cancha se elige como partido completo" in source
     assert "selected_teams = [team_focus] +" in source
-    assert "comparator_options = [name for name in ordered if name != team_focus]" in source
+    assert "comparator_options = [name for name in ordered if (not team_selected or name != team_focus)]" in source
     assert "No se selecciona ninguno automáticamente" in source
     assert "Estos equipos aparecen automáticamente porque están cerca del equipo principal o del corte" in source
-    assert "No se muestran comparadores ni doble entrada porque este club ya no disputa este cupo" in source
+    assert "Los controles quedan visibles arriba, pero no se construye doble entrada porque este club ya no disputa este cupo" in source
     assert 'selection_ordered = list(liga_tabla_df(ctx["annual"])["Equipo"])' in source
 
 
@@ -66,3 +69,20 @@ def test_definition_radar_does_not_present_new_visuals_as_probability():
     source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
     assert "no usan probabilidades" in source
     assert "Los demás partidos de la fecha quedan abiertos y se enumeran exactamente" in source
+
+
+def test_definition_radar_exposes_all_configuration_before_results():
+    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    positions = [
+        source.index("Configurá el tablero"),
+        source.index("Equipo principal", source.index("Configurá el tablero")),
+        source.index("Comparadores de la matriz G/E/P"),
+        source.index("Otra cancha para la doble entrada"),
+        source.index("Resultado del análisis"),
+        source.index("Contexto automático · quiénes están alrededor"),
+    ]
+    assert positions == sorted(positions)
+    assert "Esta opción queda visible desde el inicio" in source
+    assert "disabled=True" in source
+    assert "Elegir un equipo no abre una vista distinta ni termina el flujo" in source
+    assert "recién debajo se mostrará el resultado" in source

@@ -3357,11 +3357,11 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
                             historial=None, objetivo=None, mostrar_cruces=True,
                             mostrar_rivales=True, mostrar_amenazas=True,
                             meta_override=None):
-    """Explica proyección, referencia de trabajo y mínimo que asegura.
+    """Explica proyección, mínimo posible, mínimo que asegura y total seguro.
 
-    La referencia prudente mantiene una narrativa útil de qué necesita sumar el equipo
-    aun cuando el Radar exacto todavía no calcula el mínimo. Nunca se presenta esa
-    referencia como garantía matemática ni como el mínimo necesario.
+    El mínimo que asegura es el menor total comprobado. El total seguro
+    también asegura si se alcanza, pero puede pedir puntos de más y por eso nunca
+    se presenta como el mínimo necesario.
     """
     salva = modo == "salvarse"
     verbo = "se salva" if salva else "entra"
@@ -3395,7 +3395,7 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
             f"La cuenta: {mio} puntos + {gx} partidos × 3 = **{techo} como máximo**, y no alcanza.",
         ]
 
-    # Referencia prudente de trabajo: orienta la narrativa, pero no es una garantia exacta.
+    # Total seguro: es un total suficiente, pero puede no ser el menor.
     if meta_override is None:
         referencia_prudente = _linea_garantia(base_red, rest, pend, equipo, k) + 1
     else:
@@ -3472,58 +3472,18 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
             "una sola salida y los cruces entre rivales no pueden contarse dos veces."
         )
     else:
-        L.append("### 📌 Referencia de trabajo")
-        if referencia_prudente is None:
-            L.append(
-                "Todavía no hay una referencia prudente disponible para este objetivo. La lectura debe apoyarse "
-                "en la tabla, el fixture y el chequeo exacto que aparece debajo."
-            )
-        else:
+        if referencia_prudente is not None and mio <= referencia_prudente <= techo:
             faltan_ref = max(0, referencia_prudente - mio)
-            if referencia_prudente <= mio:
-                L.append(
-                    f"La referencia prudente queda en **{referencia_prudente} puntos totales** y {equipo} ya tiene "
-                    f"**{mio}**. Superar esa referencia **no equivale a tener el objetivo asegurado**: el mínimo "
-                    "exacto y la garantía matemática se comprueban por separado."
-                )
-            elif referencia_prudente <= techo:
-                L.append(
-                    f"La referencia prudente está en **{referencia_prudente} puntos totales**. {equipo} tiene "
-                    f"**{mio}**: necesita sumar **{faltan_ref} de los {3 * gx} puntos** que quedan para alcanzar "
-                    "esta referencia."
-                )
-                cb_ref = _texto_combos(faltan_ref, gx)
-                if cb_ref:
-                    L.append(
-                        cb_ref.replace(
-                            "**Cómo llegar** (sirve alcanzar la meta *o superarla*): ",
-                            "**Caminos para alcanzar esta referencia** (sirve llegar o superarla): ",
-                        )
-                    )
-                L.append(
-                    "Es una **referencia prudente de trabajo**, no el mínimo exacto ni una garantía matemática. "
-                    f"{equipo} puede alcanzar el objetivo con menos si el resto de los resultados lo favorece."
-                )
-            else:
-                exceso_ref = referencia_prudente - techo
-                L.append(
-                    f"La referencia prudente está en **{referencia_prudente} puntos totales**. {equipo} tiene "
-                    f"**{mio}** y necesitaría sumar **{faltan_ref} puntos** para alcanzarla, pero sólo tiene "
-                    f"**{3 * gx} en juego** y su techo es **{techo}**."
-                )
-                L.append(
-                    f"No hay una combinación propia que alcance esa referencia: queda **{exceso_ref} puntos** por "
-                    "encima de su techo. **Eso no demuestra que el objetivo sea imposible ni que necesite ayuda**: "
-                    "la referencia prudente puede exigir puntos de más y el escenario real depende del fixture "
-                    "completo."
-                )
-
-        if gx > VENTANA_EXACTA:
+            L.append("### 📌 Total seguro")
             L.append(
-                f"El **mínimo que asegura** se busca cuando a {equipo} le quedan {VENTANA_EXACTA} partidos o menos. "
-                "Hasta entonces, la referencia de trabajo sirve para orientar cuánto necesita sumar sin confundir "
-                "esa marca con una garantía."
+                f"**{referencia_prudente} puntos totales** es un total que asegura el objetivo: si {equipo} llega a esa marca, "
+                f"{verbo} sin depender de otros resultados. Le faltan **{faltan_ref} puntos**. "
+                f"**Todavía no sabemos si {referencia_prudente} es el menor total que asegura.** Puede que alcance con menos."
             )
+            if gx > VENTANA_EXACTA:
+                L.append(
+                    f"El **mínimo que asegura** se busca cuando a {equipo} le quedan {VENTANA_EXACTA} partidos o menos."
+                )
 
         L.append("### 🔒 Mínimo que asegura")
         if max_fail_exact is True:
@@ -3535,14 +3495,14 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
         elif max_fail_exact is False:
             L.append(
                 f"El chequeo exacto confirmó que con su máximo de **{techo} puntos**, {equipo} {verbo} pase lo que pase. "
-                "Pero todavía **no está calculado el menor total exacto** que lo asegura. La referencia de trabajo "
-                "de arriba orienta la exigencia, pero no reemplaza ese mínimo."
+                "Pero todavía **no está calculado el menor total exacto** que lo asegura. El total seguro, "
+                "si aparece arriba, es suficiente pero puede ser más alto que ese mínimo."
             )
         else:
             L.append(
                 "**Todavía no está calculado.** El mínimo que asegura aparecerá sólo cuando el motor pueda demostrar cuál "
                 "es el menor puntaje alcanzable que asegura el objetivo en todos los escenarios compatibles. Mientras "
-                "tanto, la referencia de trabajo se muestra por separado y no se presenta como garantía."
+                "tanto, el total seguro se identifica por separado y nunca se presenta como el mínimo."
             )
 
         if mostrar_amenazas and amenazas_techo:
@@ -3651,7 +3611,7 @@ def _escenario_maximo_copas_bloque(equipo, base_red, rest, pend, k_lib, k_sud, m
     )
     return L
 
-def lpf_copas_necesita_texto(equipo, Z, rest, apertura=None, camps=("", "", ""), extras=("", ""), pend=None, jugados=None, selected_objective=None):
+def lpf_copas_necesita_texto(equipo, Z, rest, apertura=None, camps=("", "", ""), extras=("", ""), pend=None, jugados=None):
     """Informe de copas por la Tabla General: conclusión arriba, cada número con su
     porqué al lado, los rivales una sola vez y la letra chica al final."""
     if len((Z or {})) < 2:
@@ -3663,9 +3623,6 @@ def lpf_copas_necesita_texto(equipo, Z, rest, apertura=None, camps=("", "", ""),
         return f"## {equipo} ya tiene su plaza\n\n{motivo}. No depende de la tabla anual."
     if equipo not in anual:
         return f"No encuentro a **{equipo}**."
-    selected_objective = str(selected_objective or "").strip().lower() or None
-    if selected_objective not in (None, "libertadores", "sudamericana"):
-        selected_objective = None
     base_red = {e: anual[e] for e in red}
     n = len(base_red)
     pos_red = red.index(equipo) + 1
@@ -3698,42 +3655,17 @@ def lpf_copas_necesita_texto(equipo, Z, rest, apertura=None, camps=("", "", ""),
     pj_e = int(base_red[equipo].get("pj", 0))
     referencias = []
 
-    if selected_objective == "libertadores":
-        if e_lib == "in":
-            titular = f"Por la Tabla Anual, {equipo} ya tiene la Libertadores asegurada."
-        elif e_lib == "out":
-            titular = f"{equipo} ya no llega a la Libertadores por la Tabla Anual."
-        else:
-            titular = f"{equipo} sigue en carrera por la Libertadores 2027 a través de la Tabla Anual."
-        if target_lib is not None:
-            referencias.append(
-                f"Libertadores: alrededor de {int(target_lib)} puntos totales "
-                f"(+{max(0, int(target_lib) - pts_e)} desde hoy)"
-            )
-    elif selected_objective == "sudamericana":
-        if e_sud == "in":
-            titular = f"Por la Tabla Anual, {equipo} ya tiene asegurado al menos un lugar de Sudamericana."
-        elif e_sud == "out":
-            titular = f"{equipo} ya no llega a la Sudamericana por la Tabla Anual."
-        else:
-            titular = f"{equipo} sigue en carrera por obtener al menos un lugar de Sudamericana 2027 vía Tabla Anual."
-        if target_sud is not None:
-            referencias.append(
-                f"al menos Sudamericana: alrededor de {int(target_sud)} puntos totales "
-                f"(+{max(0, int(target_sud) - pts_e)} desde hoy)"
-            )
+    if e_lib == "in":
+        titular = f"Por la Tabla Anual, {equipo} ya tiene la Libertadores asegurada."
+    elif e_lib == "out" and e_sud == "out":
+        titular = f"Por la Tabla Anual, {equipo} quedó sin chances de copa."
+    elif e_lib == "out":
+        titular = f"{equipo} ya no llega a la Libertadores por la Tabla Anual: su pelea es por la Sudamericana."
     else:
-        if e_lib == "in":
-            titular = f"Por la Tabla Anual, {equipo} ya tiene la Libertadores asegurada."
-        elif e_lib == "out" and e_sud == "out":
-            titular = f"Por la Tabla Anual, {equipo} quedó sin chances de copa."
-        elif e_lib == "out":
-            titular = f"{equipo} ya no llega a la Libertadores por la Tabla Anual: su pelea es por la Sudamericana."
-        else:
-            titular = (
-                f"{equipo} sigue en carrera por las copas de 2027. La Libertadores exige una remontada mayor; la "
-                "Sudamericana aparece como el objetivo más cercano según la tabla y el fixture actuales."
-            )
+        titular = (
+            f"{equipo} sigue en carrera por las copas de 2027. La Libertadores exige una remontada mayor; la "
+            "Sudamericana aparece como el objetivo más cercano según la tabla y el fixture actuales."
+        )
         if target_lib is not None:
             referencias.append(
                 f"Libertadores: alrededor de {int(target_lib)} puntos totales "
@@ -3798,12 +3730,12 @@ def lpf_copas_necesita_texto(equipo, Z, rest, apertura=None, camps=("", "", ""),
         L.append("**Referencias del modelo:**")
         for referencia in referencias:
             L.append(f"- {referencia}.")
-        if target_lib is not None and selected_objective in (None, "libertadores"):
+        if target_lib is not None:
             faltan_lib = max(0, int(target_lib) - pts_e)
             ejemplo_lib = _texto_combos(faltan_lib, gx)
             if ejemplo_lib:
                 L.append("**Ejemplos de caminos hacia la referencia de Libertadores:** " + ejemplo_lib.replace("**Cómo llegar** (sirve alcanzar la meta *o superarla*): ", ""))
-        if target_sud is not None and selected_objective in (None, "sudamericana"):
+        if target_sud is not None:
             faltan_sud = max(0, int(target_sud) - pts_e)
             ejemplo_sud = _texto_combos(faltan_sud, gx)
             if ejemplo_sud:
@@ -3815,27 +3747,23 @@ def lpf_copas_necesita_texto(equipo, Z, rest, apertura=None, camps=("", "", ""),
                              "diferencia de gol, goles a favor, Fair Play y, si persiste la igualdad, sorteo.")
     meta_lib_pre = _linea_garantia(base_red, rest, pend, equipo, k_lib) + 1
     meta_sud_pre = _linea_garantia(base_red, rest, pend, equipo, k_sud) + 1
-    if selected_objective in (None, "libertadores"):
-        L += _copas_bloque_objetivo(
-            equipo, base_red, rest, pend, k_lib, "Libertadores",
-            cupos_reales=k_lib, nota_desempate=_nota_desempate_anual,
-            contexto=contexto_lib, historial=historial_lib, objetivo="libertadores",
-            mostrar_amenazas=False, meta_override=meta_lib_pre,
-        )
-    if selected_objective in (None, "sudamericana"):
-        L += _copas_bloque_objetivo(
-            equipo, base_red, rest, pend, k_sud, "Sudamericana",
-            cupos_reales=6, nota_desempate=_nota_desempate_anual,
-            contexto=contexto_sud, historial=historial_sud, objetivo="sudamericana",
-            mostrar_cruces=selected_objective == "sudamericana",
-            mostrar_rivales=True, mostrar_amenazas=False,
-            meta_override=meta_sud_pre,
-        )
+    L += _copas_bloque_objetivo(
+        equipo, base_red, rest, pend, k_lib, "Libertadores",
+        cupos_reales=k_lib, nota_desempate=_nota_desempate_anual,
+        contexto=contexto_lib, historial=historial_lib, objetivo="libertadores",
+        mostrar_amenazas=False, meta_override=meta_lib_pre,
+    )
+    L += _copas_bloque_objetivo(
+        equipo, base_red, rest, pend, k_sud, "Sudamericana",
+        cupos_reales=6, nota_desempate=_nota_desempate_anual,
+        contexto=contexto_sud, historial=historial_sud, objetivo="sudamericana",
+        mostrar_cruces=False, mostrar_rivales=True, mostrar_amenazas=False,
+        meta_override=meta_sud_pre,
+    )
 
-    if selected_objective is None:
-        L += _escenario_maximo_copas_bloque(
-            equipo, base_red, rest, pend, k_lib, k_sud, meta_lib_pre, meta_sud_pre,
-        )
+    L += _escenario_maximo_copas_bloque(
+        equipo, base_red, rest, pend, k_lib, k_sud, meta_lib_pre, meta_sud_pre,
+    )
 
     # ── Rivales que le quedan: UNA sola vez ──
     if pend:
@@ -9761,7 +9689,11 @@ def render_definition_radar(E):
         "y en el resumen exacto de G/E/P. La otra cancha se elige como partido completo, no como segundo equipo."
     )
 
-    ui_markdown("### 1. Elegí qué querés analizar")
+    ui_markdown("### Configurá el tablero")
+    ui_caption(
+        "Todas las decisiones del análisis están juntas acá arriba. Elegir un equipo no abre una vista distinta ni termina el flujo: "
+        "sólo fija el protagonista. El resultado completo aparece más abajo, en la sección de resultados."
+    )
     _sync_lpf_objective_widget("radar_objective")
     objective = ui_selectbox(
         "Objetivo", _LPF_OBJECTIVE_UI_OPTIONS, key="radar_objective",
@@ -9800,9 +9732,6 @@ def render_definition_radar(E):
         "**Otra cancha clave** = un partido sugerido automáticamente por impacto exacto que podés cambiar."
     )
 
-    # 2) Equipo principal. En Copas también dejamos elegir clasificados por vía directa
-    # para explicar que el objetivo ya está resuelto, en vez de saltar silenciosamente a otro club.
-    ui_markdown("### 2. Elegí el equipo principal")
     selection_ordered = list(ordered)
     if objective in ("Libertadores", "Al menos Sudamericana") and ctx.get("annual"):
         selection_ordered = list(liga_tabla_df(ctx["annual"])["Equipo"])
@@ -9812,35 +9741,138 @@ def render_definition_radar(E):
         st.session_state["radar_team_focus"] = team_placeholder
     team_focus = ui_selectbox(
         "Equipo principal", team_options, key="radar_team_focus",
-        help="Primero elegí el club que querés analizar. Todo lo que sigue se recalcula desde ese equipo.",
+        help="Elegí el club protagonista. Esto no ejecuta el análisis por separado: las demás opciones siguen visibles debajo.",
     )
-    if team_focus == team_placeholder:
+    team_selected = team_focus != team_placeholder
+
+    package = {}
+    report = {}
+    fight = pd.DataFrame()
+    resolved = False
+    if team_selected:
+        package = _lpf_definition_package(
+            E, objective, lab, team_focus, [team_focus], current_round,
+            base=base, rest=rest, games=games, pending=pending, cutoff=cutoff,
+        )
+        resolved = bool(package.get("resolved") and not package.get("definition_needed", True))
+        if not resolved:
+            report = package.get("report") or {}
+            fight = pd.DataFrame(package.get("fight_zone") or [])
+
+    ui_markdown("**Comparadores de la matriz G/E/P**")
+    suggested_matrix = []
+    comparator_options = [name for name in ordered if (not team_selected or name != team_focus)]
+    if team_selected and not resolved:
+        around = fight.loc[fight["Equipo"] != "…", "Equipo"].tolist() if not fight.empty and "Equipo" in fight else ordered[:6]
+        suggested_matrix = [name for name in around if name in ordered and name != team_focus][:4]
+        matrix_state_key = f"radar_matrix_comparators_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}"
+        if matrix_state_key not in st.session_state:
+            st.session_state[matrix_state_key] = []
+        else:
+            st.session_state[matrix_state_key] = [
+                name for name in st.session_state.get(matrix_state_key, []) if name in comparator_options
+            ]
+        comparators = st.multiselect(
+            "Comparar también con… (opcional)", comparator_options,
+            key=matrix_state_key,
+            help=(
+                f"{team_focus} ya está incluido. Los clubes que marques acá sólo agregan filas a la matriz; "
+                "no cambian el equipo principal."
+            ),
+        )
+        if suggested_matrix:
+            ui_caption(
+                "Sugeridos por cercanía al equipo y al corte: " + ", ".join(suggested_matrix)
+                + ". Son sugerencias; **no se agregan solas**."
+            )
+            add_col, clear_col = st.columns(2)
+            if add_col.button(
+                "Agregar sugeridos", key=f"radar_add_suggested_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}",
+                use_container_width=True,
+            ):
+                current_comparators = list(st.session_state.get(matrix_state_key, []))
+                st.session_state[matrix_state_key] = list(dict.fromkeys(current_comparators + suggested_matrix))
+                st.rerun()
+            if clear_col.button(
+                "Quitar comparadores", key=f"radar_clear_comparators_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}",
+                use_container_width=True,
+            ):
+                st.session_state[matrix_state_key] = []
+                st.rerun()
+    else:
+        comparators = st.multiselect(
+            "Comparar también con… (opcional)", comparator_options,
+            key=f"radar_matrix_comparators_disabled_{objective}_{ctx.get('zone') or 'annual'}",
+            disabled=True,
+            help="Esta opción queda visible desde el inicio y se habilita cuando elegís un equipo principal con el objetivo abierto.",
+        )
+    selected_teams = [team_focus] + [name for name in comparators if name != team_focus] if team_selected else []
+
+    ui_markdown("**Otra cancha para la doble entrada**")
+    automatic_match_choice = "Automática · sugerir la otra cancha más influyente"
+    match_options = []
+    match_by_label = {}
+    candidate_scores = {}
+    if team_selected and not resolved and report.get("available"):
+        other_matches = list(report.get("other_matches") or [])
+        for branch in report.get("branches", []):
+            for lever in branch.get("levers", []):
+                candidate_scores[lever["match"]] = max(candidate_scores.get(lever["match"], 0.0), float(lever.get("spread", 0.0)))
+        for match in other_matches:
+            label = f"{match[0]} – {match[1]}"
+            match_options.append(label)
+            match_by_label[label] = match
+        match_options = sorted(set(match_options), key=lambda label: (-candidate_scores.get(label, 0.0), label))
+        match_choice_options = [automatic_match_choice] + match_options
+        key_state = f"radar_key_match_choice_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}"
+        if st.session_state.get(key_state) not in match_choice_options:
+            st.session_state[key_state] = automatic_match_choice
+        key_match_choice = ui_selectbox(
+            "Partido de la otra cancha", match_choice_options, key=key_state,
+            help=(
+                "Dejá Automática para que el motor use la otra cancha que más cambia los caminos exactos. "
+                "O elegí vos un partido de la fecha. No se elige al azar."
+            ),
+        )
+    else:
+        key_match_choice = ui_selectbox(
+            "Partido de la otra cancha", [automatic_match_choice],
+            key=f"radar_key_match_disabled_{objective}_{ctx.get('zone') or 'annual'}",
+            disabled=True,
+            help="Esta opción queda visible desde el inicio y se habilita cuando el equipo principal tiene una definición abierta.",
+        )
+
+    if team_selected:
+        ui_caption(
+            f"Configuración actual: **{ctx['label']}** · equipo principal: **{team_focus}** · "
+            + ("comparadores: " + ", ".join(comparators) if comparators else "sin comparadores")
+            + " · otra cancha: " + (key_match_choice if key_match_choice else automatic_match_choice) + "."
+        )
+    else:
+        ui_caption(
+            "Las opciones ya están desplegadas. Elegí el equipo principal para habilitar comparadores y otra cancha; "
+            "recién debajo se mostrará el resultado. No se selecciona ninguno automáticamente."
+        )
+
+    st.divider()
+    ui_markdown("## Resultado del análisis")
+    if not team_selected:
         ui_info(
-            "Elegí un equipo para abrir el tablero. No se selecciona ninguno automáticamente: así queda claro cuál es el protagonista del análisis."
+            "Todavía no hay un resultado para mostrar. Elegí el equipo principal en la configuración de arriba; "
+            "comparadores y otra cancha ya están visibles y se habilitarán sin abrir una pantalla nueva."
         )
         return
-    ui_caption(
-        f"Equipo principal: **{team_focus}**. Los demás clubes no se convierten en protagonistas: "
-        "sólo aparecen como contexto automático o como comparadores elegidos por vos; la otra cancha se elige como partido."
-    )
-
-    # Primera consulta: alcanza para saber si el objetivo ya está resuelto y, si sigue abierto,
-    # para zona de pelea, G/E/P, garantía y reloj del equipo.
-    package = _lpf_definition_package(
-        E, objective, lab, team_focus, [team_focus], current_round,
-        base=base, rest=rest, games=games, pending=pending, cutoff=cutoff,
-    )
-    if package.get("resolved") and not package.get("definition_needed", True):
+    if resolved:
         ui_success(str(package.get("message") or f"{team_focus} ya tiene resuelto este objetivo."))
         if package.get("via"):
             ui_caption(f"Vía: **{package['via']}**.")
         ui_caption(
-            "No se muestran comparadores ni doble entrada porque este club ya no disputa este cupo por la tabla del objetivo."
+            "Los controles quedan visibles arriba, pero no se construye doble entrada porque este club ya no disputa este cupo por la tabla del objetivo."
         )
         return
 
-    # 3) Zona de pelea: siempre alrededor del equipo principal.
-    ui_markdown("### 3. Contexto automático · quiénes están alrededor")
+    # Contexto de la pelea: siempre alrededor del equipo principal.
+    ui_markdown("### Contexto automático · quiénes están alrededor")
     fight = pd.DataFrame(package.get("fight_zone") or [])
     if not fight.empty:
         ui_dataframe(fight, use_container_width=True, hide_index=True)
@@ -9850,49 +9882,9 @@ def render_definition_radar(E):
         "Techo = puntos actuales + todos los puntos propios todavía disponibles; no es una proyección."
     )
 
-    # 4) Matriz general / semáforo. El principal es fijo y los demás son sólo comparadores opcionales.
-    ui_markdown("### 4. Qué pasa si gana, empata o pierde")
+    # Matriz general / semáforo. El principal es fijo y los comparadores ya se eligieron arriba.
+    ui_markdown("### Qué pasa si gana, empata o pierde")
     ui_markdown(f"**Equipo principal: {team_focus}**")
-    around = fight.loc[fight["Equipo"] != "…", "Equipo"].tolist() if not fight.empty and "Equipo" in fight else ordered[:6]
-    suggested_matrix = [name for name in around if name in ordered and name != team_focus][:4]
-    comparator_options = [name for name in ordered if name != team_focus]
-    matrix_state_key = f"radar_matrix_comparators_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}"
-    if matrix_state_key not in st.session_state:
-        st.session_state[matrix_state_key] = []
-    else:
-        st.session_state[matrix_state_key] = [
-            name for name in st.session_state.get(matrix_state_key, []) if name in comparator_options
-        ]
-
-    if suggested_matrix:
-        ui_caption(
-            "Cerca del equipo y del corte: " + ", ".join(suggested_matrix)
-            + ". Son sugerencias; **no se agregan solas**."
-        )
-        add_col, clear_col = st.columns(2)
-        if add_col.button(
-            "Agregar sugeridos", key=f"radar_add_suggested_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}",
-            use_container_width=True,
-        ):
-            current_comparators = list(st.session_state.get(matrix_state_key, []))
-            st.session_state[matrix_state_key] = list(dict.fromkeys(current_comparators + suggested_matrix))
-            st.rerun()
-        if clear_col.button(
-            "Quitar comparadores", key=f"radar_clear_comparators_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}",
-            use_container_width=True,
-        ):
-            st.session_state[matrix_state_key] = []
-            st.rerun()
-
-    comparators = st.multiselect(
-        "Comparar también con… (opcional)", comparator_options,
-        key=matrix_state_key,
-        help=(
-            f"{team_focus} ya está incluido y no hace falta volver a elegirlo. "
-            "Los clubes que marques acá sólo agregan filas a esta matriz; no cambian el equipo principal."
-        ),
-    )
-    selected_teams = [team_focus] + [name for name in comparators if name != team_focus]
     ui_caption(
         f"La primera fila siempre es **{team_focus}**. "
         + ("También vas a ver: " + ", ".join(comparators) + "." if comparators else "No agregaste comparadores.")
@@ -9954,37 +9946,16 @@ def render_definition_radar(E):
     c3.metric("Techo", current + 3 * left)
     c4.metric("Mínimo que asegura", guarantee if guarantee is not None else "—")
 
-    # 5) Otra cancha clave: se elige un PARTIDO, no un segundo equipo.
-    ui_markdown("### 5. Otra cancha clave · doble entrada")
+    # Otra cancha clave: la elección ya se hizo en la configuración superior.
+    ui_markdown("### Otra cancha clave · doble entrada")
     ui_caption(
-        "Acá no elegís otro protagonista. La aplicación sugiere un **partido de otra cancha** por impacto exacto y podés cambiarlo. "
-        "La doble entrada cruza el resultado del equipo principal con los tres desenlaces naturales de ese partido."
+        "Acá se aplica el partido elegido arriba. Si dejaste Automática, el motor toma la otra cancha que más cambia los caminos exactos. "
+        "La doble entrada cruza el resultado del equipo principal con gana local / empate / gana visitante."
     )
-    other_matches = list(report.get("other_matches") or [])
-    candidate_scores = {}
-    for branch in report.get("branches", []):
-        for lever in branch.get("levers", []):
-            candidate_scores[lever["match"]] = max(candidate_scores.get(lever["match"], 0.0), float(lever.get("spread", 0.0)))
-
-    match_options = []
-    match_by_label = {}
-    for match in other_matches:
-        label = f"{match[0]} – {match[1]}"
-        match_options.append(label)
-        match_by_label[label] = match
-    match_options = sorted(set(match_options), key=lambda label: (-candidate_scores.get(label, 0.0), label))
-
     if match_options:
-        key_state = f"radar_key_match_{objective}_{team_focus}"
-        if st.session_state.get(key_state) not in match_options:
-            st.session_state[key_state] = match_options[0]
-        key_match_label = ui_selectbox(
-            "Partido de la otra cancha (sugerido, editable)", match_options, key=key_state,
-            help=(
-                "La primera opción es la otra cancha que más cambia los caminos exactos del equipo principal. "
-                "No se elige al azar; podés seleccionar cualquier otro partido de la fecha."
-            ),
-        )
+        key_match_label = match_options[0] if key_match_choice == automatic_match_choice else key_match_choice
+        if key_match_label not in match_by_label:
+            key_match_label = match_options[0]
         key_match = match_by_label[key_match_label]
         key_team = key_match[0] if key_match[0] in base else key_match[1]
         ui_caption(
@@ -10036,15 +10007,15 @@ def render_definition_radar(E):
     else:
         ui_caption("No hay otra cancha independiente para cruzar en esta fecha.")
 
-    # 6) Árbol reducido: sólo ramas con información nueva.
-    ui_markdown("### 6. Árbol reducido del camino")
+    # Árbol reducido: sólo ramas con información nueva.
+    ui_markdown("### Árbol reducido del camino")
     tree = _definition_tree_dot(team_focus, ctx["label"], report)
     if tree:
         _ST_GRAPHVIZ(tree, use_container_width=True)
         ui_caption("El árbol corta las ramas terminales y no dibuja todas las combinaciones del torneo. Sólo muestra qué cambia el estado.")
 
-    # 7) Partidos que más definen: ranking exacto de sensibilidad, no pronóstico.
-    ui_markdown("### 7. Partidos que más definen")
+    # Partidos que más definen: ranking exacto de sensibilidad, no pronóstico.
+    ui_markdown("### Partidos que más definen")
     decisive_rows = _definition_decisive_matches(report)
     if decisive_rows:
         visible_decisive = []
@@ -10076,8 +10047,8 @@ def render_definition_radar(E):
             ui_markdown(f"**{branch['result_label']}**")
             ui_markdown(branch_explanation(branch, ctx["label"]))
 
-    # 9) Reloj: ya viene en el mismo paquete público exacto.
-    ui_markdown("### 9. Reloj de definición")
+    # Reloj: ya viene en el mismo paquete público exacto.
+    ui_markdown("### Reloj de definición")
     guarantee_round = package.get("guarantee_round_label")
     clock = package.get("clock") or []
     if clock:
@@ -10730,20 +10701,23 @@ def render_guided_workspace(E):
         if _preview_frame is not None:
             ui_dataframe(_preview_frame, use_container_width=True, hide_index=True)
         with st.expander(f"Qué necesita para {objective.lower()}", expanded=False):
-            if objective == "Playoffs":
-                ui_markdown(lpf_playoffs_texto(team, Z, rest, pending, jugados=E.get("jugados") or []))
-            elif objective in ("Libertadores", "Al menos Sudamericana"):
-                ui_markdown(lpf_copas_necesita_texto(
-                    team, Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""),
-                    E.get("intl") or ("", ""), pending, jugados=E.get("jugados") or [],
-                    selected_objective="libertadores" if objective == "Libertadores" else "sudamericana",
-                ))
-            else:
-                ui_markdown(lpf_descenso_texto(
-                    Z, rest, E.get("apertura") or {}, previous, E.get("n_anual", 1),
-                    E.get("n_prom", 1), team, pending
-                ))
-            ui_caption("Lectura editorial completa: separa realidad, proyección, historia, fixture y mínimo exacto.")
+            try:
+                ui_markdown(_lpf_service_need_text(E, team, objective, lab))
+                ui_caption("Lectura generada por el contrato público v1.")
+            except _LPFServiceContractError as exc:
+                _record_lpf_service_fallback("objective_need_summary", exc)
+                if objective == "Playoffs":
+                    ui_markdown(lpf_playoffs_texto(team, Z, rest, pending, jugados=E.get("jugados") or []))
+                elif objective in ("Libertadores", "Al menos Sudamericana"):
+                    ui_markdown(lpf_copas_necesita_texto(
+                        team, Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""),
+                        E.get("intl") or ("", ""), pending, jugados=E.get("jugados") or []
+                    ))
+                else:
+                    ui_markdown(lpf_descenso_texto(
+                        Z, rest, E.get("apertura") or {}, previous, E.get("n_anual", 1),
+                        E.get("n_prom", 1), team, pending
+                    ))
         with st.expander("Cómo está la competencia", expanded=False):
             if objective == "Playoffs":
                 ui_markdown(lpf_relato_zona_texto(Z, lab, rest))
@@ -10791,19 +10765,17 @@ def render_guided_workspace(E):
         if text: ui_markdown(text)
         if frame is not None: ui_dataframe(frame, use_container_width=True, hide_index=True)
     elif task == "Qué necesita para alcanzar el objetivo":
-        if objective == "Playoffs":
-            ui_markdown(lpf_playoffs_texto(team, Z, rest, pending, jugados=E.get("jugados") or []))
-        elif objective in ("Libertadores", "Al menos Sudamericana"):
-            ui_markdown(lpf_copas_necesita_texto(
-                team, Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""),
-                E.get("intl") or ("", ""), pending, jugados=E.get("jugados") or [],
-                selected_objective="libertadores" if objective == "Libertadores" else "sudamericana",
-            ))
-        else:
-            ui_markdown(lpf_descenso_texto(
-                Z, rest, E.get("apertura") or {}, previous, E.get("n_anual", 1), E.get("n_prom", 1), team, pending
-            ))
-        ui_caption("Lectura editorial completa: separa realidad, proyección, historia, fixture y mínimo exacto.")
+        try:
+            ui_markdown(_lpf_service_need_text(E, team, objective, lab))
+            ui_caption("Lectura generada por el contrato público v1.")
+        except _LPFServiceContractError as exc:
+            _record_lpf_service_fallback("objective_need", exc)
+            if objective == "Playoffs":
+                ui_markdown(lpf_playoffs_texto(team, Z, rest, pending, jugados=E.get("jugados") or []))
+            elif objective in ("Libertadores", "Al menos Sudamericana"):
+                ui_markdown(lpf_copas_necesita_texto(team, Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""), E.get("intl") or ("", ""), pending, jugados=E.get("jugados") or []))
+            else:
+                ui_markdown(lpf_descenso_texto(Z, rest, E.get("apertura") or {}, previous, E.get("n_anual", 1), E.get("n_prom", 1), team, pending))
     elif task == "Qué resultados ajenos le convienen":
         if objective == "Playoffs":
             text, frame = lpf_otros_resultados_sim(
@@ -11066,35 +11038,7 @@ def render_pisos_workspace(E):
             ui_info(f"{team} no tiene objetivos activos con los datos cargados.")
             return
         ui_dataframe(frame, use_container_width=True, hide_index=True)
-        ui_caption(
-            "La tabla breve usa el contrato público de servicios. El informe de abajo usa la capa editorial completa "
-            "para explicar qué necesita y por qué."
-        )
-
-        ui_markdown("### Qué necesita · informe completo")
-        _need_options = ["Playoffs", "Libertadores", "Al menos Sudamericana", "Descenso"]
-        _sync_lpf_objective_widget("pisos_need_objective")
-        _need_objective = st.selectbox(
-            "Objetivo para desarrollar", _need_options, key="pisos_need_objective",
-            on_change=_lpf_objective_widget_changed, args=("pisos_need_objective",),
-        )
-        _previous = st.session_state.get("PROMEDIOS") or {}
-        if _need_objective == "Playoffs":
-            ui_markdown(lpf_playoffs_texto(team, Z, rest, pending, jugados=E.get("jugados") or []))
-        elif _need_objective in ("Libertadores", "Al menos Sudamericana"):
-            ui_markdown(lpf_copas_necesita_texto(
-                team, Z, rest, apertura, E.get("camps") or ("", "", ""),
-                E.get("intl") or ("", ""), pending, jugados=E.get("jugados") or [],
-                selected_objective="libertadores" if _need_objective == "Libertadores" else "sudamericana",
-            ))
-        else:
-            ui_markdown(lpf_descenso_texto(
-                Z, rest, apertura, _previous, n_anual, n_prom, team, pending
-            ))
-        ui_caption(
-            "Lectura editorial completa: corte actual, proyección, historia, peso del fixture, caminos y mínimo exacto "
-            "cuando el motor puede demostrarlo."
-        )
+        ui_caption("Esta vista ya consume el contrato público de servicios; Streamlit sólo transforma la respuesta JSON en tabla.")
         if service_entries is not None:
             has_cup = any(entry["key"] in {"libertadores", "sudamericana"} for entry in service_entries)
         else:

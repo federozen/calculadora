@@ -1,22 +1,14 @@
-## 3.8.58 · 2026-08-13
-
-### Restauración efectiva del informe completo de “Qué necesita”
-
-- El Panel por equipo deja de reemplazar la narrativa editorial por el resumen de `objective_points` tanto en `Resumen completo` como en `Qué necesita para alcanzar el objetivo`.
-- `Puntos por objetivo` conserva la tabla breve del contrato público y agrega debajo un **informe completo** seleccionable para Playoffs, Libertadores, Sudamericana y Descenso.
-- Playoffs vuelve a mostrar corte actual, proyección de 6.000 simulaciones, frecuencias por puntaje final, referencia histórica, peso del fixture, rivales próximos, referencia de trabajo y mínimo exacto cuando corresponde.
-- En copas, el objetivo elegido puede desarrollarse por separado para evitar mezclar Libertadores y Sudamericana en un mismo bloque largo.
-- Se sincronizan `lpf_version.py`, `pyproject.toml`, README y changelog para que el release publicado corresponda al código que ejecuta Streamlit.
-
 ## 3.8.53 · 2026-08-13
 
-### Regresión corregida: vuelve la narrativa de qué necesita
+### Configuración completa antes del análisis
 
-- Playoffs, Libertadores, Sudamericana y la vía de Tabla Anual del descenso vuelven a mostrar una **Referencia de trabajo** cuando el equipo sigue en carrera y el mínimo exacto todavía no está disponible.
-- La salida vuelve a decir cuántos puntos necesita sumar el equipo para alcanzar esa referencia y agrega combinaciones posibles cuando la marca está dentro de su techo.
-- Si la referencia prudente queda por encima del máximo alcanzable, se informa la distancia al techo sin convertirla en una exigencia real ni concluir automáticamente que el equipo necesita ayuda.
-- La **referencia prudente** queda separada de la **garantía matemática**: sólo el Radar exacto puede publicar el menor total que asegura el objetivo.
-- Se agrega una regresión editorial para impedir que el bloque vuelva a ocultarse o a presentarse como `Total seguro`.
+- `Visualizaciones -> Últimas fechas` deja de ocultar decisiones detrás de la selección del equipo principal. Objetivo, zona, principal, comparadores y otra cancha aparecen en un único bloque de configuración.
+- Comparadores y otra cancha permanecen visibles desde el inicio en estado deshabilitado; se activan al elegir un equipo con el objetivo abierto.
+- La UI separa explícitamente **Configurá el tablero** de **Resultado del análisis**. Contexto automático, G/E/P, doble entrada, árbol, ranking exacto y reloj quedan sólo en la segunda sección.
+- La otra cancha se configura arriba como `Automática` o como partido manual; la sugerencia automática conserva el criterio de sensibilidad exacta.
+- Se agrega una regresión de orden visual que impide volver al flujo wizard progresivo.
+- Cambio de UI/composición: Public Service v1, DataProvider v2, snapshot schema 3 y Runtime API **21** permanecen sin cambios.
+- Suite: **353 pruebas**.
 
 ## 3.8.52 · 2026-08-13
 

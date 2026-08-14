@@ -1,4 +1,4 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.52
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.53
 
 ## Qué se entrega
 
@@ -242,3 +242,16 @@ Sobre la regla de selección de 3.8.51 se suma una convención obligatoria para 
 
 Este cambio no modifica Public Service v1, DataProvider v2, snapshot schema 3 ni Runtime API 21.
 
+
+## Regla de configuración visible en `Últimas fechas` (3.8.53)
+
+La interfaz no debe volver al flujo wizard donde elegir el equipo principal oculta las decisiones siguientes. El orden obligatorio es:
+
+1. **Configuración visible completa:** objetivo, zona si corresponde, equipo principal, comparadores y partido de la otra cancha.
+2. Antes de elegir equipo, comparadores y otra cancha pueden estar deshabilitados, pero deben seguir visibles para que el editor entienda el alcance del tablero.
+3. El equipo principal sólo fija el protagonista; no representa una acción final ni abre una vista distinta.
+4. Después de todos los controles debe existir un corte explícito **Resultado del análisis**. Recién debajo van contexto automático, G/E/P, doble entrada, árbol, partidos que más definen y reloj.
+5. `Partido de la otra cancha` ofrece modo automático o selección manual; el resultado no debe volver a crear un segundo selector del mismo concepto.
+6. Existe un test de arquitectura/UI que comprueba que esos controles aparecen en el código antes de la sección de resultados.
+
+Este cambio no modifica Public Service v1, DataProvider v2, snapshot schema 3 ni Runtime API 21.
