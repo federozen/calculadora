@@ -185,6 +185,134 @@ def can_fail_with_points(base, matches, team, cutoff, final_points, fixed=None) 
     return _build_model(base, _normalize_matches(matches), team, int(final_points), int(cutoff), "fail", fixed)
 
 
+def exact_objective_result_states(
+    base: Mapping[str, object],
+    rest: Mapping[str, int],
+    matches: Iterable[tuple[str, str]],
+    team: str,
+    own_match: tuple[str, str],
+    cutoff: int,
+) -> dict[str, object]:
+    """Estado exacto G/E/P del objetivo sin enumerar todas las otras canchas.
+
+    La matriz editorial de próxima fecha normalmente usa enumeración completa para
+    poder explicar también *qué otra cancha* pesa más. Cuando hay demasiados
+    partidos ajenos, esa enumeración crece como ``3^N``. Para el semáforo G/E/P
+    no hace falta enumerarlos: alcanza con resolver dos problemas MILP por rama.
+
+    - Para probar una garantía se busca si el equipo todavía puede fallar incluso
+      terminando con su **mínimo** puntaje compatible con la rama. Si ni así puede
+      fallar, el objetivo queda asegurado.
+    - Para probar eliminación se busca si puede clasificar llegando a su **máximo**
+      puntaje compatible con la rama. Si ni así puede entrar, queda eliminado.
+
+    El método requiere fixture completo para los equipos de ``base``. Si la
+    cobertura no coincide con ``rest``, devuelve ``available=False`` antes que
+    publicar un cierre matemático sobre un fixture incompleto.
+    """
+    if not SCIPY_MILP:
+        return {"available": False, "reason": "scipy.optimize.milp no está disponible"}
+    if team not in base:
+        return {"available": False, "reason": "equipo desconocido"}
+    if int(cutoff) <= 0:
+        return {"available": False, "reason": "corte inválido"}
+
+    matches = list(_matches_relevant_to_base(base, matches))
+    own_match = (str(own_match[0]), str(own_match[1]))
+    if own_match not in matches:
+        return {"available": False, "reason": "el partido propio no está en el fixture pendiente"}
+    if team not in own_match:
+        return {"available": False, "reason": "el partido indicado no corresponde al equipo"}
+
+    # La prueba de temporada necesita todos los partidos pendientes de cada club
+    # que integra la tabla reducida. Un partido contra un equipo externo sí cuenta.
+    coverage = {name: 0 for name in base}
+    for home, away in matches:
+        if home in coverage:
+            coverage[home] += 1
+        if away in coverage:
+            coverage[away] += 1
+    missing = [
+        name for name in base
+        if int(coverage.get(name, 0)) != max(0, int(rest.get(name, 0)))
+    ]
+    if missing:
+        sample = ", ".join(sorted(missing)[:5])
+        suffix = "…" if len(missing) > 5 else ""
+        return {
+            "available": False,
+            "reason": f"fixture pendiente incompleto para la prueba exacta ({sample}{suffix})",
+        }
+
+    current = _points(base[team])
+    remaining_after_own = max(0, int(rest.get(team, 0)) - 1)
+    is_home = own_match[0] == team
+    branch_defs = (
+        ("G", "Si gana", "L" if is_home else "V", 3),
+        ("E", "Si empata", "E", 1),
+        ("P", "Si pierde", "V" if is_home else "L", 0),
+    )
+    branches: list[dict[str, object]] = []
+    for code, label, fixed_code, gain in branch_defs:
+        fixed = {own_match: fixed_code}
+        floor = current + gain
+        ceiling = floor + 3 * remaining_after_own
+
+        # Menor puntaje = peor camino propio. Si ni en ese escenario existe una
+        # eliminación, la rama asegura.
+        fail_at_floor = can_fail_with_points(base, matches, team, int(cutoff), floor, fixed)
+        # Mayor puntaje = mejor camino propio. Si ni así existe clasificación, la
+        # rama elimina.
+        qualify_at_ceiling = can_qualify_with_points(base, matches, team, int(cutoff), ceiling, fixed)
+
+        guaranteed = not fail_at_floor.feasible
+        eliminated = not qualify_at_ceiling.feasible
+        state = "in" if guaranteed else "out" if eliminated else "pelea"
+        if guaranteed:
+            explanation = (
+                f"{label}, aun tomando el peor recorrido propio posterior ({floor} puntos finales), "
+                f"el solver exacto no encuentra ningún cierre compatible que deje a {team} fuera del corte. "
+                "Por eso esta rama asegura el objetivo."
+            )
+        elif eliminated:
+            explanation = (
+                f"{label}, aun tomando el mejor recorrido propio posterior ({ceiling} puntos finales), "
+                f"el solver exacto no encuentra ningún cierre compatible que meta a {team} dentro del corte. "
+                "Por eso esta rama deja el objetivo fuera de alcance."
+            )
+        else:
+            explanation = (
+                f"{label}, el objetivo sigue abierto: existe al menos un cierre compatible en el que {team} entra "
+                "y también uno en el que queda fuera. Para esta celda el solver prueba factibilidad matemática; "
+                "no asigna probabilidad a esos caminos."
+            )
+        branches.append({
+            "result": code,
+            "result_label": label,
+            "final_points_after_round": current + gain,
+            "points_floor": floor,
+            "points_ceiling": ceiling,
+            "solver_state": state,
+            "solver": "scipy.optimize.milp",
+            "solver_explanation": explanation,
+            # Forma mínima compatible con branch_state(), sólo para presentación.
+            "total_combinations": 1,
+            "season_in": 1 if state == "in" else 0,
+            "season_pelea": 1 if state == "pelea" else 0,
+            "season_out": 1 if state == "out" else 0,
+            "round_safe": 0,
+            "proof": {"team_points": current + gain, "cutoff": int(cutoff)},
+        })
+
+    return {
+        "available": True,
+        "method": "milp-season-branches",
+        "own_match": own_match,
+        "branches": branches,
+        "reason": "",
+    }
+
+
 def exact_rank_bounds_with_points(base, matches, team, final_points, fixed=None) -> tuple[int, int] | None:
     best = _build_model(base, _normalize_matches(matches), team, int(final_points), len(base), "best_rank", fixed, "best")
     worst = _build_model(base, _normalize_matches(matches), team, int(final_points), len(base), "worst_rank", fixed, "worst")

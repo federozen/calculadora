@@ -47,7 +47,7 @@ from lpf_models import DataQualityReport
 from lpf_competition_narratives import (
     libertadores_story, relegation_story, round_preview_story, sudamericana_story, zone_story,
 )
-from lpf_scenarios import can_fail_with_points, can_finish_exact_rank_by_points, exact_result_scenarios, point_ladder, scenario_rank_bounds, best_worst_window_scenarios, reachable_point_totals
+from lpf_scenarios import can_fail_with_points, can_finish_exact_rank_by_points, exact_objective_result_states, exact_result_scenarios, point_ladder, scenario_rank_bounds, best_worst_window_scenarios, reachable_point_totals
 from lpf_pisos import (
     VENTANA_EXACTA, piso_no_descenso, piso_por_corte, pisos_de_equipo,
     promedio_totales, tabla_pisos_objetivo,
@@ -9508,6 +9508,40 @@ def _definition_state_cell(branch):
     return (labels.get(state["label"], str(state["label"]).upper()), colors[state["signal"]])
 
 
+def _definition_fill_milp_matrix(rows, base, rest, current_games, pending, cutoff):
+    """Completa G/E/P con MILP cuando la enumeración 3^N supera el límite.
+
+    El informe completo de condicionales sigue necesitando enumeración para poder
+    explicar otras canchas y construir el árbol. La matriz semáforo no: si la
+    enumeración corta no está disponible, resolvemos sólo si cada rama asegura,
+    elimina o deja abierto el objetivo usando todo el fixture pendiente.
+    """
+    out = []
+    used_solver = []
+    all_pending = _lpf_dedupe_scenario_games(pending or [])
+    current_games = _lpf_dedupe_scenario_games(current_games or [])
+    for raw in rows or []:
+        row = dict(raw)
+        report = dict(row.get("_report") or {})
+        team = str(row.get("Equipo") or "")
+        if not report.get("available") and team in base:
+            own = next((match for match in current_games if team in match), None)
+            if own is not None:
+                solver_report = exact_objective_result_states(
+                    base, rest, all_pending, team, own, int(cutoff)
+                )
+                if solver_report.get("available"):
+                    report = solver_report
+                    row["_report"] = report
+                    by_result = {str(branch.get("result")): branch for branch in report.get("branches", [])}
+                    row["Si gana"] = branch_cell(by_result.get("G") or {})
+                    row["Si empata"] = branch_cell(by_result.get("E") or {})
+                    row["Si pierde"] = branch_cell(by_result.get("P") or {})
+                    used_solver.append(team)
+        out.append(row)
+    return out, used_solver
+
+
 def _definition_general_matrix_spec(rows, team_focus, objective_label):
     """Grilla tipo Mundial: equipos en filas, G/E/P en columnas."""
     row_headers, cells = [], []
@@ -9869,7 +9903,10 @@ def _cup_definition_visual_package(E, objective, team):
         )
     except Exception as exc:
         return {"available": False, "reason": str(exc), "context": ctx}
-    return {"available": True, "context": ctx, "package": package, "round": current_round}
+    return {
+        "available": True, "context": ctx, "package": package, "round": current_round,
+        "games": list(games or []), "pending": list(pending or []),
+    }
 
 
 def _cup_cut_metrics(ctx, team):
@@ -9890,6 +9927,137 @@ def _cup_cut_metrics(ctx, team):
         "sud_cut_points": int((annual.get(sud_team) or {}).get("pts", 0)) if sud_team else None,
         "sud_cut_team": sud_team,
     }
+
+
+def _render_radar_estimated_visuals(E, objective, lab, team_focus, ctx, Z, rest, pending):
+    """Visuales ESTIMADOS independientes de la enumeración exacta de otras canchas."""
+    ui_markdown("### ESTIMADO · visual de chances")
+    ui_caption(
+        f"Este bloque recupera el termómetro visual del Mundial, pero usa el contrato público `objective_chances` con {_LPF_PUBLIC_MC_RUNS:,} simulaciones. "
+        "No modifica ninguna conclusión exacta de arriba. El impacto Monte Carlo sigue separado como ESTIMADO. Para Copas suma además un mapa comparativo rojo→amarillo→verde."
+    )
+    chance_cache_key = f"radar_chance_visual_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}"
+    cup_map_cache_key = f"radar_cup_probability_map_{objective}_{team_focus}"
+    if st.button(
+        f"Calcular visual de chances · {_LPF_PUBLIC_MC_RUNS:,} simulaciones",
+        key=f"radar_chance_button_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}",
+        use_container_width=True,
+    ):
+        try:
+            chance_payload = {
+                "team": team_focus,
+                "objective": _lpf_service_objective(objective),
+                "simulations": _LPF_PUBLIC_MC_RUNS,
+                "seed": 23,
+            }
+            if objective == "Playoffs":
+                chance_payload["zone"] = lab
+            st.session_state[chance_cache_key] = _lpf_service_result("objective_chances", E, **chance_payload)
+        except _LPFServiceContractError as exc:
+            _record_lpf_service_fallback("objective_chances", exc)
+            ui_warning("No pude calcular la estimación por la frontera pública; el fallo quedó registrado en auditoría.")
+        if objective in ("Libertadores", "Al menos Sudamericana"):
+            try:
+                st.session_state[cup_map_cache_key] = _cup_probability_package(E, objective, team_focus)
+            except Exception as exc:
+                st.session_state.pop(cup_map_cache_key, None)
+                ui_warning(f"No pude construir el mapa comparativo de Copas: {exc}")
+
+    chance_result = st.session_state.get(chance_cache_key) or {}
+    if chance_result:
+        if chance_result.get("resolved"):
+            ui_markdown(f"**{team_focus}:** {chance_result.get('message') or 'objetivo ya resuelto.'}")
+        else:
+            pct = float(chance_result.get("qualification_percentage", 0.0) or 0.0)
+            st.image(
+                placa_chances_mc_png(
+                    team_focus, pct,
+                    nota=f"ESTIMADO · {int(chance_result.get('simulations', _LPF_PUBLIC_MC_RUNS)):,} simulaciones · {ctx['label']}",
+                ),
+                use_container_width=True,
+            )
+            ui_caption(
+                f"{pct:.1f}% en {int(chance_result.get('simulations', _LPF_PUBLIC_MC_RUNS)):,} simulaciones. "
+                "Es una estimación del modelo, no una garantía matemática."
+            )
+
+    if objective in ("Libertadores", "Al menos Sudamericana"):
+        cup_map = st.session_state.get(cup_map_cache_key) or {}
+        cup_rows = list(cup_map.get("rows") or [])
+        if cup_rows:
+            ui_markdown("#### Mapa de probabilidades de Copas · escala de color")
+            ui_markdown(
+                _html_tabla(
+                    cup_probability_heatmap_spec(
+                        cup_rows,
+                        active_objective=objective,
+                        focus_team=team_focus,
+                        simulations=int(cup_map.get("simulations", _LPF_PUBLIC_MC_RUNS)),
+                    )
+                ),
+                unsafe_allow_html=True,
+            )
+            if cup_map.get("headline"):
+                ui_markdown(cup_map["headline"])
+            ui_caption(cup_map.get("note") or "Mapa comparativo del mismo Monte Carlo de Copas.")
+            with st.expander("Ver probabilidades de Copas en tabla", expanded=False):
+                ui_dataframe(pd.DataFrame(cup_rows), use_container_width=True, hide_index=True)
+
+    ui_markdown("#### ESTIMADO · impacto de otras canchas")
+    ui_caption(
+        "Se calcula sólo a demanda. La barra compara cuánto cambia la chance estimada entre el mejor y el peor desenlace de cada partido ajeno; "
+        "no convierte ese partido en una condición matemática obligatoria."
+    )
+    other_cache_key = f"radar_estimated_other_cache_{objective}_{team_focus}"
+    if st.button(
+        "Calcular impacto estimado de otras canchas",
+        key=f"radar_estimated_other_{objective}_{team_focus}",
+        use_container_width=True,
+    ):
+        try:
+            if objective == "Playoffs":
+                other_text, other_frame = lpf_otros_resultados_sim(
+                    team_focus, Z, rest, pending, jugados=E.get("jugados") or [], scope="official_round"
+                )
+                other_crosses = None
+            else:
+                cup_ctx = _cup_visual_context(E)
+                cup_objective = "libertadores" if objective == "Libertadores" else "al_menos_sudamericana"
+                other_text, other_frame, other_crosses = lpf_conviene_obj(
+                    team_focus, cup_objective, cup_ctx, pending, E.get("jugados") or [], scope="official_round"
+                )
+            st.session_state[other_cache_key] = {
+                "text": other_text or "",
+                "rows": other_frame.to_dict("records") if isinstance(other_frame, pd.DataFrame) else [],
+                "crosses": other_crosses.to_dict("records") if isinstance(other_crosses, pd.DataFrame) else [],
+            }
+        except Exception as exc:
+            st.session_state.pop(other_cache_key, None)
+            ui_warning(f"No pude calcular el impacto estimado de otras canchas: {exc}")
+
+    other_result = st.session_state.get(other_cache_key) or {}
+    if other_result.get("text"):
+        ui_markdown(other_result["text"])
+    other_rows = list(other_result.get("rows") or [])
+    if other_rows:
+        other_frame = pd.DataFrame(other_rows)
+        if {"Partido", "Diferencia"} <= set(other_frame.columns):
+            impact = other_frame[["Partido", "Diferencia"]].copy()
+            impact["Impacto (pp)"] = pd.to_numeric(
+                impact["Diferencia"].astype("string").str.replace(" pp", "", regex=False).str.replace(",", ".", regex=False),
+                errors="coerce",
+            )
+            impact = impact.dropna(subset=["Impacto (pp)"])
+            if not impact.empty:
+                st.bar_chart(impact.set_index("Partido")[["Impacto (pp)"]])
+        with st.expander("Ver detalle del impacto de otras canchas", expanded=False):
+            ui_dataframe(other_frame, use_container_width=True, hide_index=True)
+    other_crosses = list(other_result.get("crosses") or [])
+    if other_crosses:
+        with st.expander("Cruces futuros entre competidores de Copas", expanded=False):
+            ui_dataframe(pd.DataFrame(other_crosses), use_container_width=True, hide_index=True)
+    ui_caption("ESTIMADO · diferencia entre el mejor y el peor desenlace de cada partido ajeno. No es una prueba exacta de clasificación.")
+
 
 
 def render_definition_radar(E):
@@ -10190,11 +10358,22 @@ def render_definition_radar(E):
             base=base, rest=rest, games=games, pending=pending, cutoff=cutoff,
         )
     rows = list(package.get("matrix") or [])
+    solver_matrix_teams = []
     if rows:
+        rows, solver_matrix_teams = _definition_fill_milp_matrix(
+            rows, base, rest, games, pending, cutoff
+        )
         # Lectura principal tipo Mundial: una sola grilla, sin obligar a elegir entre modos.
         visual_spec = _definition_general_matrix_spec(rows, team_focus, ctx["label"])
         ui_markdown(_html_tabla(visual_spec), unsafe_allow_html=True)
         ui_caption("Semáforo compacto: 🟢 objetivo cerrado a favor · 🟡 sigue condicionado · 🔴 objetivo cerrado en contra. El texto de la celda manda sobre el color.")
+        if solver_matrix_teams:
+            ui_caption(
+                "Para " + ", ".join(solver_matrix_teams) +
+                " la fecha tiene demasiadas otras canchas para enumerar 3^N combinaciones. "
+                "Estas tres celdas se resolvieron igualmente de manera EXACTA con el solver MILP de temporada: "
+                "prueba garantía con el peor recorrido propio posterior y eliminación con el mejor. No es Monte Carlo."
+            )
 
         with st.expander("Ver detalle tabular y exportar", expanded=False):
             visible = [{k: v for k, v in row.items() if not str(k).startswith("_")} for row in rows]
@@ -10218,7 +10397,10 @@ def render_definition_radar(E):
             why_code = {"Gana": "G", "Empata": "E", "Pierde": "P"}[why_result_label]
             why_branch = next((branch for branch in why_report.get("branches", []) if branch.get("result") == why_code), None)
             if why_branch:
-                ui_markdown(branch_explanation(why_branch, ctx["label"]))
+                if why_branch.get("solver_explanation"):
+                    ui_markdown(str(why_branch["solver_explanation"]))
+                else:
+                    ui_markdown(branch_explanation(why_branch, ctx["label"]))
             else:
                 ui_caption("No hay una rama exacta disponible para ese equipo/resultado en la fecha seleccionada.")
 
@@ -10244,7 +10426,17 @@ def render_definition_radar(E):
     # Informe exacto del equipo seleccionado, también desde ``definition``.
     report = package.get("report") or {}
     if not report.get("available"):
-        ui_info(report.get("reason") or "El equipo no tiene un condicional exacto para esta fecha.")
+        ui_info(
+            (report.get("reason") or "El equipo no tiene un condicional enumerado para esta fecha.")
+            + " La matriz G/E/P de arriba no queda vacía: cuando el fixture completo está disponible, "
+              "sus estados se resuelven con el solver exacto. La doble entrada, el árbol y el ranking exacto "
+              "de otras canchas sí requieren la enumeración corta y por eso se omiten en esta fecha."
+        )
+        ui_markdown("### Visuales estimados disponibles igualmente")
+        ui_caption(
+            "El límite de enumeración exacta no bloquea el termómetro, el mapa de probabilidades de Copas ni el impacto estimado de otras canchas."
+        )
+        _render_radar_estimated_visuals(E, objective, lab, team_focus, ctx, Z, rest, pending)
         return
 
     current = int((base[team_focus] or {}).get("pts", 0))
@@ -10398,132 +10590,7 @@ def render_definition_radar(E):
             else:
                 ui_caption("La escalera exacta completa sigue disponible en Puntos por objetivo.")
 
-    ui_markdown("### ESTIMADO · visual de chances")
-    ui_caption(
-        f"Este bloque recupera el termómetro visual del Mundial, pero usa el contrato público `objective_chances` con {_LPF_PUBLIC_MC_RUNS:,} simulaciones. "
-        "No modifica ninguna conclusión exacta de arriba. El impacto Monte Carlo sigue separado como ESTIMADO. Para Copas suma además un mapa comparativo rojo→amarillo→verde."
-    )
-    chance_cache_key = f"radar_chance_visual_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}"
-    cup_map_cache_key = f"radar_cup_probability_map_{objective}_{team_focus}"
-    if st.button(
-        f"Calcular visual de chances · {_LPF_PUBLIC_MC_RUNS:,} simulaciones",
-        key=f"radar_chance_button_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}",
-        use_container_width=True,
-    ):
-        try:
-            chance_payload = {
-                "team": team_focus,
-                "objective": _lpf_service_objective(objective),
-                "simulations": _LPF_PUBLIC_MC_RUNS,
-                "seed": 23,
-            }
-            if objective == "Playoffs":
-                chance_payload["zone"] = lab
-            st.session_state[chance_cache_key] = _lpf_service_result("objective_chances", E, **chance_payload)
-        except _LPFServiceContractError as exc:
-            _record_lpf_service_fallback("objective_chances", exc)
-            ui_warning("No pude calcular la estimación por la frontera pública; el fallo quedó registrado en auditoría.")
-        if objective in ("Libertadores", "Al menos Sudamericana"):
-            try:
-                st.session_state[cup_map_cache_key] = _cup_probability_package(E, objective, team_focus)
-            except Exception as exc:
-                st.session_state.pop(cup_map_cache_key, None)
-                ui_warning(f"No pude construir el mapa comparativo de Copas: {exc}")
-
-    chance_result = st.session_state.get(chance_cache_key) or {}
-    if chance_result:
-        if chance_result.get("resolved"):
-            ui_markdown(f"**{team_focus}:** {chance_result.get('message') or 'objetivo ya resuelto.'}")
-        else:
-            pct = float(chance_result.get("qualification_percentage", 0.0) or 0.0)
-            st.image(
-                placa_chances_mc_png(
-                    team_focus, pct,
-                    nota=f"ESTIMADO · {int(chance_result.get('simulations', _LPF_PUBLIC_MC_RUNS)):,} simulaciones · {ctx['label']}",
-                ),
-                use_container_width=True,
-            )
-            ui_caption(
-                f"{pct:.1f}% en {int(chance_result.get('simulations', _LPF_PUBLIC_MC_RUNS)):,} simulaciones. "
-                "Es una estimación del modelo, no una garantía matemática."
-            )
-
-    if objective in ("Libertadores", "Al menos Sudamericana"):
-        cup_map = st.session_state.get(cup_map_cache_key) or {}
-        cup_rows = list(cup_map.get("rows") or [])
-        if cup_rows:
-            ui_markdown("#### Mapa de probabilidades de Copas · escala de color")
-            ui_markdown(
-                _html_tabla(
-                    cup_probability_heatmap_spec(
-                        cup_rows,
-                        active_objective=objective,
-                        focus_team=team_focus,
-                        simulations=int(cup_map.get("simulations", _LPF_PUBLIC_MC_RUNS)),
-                    )
-                ),
-                unsafe_allow_html=True,
-            )
-            if cup_map.get("headline"):
-                ui_markdown(cup_map["headline"])
-            ui_caption(cup_map.get("note") or "Mapa comparativo del mismo Monte Carlo de Copas.")
-            with st.expander("Ver probabilidades de Copas en tabla", expanded=False):
-                ui_dataframe(pd.DataFrame(cup_rows), use_container_width=True, hide_index=True)
-
-    ui_markdown("#### ESTIMADO · impacto de otras canchas")
-    ui_caption(
-        "Se calcula sólo a demanda. La barra compara cuánto cambia la chance estimada entre el mejor y el peor desenlace de cada partido ajeno; "
-        "no convierte ese partido en una condición matemática obligatoria."
-    )
-    other_cache_key = f"radar_estimated_other_cache_{objective}_{team_focus}"
-    if st.button(
-        "Calcular impacto estimado de otras canchas",
-        key=f"radar_estimated_other_{objective}_{team_focus}",
-        use_container_width=True,
-    ):
-        try:
-            if objective == "Playoffs":
-                other_text, other_frame = lpf_otros_resultados_sim(
-                    team_focus, Z, rest, pending, jugados=E.get("jugados") or [], scope="official_round"
-                )
-                other_crosses = None
-            else:
-                cup_ctx = _cup_visual_context(E)
-                cup_objective = "libertadores" if objective == "Libertadores" else "al_menos_sudamericana"
-                other_text, other_frame, other_crosses = lpf_conviene_obj(
-                    team_focus, cup_objective, cup_ctx, pending, E.get("jugados") or [], scope="official_round"
-                )
-            st.session_state[other_cache_key] = {
-                "text": other_text or "",
-                "rows": other_frame.to_dict("records") if isinstance(other_frame, pd.DataFrame) else [],
-                "crosses": other_crosses.to_dict("records") if isinstance(other_crosses, pd.DataFrame) else [],
-            }
-        except Exception as exc:
-            st.session_state.pop(other_cache_key, None)
-            ui_warning(f"No pude calcular el impacto estimado de otras canchas: {exc}")
-
-    other_result = st.session_state.get(other_cache_key) or {}
-    if other_result.get("text"):
-        ui_markdown(other_result["text"])
-    other_rows = list(other_result.get("rows") or [])
-    if other_rows:
-        other_frame = pd.DataFrame(other_rows)
-        if {"Partido", "Diferencia"} <= set(other_frame.columns):
-            impact = other_frame[["Partido", "Diferencia"]].copy()
-            impact["Impacto (pp)"] = pd.to_numeric(
-                impact["Diferencia"].astype("string").str.replace(" pp", "", regex=False).str.replace(",", ".", regex=False),
-                errors="coerce",
-            )
-            impact = impact.dropna(subset=["Impacto (pp)"])
-            if not impact.empty:
-                st.bar_chart(impact.set_index("Partido")[["Impacto (pp)"]])
-        with st.expander("Ver detalle del impacto de otras canchas", expanded=False):
-            ui_dataframe(other_frame, use_container_width=True, hide_index=True)
-    other_crosses = list(other_result.get("crosses") or [])
-    if other_crosses:
-        with st.expander("Cruces futuros entre competidores de Copas", expanded=False):
-            ui_dataframe(pd.DataFrame(other_crosses), use_container_width=True, hide_index=True)
-    ui_caption("ESTIMADO · diferencia entre el mejor y el peor desenlace de cada partido ajeno. No es una prueba exacta de clasificación.")
+    _render_radar_estimated_visuals(E, objective, lab, team_focus, ctx, Z, rest, pending)
 
 def _scenario_window_games(pending, scope="official_round"):
     jornada, juegos, atrasados = lpf_jornada_actual(pending or [])
@@ -10903,7 +10970,13 @@ def _render_cup_visual_dashboard(E, team, view):
                 ui_caption(f"Vía resuelta: **{definition_package['via']}**.")
         else:
             definition_rows = list(definition_package.get("matrix") or [])
+            solver_matrix_teams = []
             if definition_rows:
+                definition_rows, solver_matrix_teams = _definition_fill_milp_matrix(
+                    definition_rows, definition_ctx.get("base") or {}, E.get("rest") or {},
+                    definition_visual.get("games") or [], definition_visual.get("pending") or [],
+                    int(definition_ctx.get("cutoff") or 0),
+                )
                 ui_markdown(
                     _html_tabla(
                         _definition_general_matrix_spec(
@@ -10915,6 +10988,11 @@ def _render_cup_visual_dashboard(E, team, view):
                 ui_caption(
                     "★ = equipo elegido. G/E/P evalúa la próxima fecha oficial con el resto de los partidos compatibles abiertos."
                 )
+                if solver_matrix_teams:
+                    ui_caption(
+                        "La enumeración corta de otras canchas superó su límite; G/E/P se resolvió igualmente de forma EXACTA "
+                        "con el solver MILP de temporada, sin Monte Carlo."
+                    )
             else:
                 ui_caption(
                     str((definition_package.get("report") or {}).get("reason") or definition_package.get("reason") or

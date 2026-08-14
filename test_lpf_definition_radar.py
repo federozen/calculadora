@@ -248,10 +248,25 @@ def test_libertadores_and_sudamericana_get_full_visual_dashboard():
 
 def test_ultimas_fechas_copas_shows_heatmap_and_other_pitch_in_same_screen():
     source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    helper = source[source.index("def _render_radar_estimated_visuals"):source.index("def render_definition_radar")]
     radar = source[source.index("def render_definition_radar"):source.index("def _scenario_window_games")]
-    assert "Mapa de probabilidades de Copas · escala de color" in radar
-    assert "cup_probability_heatmap_spec" in radar
-    assert "radar_cup_probability_map_" in radar
-    assert "lpf_conviene_obj" in radar
-    assert "Cruces futuros entre competidores de Copas" in radar
-    assert "Para copas, el impacto estimado de otras canchas se consulta" not in radar
+    assert "Mapa de probabilidades de Copas · escala de color" in helper
+    assert "cup_probability_heatmap_spec" in helper
+    assert "radar_cup_probability_map_" in helper
+    assert "lpf_conviene_obj" in helper
+    assert "Cruces futuros entre competidores de Copas" in helper
+    assert "_render_radar_estimated_visuals" in radar
+    assert "Para copas, el impacto estimado de otras canchas se consulta" not in helper
+
+
+def test_cup_radar_does_not_blank_gep_or_hide_estimated_visuals_when_short_enumerator_overflows():
+    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    radar = source[source.index("def render_definition_radar"):source.index("def _scenario_window_games")]
+    assert "_definition_fill_milp_matrix" in radar
+    assert "exact_objective_result_states" in source
+    assert "Estas tres celdas se resolvieron igualmente de manera EXACTA con el solver MILP" in radar
+    unavailable = radar[radar.index('if not report.get("available")'):radar.index('current = int((base[team_focus] or {}).get("pts", 0))')]
+    assert "_render_radar_estimated_visuals" in unavailable
+    assert "El límite de enumeración exacta no bloquea el termómetro" in unavailable
+    # El return sigue cerrando sólo el detalle exacto largo; antes debe renderizar lo estimado.
+    assert unavailable.index("_render_radar_estimated_visuals") < unavailable.index("return")

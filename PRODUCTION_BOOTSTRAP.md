@@ -1,4 +1,8 @@
-# Developer / Production Bootstrap · 3.8.59
+# Developer / Production Bootstrap · 3.8.60
+
+## Guard de Copas para fechas grandes · 3.8.60
+
+En staging validar una fecha de Tabla Anual con más de 8 partidos ajenos: G/E/P debe seguir mostrando estados exactos mediante MILP, y el termómetro/heatmap deben seguir accesibles. No ampliar el enumerador combinatorio para resolver este caso.
 
 Este paquete reduce el handoff a dos trabajos externos: **conectar el feed Opta real** y **desplegar la infraestructura**. La matemática sigue detrás de `lpf_services.calculate()`.
 

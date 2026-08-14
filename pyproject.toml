@@ -1,6 +1,6 @@
 [project]
 name = "calculadora-futbol-argentino"
-version = "3.8.59"
+version = "3.8.60"
 description = "Calculadora editorial de escenarios de la LPF 2026 (Streamlit)."
 requires-python = ">=3.10"
 readme = "README.md"

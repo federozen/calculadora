@@ -1,3 +1,13 @@
+## 3.8.60 · 2026-08-14
+
+- Corrige el caso real de Copas con muchas otras canchas: la matriz G/E/P ya no queda en `—` cuando `next_round_conditionals` supera el límite corto de 8 partidos ajenos.
+- Nuevo fallback exacto `exact_objective_result_states`: usa MILP sobre el fixture pendiente completo y resuelve seis pruebas de factibilidad (garantía/eliminación para G/E/P) sin enumerar `3^N` combinaciones.
+- El fallback exige cobertura completa del fixture para la tabla analizada; si `rest` y los partidos pendientes no coinciden, no publica un cierre matemático.
+- `Últimas fechas` deja de cortar el flujo cuando la enumeración detallada no está disponible: termómetro, heatmap de Copas e impacto estimado de otras canchas siguen visibles.
+- La doble entrada, árbol y ranking exacto de otras canchas siguen usando enumeración corta porque necesitan descomponer combinaciones; no se reemplazan por probabilidades.
+- `Visualizaciones → Copas y descenso` reutiliza el mismo fallback MILP, evitando que una entrada muestre G/E/P y la otra vuelva a dejar guiones.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.59 · 2026-08-14
 
 - Corrige la paridad visual de Copas: `Visualizaciones → Copas y descenso` muestra ahora **Qué pasa si gana, empata o pierde · EXACTO** para Libertadores/Sudamericana.

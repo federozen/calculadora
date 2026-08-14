@@ -1,4 +1,12 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.59
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.60
+## Fallback exacto de G/E/P para fechas grandes · 3.8.60
+
+`next_round_conditionals` conserva el límite de 8 partidos ajenos porque además de estado necesita enumerar combinaciones, levers, doble entrada y explicaciones por otras canchas. **No aumentar ese límite por fuerza bruta.**
+
+Cuando ese enumerador no está disponible, la UI llama `exact_objective_result_states` sobre el fixture pendiente completo. El solver MILP prueba por cada rama G/E/P: (a) si puede fallar incluso con el mínimo puntaje propio posterior y (b) si puede clasificar incluso con el máximo. De ahí salen únicamente tres estados exactos: asegurado / abierto / eliminado.
+
+El fallback exige que la cantidad de partidos pendientes por club coincida con `rest`. Si la cobertura es incompleta, no publicar cierre exacto. La falta de enumeración detallada tampoco debe bloquear los visuales ESTIMADOS: termómetro, heatmap e impacto de otras canchas siguen disponibles.
+
 ## Paridad visual de Copas · 3.8.59
 
 Además del mapa exacto, heatmap y otra cancha, Copas debe preservar los dos visuales base de Playoffs:

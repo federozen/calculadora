@@ -252,9 +252,15 @@ def test_mesa_de_redaccion_embebe_chat_y_el_radar_reusa_motores_existentes():
         node.name: node
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
-        and node.name in {"render_newsroom", "render_chat_workspace", "render_definition_radar"}
+        and node.name in {
+            "render_newsroom", "render_chat_workspace", "render_definition_radar",
+            "_render_radar_estimated_visuals",
+        }
     }
-    assert set(funcs) == {"render_newsroom", "render_chat_workspace", "render_definition_radar"}
+    assert set(funcs) == {
+        "render_newsroom", "render_chat_workspace", "render_definition_radar",
+        "_render_radar_estimated_visuals",
+    }
 
     newsroom_calls = {
         node.func.id
@@ -268,7 +274,13 @@ def test_mesa_de_redaccion_embebe_chat_y_el_radar_reusa_motores_existentes():
         for node in ast.walk(funcs["render_definition_radar"])
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
-    assert {"lpf_previa_equipo_texto", "_render_point_ladder", "lpf_otros_resultados_sim"} <= radar_calls
+    estimated_calls = {
+        node.func.id
+        for node in ast.walk(funcs["_render_radar_estimated_visuals"])
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert {"lpf_previa_equipo_texto", "_render_point_ladder", "_render_radar_estimated_visuals"} <= radar_calls
+    assert "lpf_otros_resultados_sim" in estimated_calls
 
 
 def test_puntos_por_objetivo_aclara_via_anual_y_muestra_clasificados_directos():

@@ -1,8 +1,16 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.59
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.60
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
 La versión vigente siempre está en `lpf_version.__version__` (única fuente de verdad compartida por Streamlit, auditoría y futuras interfaces). El historial completo está en `CHANGELOG.md`.
+
+## Novedad 3.8.60 · Copas no pierde G/E/P ni visuales con fechas grandes
+
+- Si una fecha tiene más de 8 otras canchas relevantes, G/E/P deja de depender de enumerar `3^N`: usa el solver exacto MILP sobre todo el fixture pendiente.
+- Verde sigue significando garantía matemática; rojo, eliminación matemática; amarillo, objetivo abierto. No se usa Monte Carlo para esas celdas.
+- El límite del enumerador detallado ya no oculta el **termómetro**, el **heatmap de Copas** ni el **impacto estimado de otras canchas**.
+- La doble entrada y el árbol exacto se omiten sólo cuando no pueden enumerarse de forma razonable, con explicación explícita.
+- La misma regla se aplica en `Últimas fechas` y `Visualizaciones → Copas y descenso`.
 
 ## Novedad 3.8.59 · Copas recupera G/E/P y el termómetro individual
 
