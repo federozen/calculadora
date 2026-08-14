@@ -62,7 +62,10 @@ from lpf_editorial_definition import (
 )
 from lpf_relegation import current_relegation_picture
 from lpf_preview import preview_objective as _preview_objective, team_preview_text as _team_preview_text_core
-from lpf_display import display_team, editorialize_frame, editorialize_spec, editorialize_text
+from lpf_display import (
+    cup_current_slots_spec, cup_probability_heatmap_spec, display_team, editorialize_frame,
+    editorialize_spec, editorialize_text,
+)
 from lpf_fixture_sources import (
     parse_futbolargentino_results_html,
     played_pending_from_records,
@@ -9807,6 +9810,53 @@ def _definition_editorial_report_text(E, objective, team, zone):
     return _lpf_editorial_need_text(E, team, objective, zone)
 
 
+def _cup_visual_context(E):
+    """Contexto único de Copas para visuales exactos y estimados de Streamlit."""
+    Z = E.get("zonas_lpf") or {}
+    rest = E.get("rest") or {}
+    return _lpf_ctx(
+        Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""),
+        E.get("intl") or ("", ""), st.session_state.get("PROMEDIOS") or {},
+        int(E.get("n_anual", 1)), int(E.get("n_prom", 1)),
+    )
+
+
+def _cup_probability_package(E, objective, team):
+    """Una sola corrida comparativa de Copas para heatmap/tabla; sigue siendo ESTIMADO."""
+    ctx = _cup_visual_context(E)
+    code = "libertadores" if objective == "Libertadores" else "al_menos_sudamericana"
+    probs, note, headline = lpf_chances_obj(
+        code, ctx, E.get("pendientes") or [], E.get("jugados") or [],
+        n=_LPF_PUBLIC_MC_RUNS, seed=23, destacar=team,
+    )
+    return {
+        "rows": probs.to_dict("records") if isinstance(probs, pd.DataFrame) else [],
+        "note": note or "",
+        "headline": headline or "",
+        "simulations": _LPF_PUBLIC_MC_RUNS,
+    }
+
+
+def _cup_cut_metrics(ctx, team):
+    """Cortes de hoy en la tabla reducida, sin confundirlos con proyección final."""
+    annual = ctx.get("anual") or {}
+    reduced = [name for name in ctx.get("reducida") or [] if name in annual]
+    n_lib = int(ctx.get("n_lib") or 0)
+    lib_team = reduced[n_lib - 1] if n_lib and len(reduced) >= n_lib else None
+    sud_index = n_lib + 6 - 1
+    sud_team = reduced[sud_index] if sud_index >= 0 and len(reduced) > sud_index else None
+    annual_order = [name for name in ctx.get("orden") or [] if name in annual]
+    team_pos = annual_order.index(team) + 1 if team in annual_order else None
+    return {
+        "team_points": int((annual.get(team) or {}).get("pts", 0)),
+        "team_position": team_pos,
+        "lib_cut_points": int((annual.get(lib_team) or {}).get("pts", 0)) if lib_team else None,
+        "lib_cut_team": lib_team,
+        "sud_cut_points": int((annual.get(sud_team) or {}).get("pts", 0)) if sud_team else None,
+        "sud_cut_team": sud_team,
+    }
+
+
 def render_definition_radar(E):
     """Visuales periodísticos exactos para el tramo abierto y la definición."""
     Z = E.get("zonas_lpf") or {}
@@ -9827,7 +9877,8 @@ def render_definition_radar(E):
     )
     ui_caption(
         "Visuales tipo Mundial visibles en esta pantalla: grilla G/E/P · mapa de puestos tras la fecha · cara a cara · "
-        "doble entrada · árbol · partidos bisagra · visual de chances · reloj. No quedan escondidos detrás del chat."
+        "doble entrada · árbol · partidos bisagra · visual de chances · reloj. En Copas se suma el mapa de probabilidades "
+        "rojo→amarillo→verde y la otra cancha estimada en esta misma pantalla. No quedan escondidos detrás del chat."
     )
 
     ui_markdown("### Configurá el tablero")
@@ -10265,9 +10316,10 @@ def render_definition_radar(E):
     ui_markdown("### ESTIMADO · visual de chances")
     ui_caption(
         f"Este bloque recupera el termómetro visual del Mundial, pero usa el contrato público `objective_chances` con {_LPF_PUBLIC_MC_RUNS:,} simulaciones. "
-        "No modifica ninguna conclusión exacta de arriba. El impacto Monte Carlo sigue separado como ESTIMADO."
+        "No modifica ninguna conclusión exacta de arriba. El impacto Monte Carlo sigue separado como ESTIMADO. Para Copas suma además un mapa comparativo rojo→amarillo→verde."
     )
     chance_cache_key = f"radar_chance_visual_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}"
+    cup_map_cache_key = f"radar_cup_probability_map_{objective}_{team_focus}"
     if st.button(
         f"Calcular visual de chances · {_LPF_PUBLIC_MC_RUNS:,} simulaciones",
         key=f"radar_chance_button_{objective}_{ctx.get('zone') or 'annual'}_{team_focus}",
@@ -10286,6 +10338,12 @@ def render_definition_radar(E):
         except _LPFServiceContractError as exc:
             _record_lpf_service_fallback("objective_chances", exc)
             ui_warning("No pude calcular la estimación por la frontera pública; el fallo quedó registrado en auditoría.")
+        if objective in ("Libertadores", "Al menos Sudamericana"):
+            try:
+                st.session_state[cup_map_cache_key] = _cup_probability_package(E, objective, team_focus)
+            except Exception as exc:
+                st.session_state.pop(cup_map_cache_key, None)
+                ui_warning(f"No pude construir el mapa comparativo de Copas: {exc}")
 
     chance_result = st.session_state.get(chance_cache_key) or {}
     if chance_result:
@@ -10305,19 +10363,81 @@ def render_definition_radar(E):
                 "Es una estimación del modelo, no una garantía matemática."
             )
 
-    ui_markdown("#### ESTIMADO · impacto de otras canchas")
-    ui_caption("Esta opción queda visible; se calcula sólo a demanda para no mezclarla con el bloque exacto ni pagar costo de simulación en cada rerun.")
-    if objective == "Playoffs":
-        if st.button("Calcular impacto estimado de otras canchas", key=f"radar_estimated_other_{team_focus}"):
-            other_text, other_frame = lpf_otros_resultados_sim(
-                team_focus, Z, rest, pending, jugados=E.get("jugados") or [], scope="official_round"
+    if objective in ("Libertadores", "Al menos Sudamericana"):
+        cup_map = st.session_state.get(cup_map_cache_key) or {}
+        cup_rows = list(cup_map.get("rows") or [])
+        if cup_rows:
+            ui_markdown("#### Mapa de probabilidades de Copas · escala de color")
+            ui_markdown(
+                _html_tabla(
+                    cup_probability_heatmap_spec(
+                        cup_rows,
+                        active_objective=objective,
+                        focus_team=team_focus,
+                        simulations=int(cup_map.get("simulations", _LPF_PUBLIC_MC_RUNS)),
+                    )
+                ),
+                unsafe_allow_html=True,
             )
-            if other_text:
-                ui_markdown(other_text)
-            if isinstance(other_frame, pd.DataFrame) and not other_frame.empty:
-                ui_dataframe(other_frame, use_container_width=True, hide_index=True)
-    else:
-        ui_caption("Para copas, el impacto estimado de otras canchas se consulta en Visualizaciones → La otra cancha con el mismo objetivo activo.")
+            if cup_map.get("headline"):
+                ui_markdown(cup_map["headline"])
+            ui_caption(cup_map.get("note") or "Mapa comparativo del mismo Monte Carlo de Copas.")
+            with st.expander("Ver probabilidades de Copas en tabla", expanded=False):
+                ui_dataframe(pd.DataFrame(cup_rows), use_container_width=True, hide_index=True)
+
+    ui_markdown("#### ESTIMADO · impacto de otras canchas")
+    ui_caption(
+        "Se calcula sólo a demanda. La barra compara cuánto cambia la chance estimada entre el mejor y el peor desenlace de cada partido ajeno; "
+        "no convierte ese partido en una condición matemática obligatoria."
+    )
+    other_cache_key = f"radar_estimated_other_cache_{objective}_{team_focus}"
+    if st.button(
+        "Calcular impacto estimado de otras canchas",
+        key=f"radar_estimated_other_{objective}_{team_focus}",
+        use_container_width=True,
+    ):
+        try:
+            if objective == "Playoffs":
+                other_text, other_frame = lpf_otros_resultados_sim(
+                    team_focus, Z, rest, pending, jugados=E.get("jugados") or [], scope="official_round"
+                )
+                other_crosses = None
+            else:
+                cup_ctx = _cup_visual_context(E)
+                cup_objective = "libertadores" if objective == "Libertadores" else "al_menos_sudamericana"
+                other_text, other_frame, other_crosses = lpf_conviene_obj(
+                    team_focus, cup_objective, cup_ctx, pending, E.get("jugados") or [], scope="official_round"
+                )
+            st.session_state[other_cache_key] = {
+                "text": other_text or "",
+                "rows": other_frame.to_dict("records") if isinstance(other_frame, pd.DataFrame) else [],
+                "crosses": other_crosses.to_dict("records") if isinstance(other_crosses, pd.DataFrame) else [],
+            }
+        except Exception as exc:
+            st.session_state.pop(other_cache_key, None)
+            ui_warning(f"No pude calcular el impacto estimado de otras canchas: {exc}")
+
+    other_result = st.session_state.get(other_cache_key) or {}
+    if other_result.get("text"):
+        ui_markdown(other_result["text"])
+    other_rows = list(other_result.get("rows") or [])
+    if other_rows:
+        other_frame = pd.DataFrame(other_rows)
+        if {"Partido", "Diferencia"} <= set(other_frame.columns):
+            impact = other_frame[["Partido", "Diferencia"]].copy()
+            impact["Impacto (pp)"] = pd.to_numeric(
+                impact["Diferencia"].astype("string").str.replace(" pp", "", regex=False).str.replace(",", ".", regex=False),
+                errors="coerce",
+            )
+            impact = impact.dropna(subset=["Impacto (pp)"])
+            if not impact.empty:
+                st.bar_chart(impact.set_index("Partido")[["Impacto (pp)"]])
+        with st.expander("Ver detalle del impacto de otras canchas", expanded=False):
+            ui_dataframe(other_frame, use_container_width=True, hide_index=True)
+    other_crosses = list(other_result.get("crosses") or [])
+    if other_crosses:
+        with st.expander("Cruces futuros entre competidores de Copas", expanded=False):
+            ui_dataframe(pd.DataFrame(other_crosses), use_container_width=True, hide_index=True)
     ui_caption("ESTIMADO · diferencia entre el mejor y el peor desenlace de cada partido ajeno. No es una prueba exacta de clasificación.")
 
 def _scenario_window_games(pending, scope="official_round"):
@@ -10634,6 +10754,172 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
         ui_dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True, height=560)
         ui_caption("Esta vista adapta el panel de clasificados y eliminados del Mundial. Se calcula con el fixture y los puntos disponibles.")
 
+def _render_cup_visual_dashboard(E, team, view):
+    """Tablero visual de Copas: foto exacta + Monte Carlo + otra cancha."""
+    objective = "Libertadores" if view == "Libertadores" else "Al menos Sudamericana"
+    ctx = _cup_visual_context(E)
+    annual = ctx.get("anual") or {}
+    annual_order = [name for name in ctx.get("orden") or [] if name in annual]
+    reduced_order = [name for name in ctx.get("reducida") or [] if name in annual]
+    n_lib = int(ctx.get("n_lib") or 0)
+    metrics = _cup_cut_metrics(ctx, team)
+
+    ui_markdown(f"### {view} · tablero visual de la Tabla Anual")
+    ui_caption(
+        "La foto actual y los cupos de hoy son EXACTOS. El heatmap y la otra cancha son ESTIMADOS con 6.000 simulaciones. "
+        "Los clasificados directos a Libertadores no consumen otro cupo de la Tabla Anual."
+    )
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Posición Anual", f"{metrics['team_position']}º" if metrics.get("team_position") else "—")
+    c2.metric("Puntos", metrics.get("team_points", 0))
+    c3.metric(
+        "Corte Libertadores hoy",
+        metrics.get("lib_cut_points") if metrics.get("lib_cut_points") is not None else "—",
+        help=(f"Hoy lo ocupa {display_team(metrics.get('lib_cut_team'))}." if metrics.get("lib_cut_team") else None),
+    )
+    c4.metric(
+        "Corte Sudamericana hoy",
+        metrics.get("sud_cut_points") if metrics.get("sud_cut_points") is not None else "—",
+        help=(f"Hoy lo ocupa {display_team(metrics.get('sud_cut_team'))}." if metrics.get("sud_cut_team") else None),
+    )
+
+    if annual_order:
+        ui_markdown(
+            _html_tabla(
+                cup_current_slots_spec(
+                    annual,
+                    annual_order,
+                    reduced_order,
+                    libertadores_slots=n_lib,
+                    focus_team=team,
+                )
+            ),
+            unsafe_allow_html=True,
+        )
+
+    ui_markdown("#### Lectura editorial")
+    if view == "Libertadores":
+        ui_markdown(lpf_relato_libertadores_texto(
+            E.get("zonas_lpf") or {}, E.get("rest") or {}, E.get("apertura") or {},
+            E.get("camps") or ("", "", ""), E.get("intl") or ("", ""),
+            E.get("copa_arg_vivos") or [], E.get("copa_arg_updated", ""), E.get("copa_arg_source", ""),
+        ))
+    else:
+        ui_markdown(lpf_relato_sudamericana_texto(
+            E.get("zonas_lpf") or {}, E.get("rest") or {}, E.get("apertura") or {},
+            E.get("camps") or ("", "", ""), E.get("intl") or ("", ""),
+            E.get("copa_arg_vivos") or [], E.get("copa_arg_updated", ""), E.get("copa_arg_source", ""),
+        ))
+
+    ui_markdown("#### Mapa de probabilidades de Copas · ESTIMADO")
+    ui_caption(
+        "La escala rojo→amarillo→verde recupera la lectura visual del Mundial. Cada celda conserva el porcentaje explícito: "
+        "el color ayuda a leer, pero no representa una garantía matemática."
+    )
+    prob_cache_key = f"viz_cup_probability_{view}_{team}"
+    if st.button(
+        f"Calcular mapa de probabilidades · {_LPF_PUBLIC_MC_RUNS:,} simulaciones",
+        key=f"viz_cup_probability_button_{view}_{team}",
+        use_container_width=True,
+    ):
+        try:
+            package = _cup_probability_package(E, objective, team)
+            chance_payload = {
+                "team": team,
+                "objective": _lpf_service_objective(objective),
+                "simulations": _LPF_PUBLIC_MC_RUNS,
+                "seed": 23,
+            }
+            package["focus"] = _lpf_service_result("objective_chances", E, **chance_payload)
+            st.session_state[prob_cache_key] = package
+        except _LPFServiceContractError as exc:
+            _record_lpf_service_fallback("objective_chances", exc)
+            ui_warning("No pude calcular la chance destacada por el contrato público; el fallo quedó registrado en auditoría.")
+        except Exception as exc:
+            st.session_state.pop(prob_cache_key, None)
+            ui_warning(f"No pude construir el mapa de probabilidades: {exc}")
+
+    probability_package = st.session_state.get(prob_cache_key) or {}
+    probability_rows = list(probability_package.get("rows") or [])
+    focus_result = probability_package.get("focus") or {}
+    if focus_result:
+        if focus_result.get("resolved"):
+            ui_markdown(f"**{team}:** {focus_result.get('message') or 'objetivo ya resuelto.'}")
+        else:
+            pct = float(focus_result.get("qualification_percentage", 0.0) or 0.0)
+            st.image(
+                placa_chances_mc_png(
+                    team,
+                    pct,
+                    nota=f"ESTIMADO · {_LPF_PUBLIC_MC_RUNS:,} simulaciones · {view}",
+                ),
+                use_container_width=True,
+            )
+    if probability_rows:
+        ui_markdown(
+            _html_tabla(
+                cup_probability_heatmap_spec(
+                    probability_rows,
+                    active_objective=objective,
+                    focus_team=team,
+                    simulations=int(probability_package.get("simulations", _LPF_PUBLIC_MC_RUNS)),
+                )
+            ),
+            unsafe_allow_html=True,
+        )
+        if probability_package.get("headline"):
+            ui_markdown(probability_package["headline"])
+        ui_caption(probability_package.get("note") or "Estimación Monte Carlo de Copas.")
+        with st.expander("Ver probabilidades en tabla", expanded=False):
+            ui_dataframe(pd.DataFrame(probability_rows), use_container_width=True, hide_index=True)
+
+    ui_markdown("#### ESTIMADO · la otra cancha")
+    ui_caption(
+        "Muestra qué partidos ajenos mueven más la chance del objetivo. La barra es diferencia en puntos porcentuales entre desenlaces, no probabilidad del resultado."
+    )
+    other_cache_key = f"viz_cup_other_{view}_{team}"
+    if st.button(
+        "Calcular partidos que más ayudan o perjudican",
+        key=f"viz_cup_other_button_{view}_{team}",
+        use_container_width=True,
+    ):
+        try:
+            cup_objective = "libertadores" if view == "Libertadores" else "al_menos_sudamericana"
+            text, frame, crosses = lpf_conviene_obj(
+                team, cup_objective, ctx, E.get("pendientes") or [], E.get("jugados") or [], scope="official_round"
+            )
+            st.session_state[other_cache_key] = {
+                "text": text or "",
+                "rows": frame.to_dict("records") if isinstance(frame, pd.DataFrame) else [],
+                "crosses": crosses.to_dict("records") if isinstance(crosses, pd.DataFrame) else [],
+            }
+        except Exception as exc:
+            st.session_state.pop(other_cache_key, None)
+            ui_warning(f"No pude calcular la otra cancha de Copas: {exc}")
+
+    other = st.session_state.get(other_cache_key) or {}
+    if other.get("text"):
+        ui_markdown(other["text"])
+    other_rows = list(other.get("rows") or [])
+    if other_rows:
+        frame = pd.DataFrame(other_rows)
+        if {"Partido", "Diferencia"} <= set(frame.columns):
+            impact = frame[["Partido", "Diferencia"]].copy()
+            impact["Impacto (pp)"] = pd.to_numeric(
+                impact["Diferencia"].astype("string").str.replace(" pp", "", regex=False).str.replace(",", ".", regex=False),
+                errors="coerce",
+            )
+            impact = impact.dropna(subset=["Impacto (pp)"])
+            if not impact.empty:
+                st.bar_chart(impact.set_index("Partido")[["Impacto (pp)"]])
+        with st.expander("Ver detalle de la otra cancha", expanded=False):
+            ui_dataframe(frame, use_container_width=True, hide_index=True)
+    crosses = list(other.get("crosses") or [])
+    if crosses:
+        with st.expander("Cruces futuros entre competidores", expanded=False):
+            ui_dataframe(pd.DataFrame(crosses), use_container_width=True, hide_index=True)
+
+
 def render_visualizations_workspace(E):
     """Laboratorio visual conectado al mismo motor que los informes y el chat."""
     ui_markdown("## Visualizaciones")
@@ -10685,18 +10971,8 @@ def render_visualizations_workspace(E):
         _comp_view = st.radio(
             "Panorama", ["Libertadores", "Sudamericana", "Descenso"], horizontal=True, key="viz_comp_view"
         )
-        if _comp_view == "Libertadores":
-            ui_markdown(lpf_relato_libertadores_texto(
-                Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""),
-                E.get("intl") or ("", ""), E.get("copa_arg_vivos") or [],
-                E.get("copa_arg_updated", ""), E.get("copa_arg_source", ""),
-            ))
-        elif _comp_view == "Sudamericana":
-            ui_markdown(lpf_relato_sudamericana_texto(
-                Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""),
-                E.get("intl") or ("", ""), E.get("copa_arg_vivos") or [],
-                E.get("copa_arg_updated", ""), E.get("copa_arg_source", ""),
-            ))
+        if _comp_view in ("Libertadores", "Sudamericana"):
+            _render_cup_visual_dashboard(E, team, _comp_view)
         else:
             ui_markdown(lpf_relato_descenso_texto(
                 Z, rest, E.get("apertura") or {}, st.session_state.get("PROMEDIOS") or {},

@@ -1,4 +1,4 @@
-# Developer / Production Bootstrap · 3.8.57
+# Developer / Production Bootstrap · 3.8.58
 
 Este paquete reduce el handoff a dos trabajos externos: **conectar el feed Opta real** y **desplegar la infraestructura**. La matemática sigue detrás de `lpf_services.calculate()`.
 
@@ -117,6 +117,10 @@ Con acceso a credenciales, documentación y ejemplos reales de Opta desde el dí
 - **2–5 días:** validación editorial/casos reales + carga + salida controlada.
 
 Un equipo de dos desarrolladores puede apuntar a **staging en 3–5 días hábiles** y a una **primera producción en 7–12 días hábiles**, siempre que Opta y la infraestructura estén disponibles sin bloqueos. Si el feed contratado requiere investigación o faltan IDs/documentación, ese riesgo queda fuera del código y puede extender el plazo.
+
+## UI de Copas 3.8.58
+
+El bootstrap/API no cambia. Streamlit suma paridad visual para Libertadores/Sudamericana: mapa exacto de cupos actuales, heatmap Monte Carlo con escala de color y otra cancha con impacto. La cifra individual sigue pasando por `objective_chances`; los comparativos reutilizan el simulador contextual existente y permanecen rotulados como ESTIMADO.
 
 ## UI editorial 3.8.57
 

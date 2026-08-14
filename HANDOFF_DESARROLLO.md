@@ -1,4 +1,15 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.57
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.58
+## Paridad visual de Copas · 3.8.58
+
+Libertadores y Sudamericana deben conservar cuatro capas distintas y no mezclarlas:
+
+1. **Mapa de cupos hoy · EXACTO:** foto actual de la Tabla Anual con vías directas y cupos por tabla; no equivale a clasificación matemática asegurada.
+2. **Termómetro del equipo · ESTIMADO:** la cifra destacada sigue pasando por `objective_chances` (6.000 simulaciones).
+3. **Heatmap comparativo · ESTIMADO:** reutiliza `lpf_chances_obj`; rojo→amarillo→verde es sólo escala visual y cada celda imprime el porcentaje.
+4. **Otra cancha · ESTIMADO:** reutiliza `lpf_conviene_obj`; la barra expresa diferencia de chance entre desenlaces, no probabilidad del partido ni condición exacta.
+
+La asignación de cupos debe seguir viniendo de `allocate_cup_slots`/contexto compartido. No reconstruir campeones, reasignaciones ni cortes dentro de Streamlit.
+
 ## Consistencia editorial del Panel por equipo · 3.8.57
 
 La pregunta **Qué necesita para alcanzar el objetivo** tiene una sola narrativa editorial larga compartida con `Últimas fechas`, mediante `_lpf_editorial_need_text`. Mantener esta regla:

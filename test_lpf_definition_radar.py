@@ -149,3 +149,84 @@ def test_definition_radar_restores_full_editorial_report_before_visuals():
     # El informe largo debe quedar visible: no detrás de un expander.
     report_slice = radar[radar.index('ui_markdown("### Informe editorial del equipo")'):radar.index('ui_markdown("## Lectura visual de la fecha")')]
     assert "st.expander" not in report_slice
+
+
+def test_cup_visuals_restore_probability_heatmap_and_current_slot_map():
+    from lpf_display import cup_current_slots_spec, cup_probability_heatmap_spec, probability_scale_color
+
+    assert probability_scale_color(0) == "#b71c1c"
+    assert probability_scale_color(50) == "#f9a825"
+    assert probability_scale_color(100) == "#1b5e20"
+
+    heat = cup_probability_heatmap_spec(
+        [
+            {
+                "Equipo": "River Plate",
+                "Anual": "8º",
+                "Libertadores %": 35,
+                "Sudamericana %": 40,
+                "Al menos Sudamericana %": 75,
+            }
+        ],
+        active_objective="Libertadores",
+        focus_team="River Plate",
+        simulations=6000,
+    )
+    assert heat["row_headers"] == ["★ River Plate · Anual 8º"]
+    assert [cell[0] for cell in heat["cells"][0]] == ["35%", "40%", "75%"]
+    assert "ESTIMADO" in heat["titulo"]
+    assert "No es garantía matemática" in heat["footer"]
+
+    slots = cup_current_slots_spec(
+        {
+            "A": {"pts": 20, "pj": 10},
+            "B": {"pts": 18, "pj": 10},
+            "C": {"pts": 15, "pj": 10},
+            "D": {"pts": 13, "pj": 10},
+        },
+        ["A", "B", "C", "D"],
+        ["B", "C", "D"],
+        libertadores_slots=1,
+    )
+    states = [row[3][0] for row in slots["cells"]]
+    assert states == [
+        "LIBERTADORES · VÍA DIRECTA",
+        "LIBERTADORES · TABLA ANUAL",
+        "SUDAMERICANA · TABLA ANUAL",
+        "SUDAMERICANA · TABLA ANUAL",
+    ]
+    assert "EXACTO" in slots["titulo"]
+    assert "No es una proyección" in slots["footer"]
+
+
+def test_libertadores_and_sudamericana_get_full_visual_dashboard():
+    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    helper = source[source.index("def _render_cup_visual_dashboard"):source.index("def render_visualizations_workspace")]
+    for label in (
+        "tablero visual de la Tabla Anual",
+        "Mapa de probabilidades de Copas",
+        "escala rojo→amarillo→verde",
+        "ESTIMADO · la otra cancha",
+        "Calcular partidos que más ayudan o perjudican",
+        "Cruces futuros entre competidores",
+    ):
+        assert label in helper
+    assert "cup_current_slots_spec" in helper
+    assert "cup_probability_heatmap_spec" in helper
+    assert "placa_chances_mc_png" in helper
+    assert "lpf_conviene_obj" in helper
+
+    workspace = source[source.index("def render_visualizations_workspace"):source.index("def render_guided_workspace")]
+    assert '_comp_view in ("Libertadores", "Sudamericana")' in workspace
+    assert "_render_cup_visual_dashboard(E, team, _comp_view)" in workspace
+
+
+def test_ultimas_fechas_copas_shows_heatmap_and_other_pitch_in_same_screen():
+    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    radar = source[source.index("def render_definition_radar"):source.index("def _scenario_window_games")]
+    assert "Mapa de probabilidades de Copas · escala de color" in radar
+    assert "cup_probability_heatmap_spec" in radar
+    assert "radar_cup_probability_map_" in radar
+    assert "lpf_conviene_obj" in radar
+    assert "Cruces futuros entre competidores de Copas" in radar
+    assert "Para copas, el impacto estimado de otras canchas se consulta" not in radar

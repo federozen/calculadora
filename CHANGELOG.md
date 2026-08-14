@@ -1,3 +1,13 @@
+## 3.8.58 · 2026-08-14
+
+- Da paridad visual a **Libertadores/Sudamericana**: `Visualizaciones → Copas y descenso` deja de ser casi sólo narrativa y suma tablero de Tabla Anual.
+- Nuevo **Mapa de cupos si la temporada terminara hoy · EXACTO**: distingue Libertadores por vía directa, Libertadores por Tabla Anual, Sudamericana por Tabla Anual y fuera de cupos hoy, sin presentar esa foto como clasificación matemática definitiva.
+- Nuevo **Mapa de probabilidades de Copas · ESTIMADO** con escala continua rojo→amarillo→verde y porcentaje explícito por celda para Libertadores, Sudamericana específica y al menos una copa.
+- El equipo seleccionado conserva su termómetro estimado; la cifra destacada sigue pasando por `objective_chances` y la tabla comparativa conserva el simulador contextual ya documentado.
+- `Últimas fechas` muestra el mismo heatmap de Copas al calcular chances y deja de mandar la **otra cancha de Copas** a otra pestaña: ahora incluye barras de impacto y cruces futuros en la misma pantalla.
+- Los visuales de Copas reutilizan `lpf_chances_obj`, `lpf_conviene_obj` y la asignación canónica de cupos; no duplican reglas de clasificación.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 sin cambios.
+
 ## 3.8.57 · 2026-08-14
 
 - Corrige `Panel por equipo → Qué necesita para alcanzar el objetivo`: el informe editorial largo vuelve a ser la salida principal.
