@@ -6032,6 +6032,32 @@ def _lpf_service_need_text(E, team, objective, zone=None):
     return str(result.get("reading") or "No hay una lectura de puntos disponible.")
 
 
+def _lpf_editorial_need_text(E, team, objective, zone=None):
+    """Informe editorial largo para la pregunta «qué necesita».
+
+    Esta es la salida principal de la UI editorial. El contrato público v1
+    conserva su resumen JSON-safe para API/auditoría, pero no sustituye esta
+    narrativa: Panel por equipo y Últimas fechas comparten este mismo helper.
+    """
+    Z = E.get("zonas_lpf") or {}
+    rest = E.get("rest") or {}
+    pending = E.get("pendientes") or []
+    played = E.get("jugados") or []
+    if objective == "Playoffs":
+        return lpf_playoffs_texto(team, Z, rest, pending, jugados=played)
+    if objective in ("Libertadores", "Al menos Sudamericana"):
+        return lpf_copas_necesita_texto(
+            team, Z, rest, E.get("apertura") or {},
+            E.get("camps") or ("", "", ""), E.get("intl") or ("", ""),
+            pending, jugados=played,
+        )
+    previous = st.session_state.get("PROMEDIOS") or {}
+    return lpf_descenso_texto(
+        Z, rest, E.get("apertura") or {}, previous, E.get("n_anual", 1),
+        E.get("n_prom", 1), team, pending,
+    )
+
+
 def _lpf_objective_label(code=None):
     """Etiqueta de UI para el objetivo recordado entre chat y vistas."""
     code = code or st.session_state.get("LPF_LAST_OBJECTIVE") or "playoffs"
@@ -9774,6 +9800,13 @@ def _definition_compare_spec(base, rest, rows, team_focus, comparator, objective
     }
 
 
+def _definition_editorial_report_text(E, objective, team, zone):
+    """Informe largo que acompaña al tablero visual de Últimas fechas."""
+    if objective == "Descenso":
+        return ""
+    return _lpf_editorial_need_text(E, team, objective, zone)
+
+
 def render_definition_radar(E):
     """Visuales periodísticos exactos para el tramo abierto y la definición."""
     Z = E.get("zonas_lpf") or {}
@@ -9969,6 +10002,17 @@ def render_definition_radar(E):
             "comparadores y otra cancha ya están visibles y se habilitarán sin abrir una pantalla nueva."
         )
         return
+    # El informe editorial largo no se esconde detrás de un expander: es parte
+    # del resultado, y convive con la lectura visual en vez de ser reemplazado.
+    ui_markdown("### Informe editorial del equipo")
+    ui_caption(
+        "Lectura completa: realidad de hoy, proyección del modelo, referencia histórica, peso del fixture, "
+        "mínimo que asegura cuando está demostrado y partidos pendientes. EXACTO y ESTIMADO quedan rotulados dentro del propio informe."
+    )
+    editorial_report = _definition_editorial_report_text(E, objective, team_focus, lab)
+    if editorial_report:
+        ui_markdown(editorial_report)
+
     if resolved:
         ui_success(str(package.get("message") or f"{team_focus} ya tiene resuelto este objetivo."))
         if package.get("via"):
@@ -9977,6 +10021,11 @@ def render_definition_radar(E):
             "Los controles quedan visibles arriba, pero no se construye doble entrada porque este club ya no disputa este cupo por la tabla del objetivo."
         )
         return
+
+    ui_markdown("## Lectura visual de la fecha")
+    ui_caption(
+        "Estas visualizaciones complementan el informe editorial de arriba: resumen rápido y auditable de la fecha, sin reemplazar su contexto ni su explicación."
+    )
 
     # Contexto de la pelea: siempre alrededor del equipo principal.
     ui_markdown("### Contexto automático · quiénes están alrededor")
@@ -10877,23 +10926,7 @@ def render_guided_workspace(E):
         if _preview_frame is not None:
             ui_dataframe(_preview_frame, use_container_width=True, hide_index=True)
         with st.expander(f"Qué necesita para {objective.lower()}", expanded=False):
-            try:
-                ui_markdown(_lpf_service_need_text(E, team, objective, lab))
-                ui_caption("Lectura generada por el contrato público v1.")
-            except _LPFServiceContractError as exc:
-                _record_lpf_service_fallback("objective_need_summary", exc)
-                if objective == "Playoffs":
-                    ui_markdown(lpf_playoffs_texto(team, Z, rest, pending, jugados=E.get("jugados") or []))
-                elif objective in ("Libertadores", "Al menos Sudamericana"):
-                    ui_markdown(lpf_copas_necesita_texto(
-                        team, Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""),
-                        E.get("intl") or ("", ""), pending, jugados=E.get("jugados") or []
-                    ))
-                else:
-                    ui_markdown(lpf_descenso_texto(
-                        Z, rest, E.get("apertura") or {}, previous, E.get("n_anual", 1),
-                        E.get("n_prom", 1), team, pending
-                    ))
+            ui_markdown(_lpf_editorial_need_text(E, team, objective, lab))
         with st.expander("Cómo está la competencia", expanded=False):
             if objective == "Playoffs":
                 ui_markdown(lpf_relato_zona_texto(Z, lab, rest))
@@ -10941,17 +10974,14 @@ def render_guided_workspace(E):
         if text: ui_markdown(text)
         if frame is not None: ui_dataframe(frame, use_container_width=True, hide_index=True)
     elif task == "Qué necesita para alcanzar el objetivo":
-        try:
-            ui_markdown(_lpf_service_need_text(E, team, objective, lab))
-            ui_caption("Lectura generada por el contrato público v1.")
-        except _LPFServiceContractError as exc:
-            _record_lpf_service_fallback("objective_need", exc)
-            if objective == "Playoffs":
-                ui_markdown(lpf_playoffs_texto(team, Z, rest, pending, jugados=E.get("jugados") or []))
-            elif objective in ("Libertadores", "Al menos Sudamericana"):
-                ui_markdown(lpf_copas_necesita_texto(team, Z, rest, E.get("apertura") or {}, E.get("camps") or ("", "", ""), E.get("intl") or ("", ""), pending, jugados=E.get("jugados") or []))
-            else:
-                ui_markdown(lpf_descenso_texto(Z, rest, E.get("apertura") or {}, previous, E.get("n_anual", 1), E.get("n_prom", 1), team, pending))
+        ui_markdown(_lpf_editorial_need_text(E, team, objective, lab))
+        with st.expander("Resumen operativo · contrato público v1", expanded=False):
+            try:
+                ui_markdown(_lpf_service_need_text(E, team, objective, lab))
+                ui_caption("Resumen JSON-safe usado por API y auditoría; el informe editorial completo es el bloque principal de arriba.")
+            except _LPFServiceContractError as exc:
+                _record_lpf_service_fallback("objective_need_service_summary", exc)
+                ui_caption("El resumen del contrato público no está disponible; el informe editorial principal sigue siendo válido.")
     elif task == "Qué resultados ajenos le convienen":
         if objective == "Playoffs":
             text, frame = lpf_otros_resultados_sim(

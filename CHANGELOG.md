@@ -1,3 +1,20 @@
+## 3.8.57 · 2026-08-14
+
+- Corrige `Panel por equipo → Qué necesita para alcanzar el objetivo`: el informe editorial largo vuelve a ser la salida principal.
+- Centraliza la narrativa en `_lpf_editorial_need_text`, compartida por Panel por equipo y Últimas fechas.
+- Mantiene `_lpf_service_need_text` como resumen operativo secundario, plegado, para API/auditoría.
+- `Resumen completo` reutiliza la misma narrativa larga y deja de depender del resumen público salvo para auditoría secundaria.
+- Agrega regresiones estáticas que fijan la precedencia del informe largo y la fuente editorial única.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 sin cambios. Suite final: **367 pruebas**.
+
+## 3.8.56 · 2026-08-14
+
+- Restaura en `Últimas fechas` el informe editorial largo por equipo que había quedado desconectado al priorizar el nuevo tablero visual.
+- El informe queda visible antes de las visualizaciones, no dentro de un expander.
+- Reutiliza los generadores editoriales existentes para Playoffs y Copas, preservando una sola fuente de verdad.
+- Mantiene íntegros grilla G/E/P, mapa de puestos, cara a cara, doble entrada, árbol, partidos bisagra, reloj y chances estimadas.
+- Agrega una regresión de UI para impedir que futuras reorganizaciones vuelvan a eliminar el informe del flujo de `Últimas fechas`.
+
 ## 3.8.55 · 2026-08-13
 
 ### Hotfix de Session State y visuales tipo Mundial

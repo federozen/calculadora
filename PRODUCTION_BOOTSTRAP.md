@@ -1,4 +1,4 @@
-# Developer / Production Bootstrap · 3.8.55
+# Developer / Production Bootstrap · 3.8.57
 
 Este paquete reduce el handoff a dos trabajos externos: **conectar el feed Opta real** y **desplegar la infraestructura**. La matemática sigue detrás de `lpf_services.calculate()`.
 
@@ -117,3 +117,11 @@ Con acceso a credenciales, documentación y ejemplos reales de Opta desde el dí
 - **2–5 días:** validación editorial/casos reales + carga + salida controlada.
 
 Un equipo de dos desarrolladores puede apuntar a **staging en 3–5 días hábiles** y a una **primera producción en 7–12 días hábiles**, siempre que Opta y la infraestructura estén disponibles sin bloqueos. Si el feed contratado requiere investigación o faltan IDs/documentación, ese riesgo queda fuera del código y puede extender el plazo.
+
+## UI editorial 3.8.57
+
+`Panel por equipo → Qué necesita para alcanzar el objetivo` usa el informe editorial largo compartido con `Últimas fechas`. El resumen de Public Service v1 queda secundario y plegado: la frontera HTTP/JSON no debe dictar la extensión de la experiencia editorial de Streamlit.
+
+## UI editorial 3.8.56
+
+El bootstrap de API no cambia. En Streamlit, `Últimas fechas` vuelve a presentar el informe editorial completo antes de la lectura visual; ambos consumen los mismos motores/servicios existentes y no modifican los contratos públicos.

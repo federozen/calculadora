@@ -1,8 +1,24 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.55
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.57
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
 La versión vigente siempre está en `lpf_version.__version__` (única fuente de verdad compartida por Streamlit, auditoría y futuras interfaces). El historial completo está en `CHANGELOG.md`.
+
+## Novedad 3.8.57 · Panel por equipo recupera el informe largo de «Qué necesita»
+
+- **Panel por equipo → Qué necesita para alcanzar el objetivo** vuelve a mostrar como salida principal el informe editorial largo, no el resumen corto del contrato público.
+- Panel por equipo y **Últimas fechas** comparten `_lpf_editorial_need_text`, que deriva a los mismos generadores de Playoffs, Copas o Descenso y evita dos narrativas distintas para la misma pregunta.
+- El resumen JSON-safe de Public Service v1 se conserva sólo como **Resumen operativo** plegado para API/auditoría; ya no reemplaza la lectura periodística.
+- `Resumen completo` también reutiliza el mismo helper editorial dentro de su sección «Qué necesita».
+- No cambian Public Service v1, DataProvider v2, Snapshot schema 3 ni Runtime API 21. Validación: **367 pruebas**.
+
+## Novedad 3.8.56 · Informe editorial restaurado en Últimas fechas
+
+- `Últimas fechas` vuelve a mostrar de forma visible el informe editorial largo del equipo antes del tablero visual.
+- Se reutilizan `lpf_playoffs_texto` / `lpf_copas_necesita_texto`: no hay una segunda lógica de cálculo.
+- La secuencia queda `Resultado del análisis → Informe editorial del equipo → Lectura visual de la fecha`.
+- El informe recupera realidad actual, proyección, referencia histórica, peso del fixture, mínimo que asegura y pendientes, manteniendo EXACTO y ESTIMADO separados.
+- Las visualizaciones incorporadas en 3.8.55 permanecen intactas.
 
 ## Novedad 3.8.55 · Hotfix Streamlit + visuales del Mundial visibles
 

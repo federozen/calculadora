@@ -1,4 +1,21 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.55
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.57
+## Consistencia editorial del Panel por equipo · 3.8.57
+
+La pregunta **Qué necesita para alcanzar el objetivo** tiene una sola narrativa editorial larga compartida con `Últimas fechas`, mediante `_lpf_editorial_need_text`. Mantener esta regla:
+
+1. la salida principal de la UI editorial es el informe completo (`lpf_playoffs_texto`, `lpf_copas_necesita_texto` o `lpf_descenso_texto`);
+2. `_lpf_service_need_text` es un resumen JSON-safe para API/auditoría y puede mostrarse sólo como bloque secundario plegado;
+3. nunca usar el resumen público como sustituto silencioso del informe largo en Panel por equipo;
+4. una mejora narrativa debe entrar por el helper compartido para que Panel por equipo y Últimas fechas no diverjan.
+
+## Restauración editorial 3.8.56
+
+`Últimas fechas` debe conservar dos capas complementarias y visibles en este orden:
+
+1. **Informe editorial del equipo:** reutiliza `lpf_playoffs_texto` o `lpf_copas_necesita_texto` y conserva realidad actual, proyección, referencia histórica, fixture, mínimo que asegura y pendientes.
+2. **Lectura visual de la fecha:** grilla G/E/P, mapa de puestos, comparadores, doble entrada, árbol, partidos que más definen, reloj y visual estimada de chances.
+
+La capa visual nunca debe reemplazar ni esconder el informe editorial. Tampoco debe implementarse una segunda versión de sus cálculos dentro de Streamlit.
 
 ## Hotfix UI 3.8.55
 

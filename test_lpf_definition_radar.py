@@ -129,3 +129,23 @@ def test_definition_rank_map_is_exact_and_not_a_fake_probability():
     assert "scenario_rank_bounds" in block
     assert "mejor y peor puesto matemáticamente posible" in source
     assert "sin convertir conteos de marcadores en probabilidad" in source
+
+
+def test_definition_radar_restores_full_editorial_report_before_visuals():
+    source = Path("calculadora_futbol_argentino.py").read_text(encoding="utf-8")
+    assert "def _definition_editorial_report_text" in source
+    helper = source[source.index("def _definition_editorial_report_text"):source.index("def render_definition_radar")]
+    assert "_lpf_editorial_need_text" in helper
+    shared = source[source.index("def _lpf_editorial_need_text"):source.index("def _lpf_objective_label")]
+    assert "lpf_playoffs_texto" in shared
+    assert "lpf_copas_necesita_texto" in shared
+    assert "lpf_descenso_texto" in shared
+    radar = source[source.index("def render_definition_radar"):source.index("def _scenario_window_games")]
+    assert "Informe editorial del equipo" in radar
+    assert "Lectura visual de la fecha" in radar
+    assert "realidad de hoy, proyección del modelo, referencia histórica, peso del fixture" in radar
+    assert radar.index("Informe editorial del equipo") < radar.index("Lectura visual de la fecha")
+    assert radar.index("Informe editorial del equipo") < radar.index("Contexto automático · quiénes están alrededor")
+    # El informe largo debe quedar visible: no detrás de un expander.
+    report_slice = radar[radar.index('ui_markdown("### Informe editorial del equipo")'):radar.index('ui_markdown("## Lectura visual de la fecha")')]
+    assert "st.expander" not in report_slice

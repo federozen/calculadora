@@ -338,3 +338,26 @@ def test_snapshot_streamlit_pasa_por_current_data_provider():
     assert "CurrentProvider" in fn
     assert "_lpf_provider_payload" in fn
     assert "return _lpf_provider_payload(CurrentProvider(raw))" in fn
+
+
+def test_panel_por_equipo_que_necesita_muestra_informe_largo_como_salida_principal():
+    source = MAIN.read_text(encoding="utf-8")
+    guided = source[source.index("def render_guided_workspace"):source.index("# ─── CONFIG DEL LLM EN EL PANEL LATERAL")]
+    branch_start = guided.index('elif task == "Qué necesita para alcanzar el objetivo":')
+    branch_end = guided.index('elif task == "Qué resultados ajenos le convienen":')
+    branch = guided[branch_start:branch_end]
+    assert "_lpf_editorial_need_text(E, team, objective, lab)" in branch
+    assert branch.index("_lpf_editorial_need_text") < branch.index("_lpf_service_need_text")
+    assert 'st.expander("Resumen operativo · contrato público v1", expanded=False)' in branch
+    # El resumen corto del contrato queda secundario y plegado; no sustituye el informe editorial.
+    assert "Resumen JSON-safe usado por API y auditoría" in branch
+
+
+def test_panel_y_ultimas_fechas_comparten_un_solo_helper_editorial_de_necesidad():
+    source = MAIN.read_text(encoding="utf-8")
+    helper = source[source.index("def _lpf_editorial_need_text"):source.index("def _lpf_objective_label")]
+    assert "lpf_playoffs_texto" in helper
+    assert "lpf_copas_necesita_texto" in helper
+    assert "lpf_descenso_texto" in helper
+    radar_helper = source[source.index("def _definition_editorial_report_text"):source.index("def render_definition_radar")]
+    assert "_lpf_editorial_need_text" in radar_helper
