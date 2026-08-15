@@ -1,4 +1,10 @@
-# Developer / Production Bootstrap · 3.8.60
+# Developer / Production Bootstrap · 3.8.61
+
+## Guard de actualización transaccional · 3.8.61
+
+En staging probar dos situaciones de carrera entre fuentes: (a) resultados explícitos completos y (b) standings más nuevo que los feeds. En el segundo caso, una base validada de 49 resultados puede avanzar a 61 sólo si fixture + PJ/puntos/GF/GC/DG fijan de manera única los 12 marcadores faltantes. Si hay más de una solución o se superan las guardas conservadoras, la actualización debe fallar cerrada y conservar la foto anterior.
+
+Este fallback sirve para continuidad editorial mientras llega el feed; con Opta, priorizar siempre identidad/status/marcador explícito por partido y mantener la reconciliación como auditor, no como fuente primaria.
 
 ## Guard de Copas para fechas grandes · 3.8.60
 

@@ -136,3 +136,81 @@ def test_prepare_automatic_update_no_inventa_si_faltan_dos_fechas():
     assert prepared["inferred_played"] == []
     assert prepared["diagnostic_notes"]
     assert "La tabla implica 45 partidos" in prepared["coverage_note"]
+
+
+def test_prepare_automatic_update_reconcilia_49_a_61_con_fecha_siguiente_parcial():
+    """Regresión del caso real: 49 resultados base, 61 implícitos en la tabla.
+
+    La base ya contiene cuatro partidos de la Fecha 4. Luego se completa el resto de
+    esa fecha y se juega Racing-Banfield de Fecha 5. Los feeds automáticos pueden
+    venir vacíos: si PJ/puntos/GF/GC/DG + fixture fijan una única solución, la carga
+    debe reconstruir exactamente los 12 marcadores faltantes.
+    """
+    rng = random.Random(3861)
+    all_results = {
+        (row["l"], row["v"]): (row["l"], row["v"], rng.randrange(4), rng.randrange(4))
+        for row in LPF_FIXTURE
+        if int(row["f"]) <= 5
+    }
+    through_round3 = [
+        result for pair, result in all_results.items()
+        if next(
+            int(row["f"])
+            for row in LPF_FIXTURE
+            if (row["l"], row["v"]) == pair
+        ) <= 3
+    ]
+    builtin_round4_pairs = {
+        ("Rosario Central", "Aldosivi"),
+        ("Independiente Rivadavia", "Estudiantes de Río Cuarto"),
+        ("Deportivo Riestra", "Estudiantes de La Plata"),
+        ("Atlético Tucumán", "Sarmiento"),
+    }
+    baseline = through_round3 + [all_results[pair] for pair in builtin_round4_pairs]
+    round4 = [
+        all_results[(row["l"], row["v"])]
+        for row in LPF_FIXTURE
+        if int(row["f"]) == 4
+    ]
+    first_round5 = all_results[("Racing", "Banfield")]
+    full = [*through_round3, *round4, first_round5]
+    zones = _zones_from_results(full)
+
+    assert len(baseline) == 49
+    assert len(full) == 61
+    prepared = prepare_automatic_update(zones, builtin_played=baseline)
+
+    assert len(prepared["inferred_played"]) == 12
+    assert len(prepared["played"]) == 61
+    assert _lpf_results_fit_zones(zones, prepared["played"])
+    assert "Fechas 4-5" in prepared["inferred_note"]
+    assert "conciliación determinística 12" in prepared["coverage_note"]
+
+
+def test_prepare_automatic_update_no_reconcilia_si_hay_mas_de_16_faltantes():
+    round1 = _results_through_round(1, seed=3862)
+    round3 = _results_through_round(3, seed=3862)
+    zones_round3 = _zones_from_results(round3)
+    prepared = prepare_automatic_update(zones_round3, previous_played=round1)
+    assert prepared["played"] == []
+    assert prepared["inferred_played"] == []
+
+
+def test_prepare_automatic_update_no_duplica_diagnostico_si_feeds_aportan_lo_mismo():
+    """Dos feeds vacíos no deben repetir el mismo bloque de diferencias."""
+    round1 = _results_through_round(1, seed=3863)
+    round3 = _results_through_round(3, seed=3863)
+    zones_round3 = _zones_from_results(round3)
+
+    prepared = prepare_automatic_update(
+        zones_round3,
+        builtin_played=round1,
+        futbolargentino_played=[],
+        espn_played=[],
+    )
+
+    assert prepared["played"] == []
+    assert len(prepared["diagnostic_notes"]) == 1
+    assert prepared["diagnostic_notes"][0].startswith(
+        "base validada + FutbolArgentino.com:"
+    )

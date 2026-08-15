@@ -190,7 +190,7 @@ def prepare_automatic_update(
     expected_results = expected_played_count(prepared_zones)
     diagnostic_candidates = [
         (
-            "base anterior + FutbolArgentino.com",
+            "base validada + FutbolArgentino.com",
             _merge_lpf_results(
                 futbolargentino_played,
                 builtin_played,
@@ -199,7 +199,7 @@ def prepare_automatic_update(
             ),
         ),
         (
-            "base anterior + ESPN",
+            "base validada + ESPN",
             _merge_lpf_results(
                 espn_played,
                 builtin_played,
@@ -209,7 +209,17 @@ def prepare_automatic_update(
         ),
     ]
     diagnostic_notes = []
+    diagnostic_seen = set()
     for diagnostic_name, diagnostic_played in diagnostic_candidates:
+        fingerprint = tuple(sorted(
+            (local, visitor, int(gl), int(gv))
+            for local, visitor, gl, gv in diagnostic_played
+        ))
+        # Si dos fuentes aportaron cero o exactamente la misma foto, no repetir
+        # el mismo bloque de diferencias con dos rótulos distintos.
+        if fingerprint in diagnostic_seen:
+            continue
+        diagnostic_seen.add(fingerprint)
         diffs = _lpf_results_mismatches(prepared_zones, diagnostic_played, limit=4)
         if diffs:
             diagnostic_notes.append(diagnostic_name + ": " + "; ".join(diffs))

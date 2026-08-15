@@ -56,14 +56,23 @@ def derivar_apertura(anual, Z):
     return out, avisos
 
 def _lpf_infer_missing_results(zones, baseline, fixture=None):
-    """Reconstruye uno o varios partidos faltantes sólo si la tabla los fija de forma única.
+    """Reconstruye partidos faltantes sólo cuando la tabla fija una solución única.
 
-    Se usa cuando el standings avanzó antes que las fuentes de marcadores. Respecto de una
-    foto histórica ya validada, cada club que avanzó debe haber sumado exactamente un PJ.
-    Sus deltas de puntos, GF, GC y DG fijan el marcador. Después se busca en el fixture una
-    única combinación de cruces pendientes que empareje a todos esos clubes una sola vez.
-    Si hay dos soluciones posibles, un delta incoherente o algún club avanzó más de un PJ,
-    no se infiere nada.
+    Es un respaldo determinístico para el caso en que el standings se actualiza antes
+    que los feeds de marcadores. Compara la última foto validada contra la tabla nueva
+    y busca, dentro del fixture oficial, una única combinación de partidos y marcadores
+    que explique exactamente PJ, puntos, GF, GC y DG de *todos* los clubes.
+
+    La búsqueda es deliberadamente conservadora:
+
+    - como máximo reconstruye 16 partidos de una actualización;
+    - ningún club puede haber avanzado más de 2 PJ respecto de la base validada;
+    - sólo considera la ventana de fechas consecutivas que empieza en la primera fecha
+      todavía incompleta de la base;
+    - si existen dos soluciones compatibles, no infiere nada.
+
+    Esto permite conciliar, por ejemplo, el cierre de una fecha más un único partido de
+    la siguiente sin convertir los PJ de la tabla en una fuente especulativa.
     """
     fixture = fixture or LPF_FIXTURE
     baseline = _merge_lpf_results(baseline)
@@ -77,6 +86,7 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
                 key: int((row or {}).get(key, 0))
                 for key in ("pj", "pts", "gf", "ga", "dg")
             }
+
     actual = _lpf_result_stats(baseline)
     deltas = {}
     for team, wanted in expected.items():
@@ -84,95 +94,167 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
         delta = {key: int(wanted[key]) - int(got.get(key, 0)) for key in wanted}
         if any(delta[key] < 0 for key in ("pj", "pts", "gf", "ga")):
             return [], ""
+        if delta["dg"] != delta["gf"] - delta["ga"]:
+            return [], ""
+        if delta["pts"] > 3 * delta["pj"]:
+            return [], ""
         # Si no sumó PJ, ningún otro acumulado puede haber cambiado.
-        if delta["pj"] == 0 and any(delta[key] != 0 for key in ("pts", "gf", "ga", "dg")):
+        if delta["pj"] == 0 and any(
+            delta[key] != 0 for key in ("pts", "gf", "ga", "dg")
+        ):
             return [], ""
         deltas[team] = delta
 
-    advanced = sorted(team for team, delta in deltas.items() if delta["pj"] != 0)
-    if not advanced or len(advanced) % 2:
+    total_team_games = sum(delta["pj"] for delta in deltas.values())
+    if total_team_games <= 0 or total_team_games % 2:
         return [], ""
-    # Respaldo deliberadamente conservador: una sola tanda de partidos nuevos.
-    if any(deltas[team]["pj"] != 1 for team in advanced):
+    missing_matches = total_team_games // 2
+    if missing_matches > 16:
+        return [], ""
+    max_delta_pj = max((delta["pj"] for delta in deltas.values()), default=0)
+    if max_delta_pj <= 0 or max_delta_pj > 2:
         return [], ""
 
+    advanced = {team for team, delta in deltas.items() if delta["pj"] > 0}
     played_pairs = {(canon_club(l), canon_club(v)) for l, v, _gl, _gv in baseline}
-    advanced_set = set(advanced)
-    edges = []
+
+    pending_edges = []
     for row in fixture or []:
         home = canon_club(row.get("l") or row.get("home") or "")
         away = canon_club(row.get("v") or row.get("away") or "")
         if not home or not away or (home, away) in played_pairs:
             continue
-        if home not in advanced_set or away not in advanced_set:
-            continue
-
-        gh = deltas[home]["gf"]
-        ga = deltas[home]["ga"]
-        if gh < 0 or ga < 0:
-            continue
-        if deltas[away]["gf"] != ga or deltas[away]["ga"] != gh:
-            continue
-        if deltas[home]["dg"] != gh - ga or deltas[away]["dg"] != ga - gh:
-            continue
-        if gh > ga:
-            pts_home, pts_away = 3, 0
-        elif ga > gh:
-            pts_home, pts_away = 0, 3
-        else:
-            pts_home = pts_away = 1
-        if deltas[home]["pts"] != pts_home or deltas[away]["pts"] != pts_away:
+        if home not in advanced or away not in advanced:
             continue
         round_number = int(row.get("f") or row.get("round") or 0)
-        edges.append((round_number, home, away, int(gh), int(ga)))
+        if round_number > 0:
+            pending_edges.append((round_number, home, away))
 
-    # La tanda nueva debe pertenecer a una misma fecha oficial. Esto evita que
-    # deltas iguales armen combinaciones ficticias con cruces de fechas futuras.
-    # Si el feed quedó atrasado más de una fecha, este respaldo no intenta adivinar.
+    if not pending_edges:
+        return [], ""
+
+    # No salta fechas enteras para fabricar una solución. Si un postergado rompe esta
+    # continuidad y no hay un feed de resultados que lo identifique, se prefiere no inferir.
+    first_pending_round = min(edge[0] for edge in pending_edges)
+    last_candidate_round = first_pending_round + max_delta_pj - 1
+    edges = [
+        edge for edge in pending_edges
+        if first_pending_round <= edge[0] <= last_candidate_round
+    ]
+
+    by_team = {team: [] for team in advanced}
+    for idx, (_round, home, away) in enumerate(edges):
+        by_team[home].append(idx)
+        by_team[away].append(idx)
+    if any(len(by_team.get(team, [])) < deltas[team]["pj"] for team in advanced):
+        return [], ""
+
+    state = {
+        team: {
+            key: int(delta[key])
+            for key in ("pj", "pts", "gf", "ga")
+        }
+        for team, delta in deltas.items()
+    }
+    used_edges = set()
     solutions = []
-    for candidate_round in sorted({edge[0] for edge in edges if edge[0] > 0}):
-        round_edges = [edge for edge in edges if edge[0] == candidate_round]
-        by_team = {team: [] for team in advanced}
-        for edge in round_edges:
-            _rnd, home, away, _gh, _ga = edge
-            by_team[home].append(edge)
-            by_team[away].append(edge)
-        if any(not by_team[team] for team in advanced):
-            continue
 
-        round_solutions = []
-        def backtrack(remaining, chosen):
-            if len(round_solutions) > 1:
-                return
-            if not remaining:
-                round_solutions.append(list(chosen))
-                return
-            team = min(remaining, key=lambda t: len([
-                e for e in by_team[t]
-                if e[1] in remaining and e[2] in remaining
-            ]))
-            candidates = [
-                e for e in by_team[team]
-                if e[1] in remaining and e[2] in remaining
-            ]
-            for edge in candidates:
-                _rnd, home, away, _gh, _ga = edge
-                backtrack(remaining - {home, away}, chosen + [edge])
-                if len(round_solutions) > 1:
-                    return
+    def team_state_is_possible(row):
+        if any(int(row[key]) < 0 for key in ("pj", "pts", "gf", "ga")):
+            return False
+        if int(row["pts"]) > 3 * int(row["pj"]):
+            return False
+        if int(row["pj"]) == 0 and any(
+            int(row[key]) != 0 for key in ("pts", "gf", "ga")
+        ):
+            return False
+        return True
 
-        backtrack(set(advanced), [])
-        for solution in round_solutions[:2]:
-            solutions.append((candidate_round, solution))
-            if len(solutions) > 1:
-                break
+    def backtrack(current, chosen):
         if len(solutions) > 1:
-            break
+            return
+        active = [team for team, row in current.items() if int(row["pj"]) > 0]
+        if not active:
+            if all(
+                int(row["pts"]) == int(row["gf"]) == int(row["ga"]) == 0
+                for row in current.values()
+            ):
+                solutions.append(list(chosen))
+            return
 
+        available_by_team = {}
+        for team in active:
+            available = [
+                idx for idx in by_team.get(team, [])
+                if idx not in used_edges
+                and current[edges[idx][1]]["pj"] > 0
+                and current[edges[idx][2]]["pj"] > 0
+            ]
+            if len(available) < int(current[team]["pj"]):
+                return
+            available_by_team[team] = available
+
+        team = min(
+            active,
+            key=lambda value: (
+                len(available_by_team[value]),
+                int(current[value]["pj"]),
+                value,
+            ),
+        )
+
+        for edge_idx in available_by_team[team]:
+            round_number, home, away = edges[edge_idx]
+            if current[home]["pj"] <= 0 or current[away]["pj"] <= 0:
+                continue
+
+            max_home_goals = min(current[home]["gf"], current[away]["ga"])
+            max_away_goals = min(current[home]["ga"], current[away]["gf"])
+            for home_goals in range(int(max_home_goals) + 1):
+                for away_goals in range(int(max_away_goals) + 1):
+                    if home_goals > away_goals:
+                        home_points, away_points = 3, 0
+                    elif away_goals > home_goals:
+                        home_points, away_points = 0, 3
+                    else:
+                        home_points = away_points = 1
+                    if home_points > current[home]["pts"]:
+                        continue
+                    if away_points > current[away]["pts"]:
+                        continue
+
+                    nxt = {name: dict(row) for name, row in current.items()}
+                    nxt[home]["pj"] -= 1
+                    nxt[away]["pj"] -= 1
+                    nxt[home]["pts"] -= home_points
+                    nxt[away]["pts"] -= away_points
+                    nxt[home]["gf"] -= home_goals
+                    nxt[home]["ga"] -= away_goals
+                    nxt[away]["gf"] -= away_goals
+                    nxt[away]["ga"] -= home_goals
+                    if not team_state_is_possible(nxt[home]) or not team_state_is_possible(nxt[away]):
+                        continue
+                    # Todos los goles de la tanda aparecen una vez como GF y una como GC.
+                    if sum(row["gf"] for row in nxt.values()) != sum(
+                        row["ga"] for row in nxt.values()
+                    ):
+                        continue
+
+                    used_edges.add(edge_idx)
+                    chosen.append(
+                        (round_number, home, away, int(home_goals), int(away_goals))
+                    )
+                    backtrack(nxt, chosen)
+                    chosen.pop()
+                    used_edges.remove(edge_idx)
+                    if len(solutions) > 1:
+                        return
+
+    backtrack(state, [])
     if len(solutions) != 1:
         return [], ""
 
-    inferred_round, solution_edges = solutions[0]
+    solution_edges = solutions[0]
     inferred = sorted(
         [(home, away, gh, ga) for _rnd, home, away, gh, ga in solution_edges],
         key=lambda row: (row[0], row[1]),
@@ -181,10 +263,16 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
     if not _lpf_results_fit_zones(zones, candidate):
         return [], ""
 
+    rounds = sorted({int(row[0]) for row in solution_edges})
+    if len(rounds) == 1:
+        round_label = f"Fecha {rounds[0]}"
+    else:
+        round_label = "Fechas " + "-".join(str(value) for value in (rounds[0], rounds[-1]))
     details = "; ".join(f"{h} {gh}-{ga} {a}" for h, a, gh, ga in inferred)
     note = (
-        f"Conciliación por tabla (Fecha {inferred_round}): {details}. "
-        f"Los {len(inferred)} marcador(es) surgen de una única combinación de esa fecha "
+        f"Conciliación por tabla ({round_label}): {details}. "
+        f"Los {len(inferred)} marcador(es) surgen de una única combinación del fixture "
         "y reproducen exactamente PJ, puntos, GF, GC y DG."
     )
     return inferred, note
+

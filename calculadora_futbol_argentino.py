@@ -5321,6 +5321,7 @@ def cargar_lpf_espn(liga="arg.1"):
             ("ESPN", espn_played),
         ) if rows]
         + (["conciliación por resultados finales"] if reconcile_note else [])
+        + (["conciliación determinística por tabla"] if inferred_played else [])
     ) or "base validada"
     _set_lpf_source_meta(
         source_name=source_name,

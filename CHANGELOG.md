@@ -1,3 +1,13 @@
+## 3.8.61 · 2026-08-15
+
+- Corrige la actualización transaccional cuando el standings se adelanta a los feeds de resultados: la conciliación determinística ahora puede completar una base validada con varios partidos nuevos, incluso si abarcan dos fechas consecutivas.
+- `_lpf_infer_missing_results` compara la tabla nueva contra la base validada y busca una **única** combinación de fixture + marcadores que reproduzca exactamente PJ, puntos, GF, GC y DG de todos los clubes.
+- Guardas conservadores: como máximo 16 partidos por actualización, como máximo 2 PJ nuevos por club, sólo una ventana de fechas oficiales consecutivas desde la primera fecha pendiente y rechazo inmediato ante una segunda solución compatible.
+- Agrega regresión del caso `49 → 61`: cuatro partidos de Fecha 4 ya estaban en la base, se completan los otros once y además Racing-Banfield de Fecha 5; con feeds vacíos se reconstruyen exactamente los 12 faltantes si la tabla los fija de forma unívoca.
+- El diagnóstico de cobertura deduplica candidatos idénticos: si FutbolArgentino.com y ESPN aportan la misma foto vacía/incompleta, no imprime dos veces las mismas diferencias.
+- Sigue siendo transaccional: si la reconstrucción no es exacta o única, `played` queda vacío para esa actualización y la base válida anterior no se reemplaza.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.60 · 2026-08-14
 
 - Corrige el caso real de Copas con muchas otras canchas: la matriz G/E/P ya no queda en `—` cuando `next_round_conditionals` supera el límite corto de 8 partidos ajenos.
