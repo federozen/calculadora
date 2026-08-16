@@ -1,8 +1,18 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.61
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.62
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
 La versión vigente siempre está en `lpf_version.__version__` (única fuente de verdad compartida por Streamlit, auditoría y futuras interfaces). El historial completo está en `CHANGELOG.md`.
+
+
+## Novedad 3.8.62 · Conciliación sin tope fijo 16 y diagnóstico de fuentes
+
+- Corrige el nuevo caso real `49 resultados validados → tabla que implica 67`: la conciliación determinística puede intentar los **18 partidos faltantes** si fixture + PJ/puntos/GF/GC/DG fijan una única solución.
+- Se elimina el tope fijo de 16 partidos. La seguridad pasa a depender de la **complejidad real de la búsqueda**: máximo 2 PJ nuevos por club, ventana de fechas consecutivas y un presupuesto determinístico de estados. Si la búsqueda se vuelve demasiado abierta, se abandona sin inferir.
+- Una segunda solución compatible sigue invalidando toda la reconstrucción. La app informa explícitamente si el bloqueo fue por ambigüedad o por presupuesto de búsqueda.
+- El caso 49→67 queda cubierto por regresión y reconstruye 18 resultados en dos fechas parciales sin convertir la tabla en una fuente especulativa.
+- El error de actualización ahora expone mejor el problema de cada feed: si ESPN/FutbolArgentino devuelve filas que luego no coinciden con clubes/fixture, se informa el conteo descartado; los errores de fuente y de conciliación dejan de quedar escondidos detrás de un simple `aportó 0`.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 no cambian.
 
 ## Novedad 3.8.61 · Conciliación incremental cuando la tabla se adelanta a los feeds
 

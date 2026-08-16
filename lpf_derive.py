@@ -63,12 +63,15 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
     y busca, dentro del fixture oficial, una única combinación de partidos y marcadores
     que explique exactamente PJ, puntos, GF, GC y DG de *todos* los clubes.
 
-    La búsqueda es deliberadamente conservadora:
+    La búsqueda es deliberadamente conservadora, pero no usa un tope fijo de
+    partidos faltantes: la complejidad real depende de cuántos cruces del fixture
+    siguen siendo candidatos y de cuántas ramas sobreviven a los acumulados.
 
-    - como máximo reconstruye 16 partidos de una actualización;
     - ningún club puede haber avanzado más de 2 PJ respecto de la base validada;
     - sólo considera la ventana de fechas consecutivas que empieza en la primera fecha
       todavía incompleta de la base;
+    - la búsqueda tiene un presupuesto determinístico de estados para evitar bloquear
+      una carga si la tabla deja demasiadas combinaciones abiertas;
     - si existen dos soluciones compatibles, no infiere nada.
 
     Esto permite conciliar, por ejemplo, el cierre de una fecha más un único partido de
@@ -109,8 +112,6 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
     if total_team_games <= 0 or total_team_games % 2:
         return [], ""
     missing_matches = total_team_games // 2
-    if missing_matches > 16:
-        return [], ""
     max_delta_pj = max((delta["pj"] for delta in deltas.values()), default=0)
     if max_delta_pj <= 0 or max_delta_pj > 2:
         return [], ""
@@ -148,6 +149,15 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
         by_team[away].append(idx)
     if any(len(by_team.get(team, [])) < deltas[team]["pj"] for team in advanced):
         return [], ""
+    if missing_matches > len(edges):
+        return [], ""
+
+    # La ventana ya está limitada a como máximo dos fechas por el guard de PJ.
+    # En vez de cortar por una cantidad fija de partidos faltantes, el backtracking
+    # usa un presupuesto de estados. Esto permite saltos reales como 49 -> 67
+    # cuando los acumulados fijan rápidamente una solución, y abandona de forma
+    # segura si la tabla deja un espacio combinatorio demasiado amplio.
+    max_search_states = 250_000
 
     state = {
         team: {
@@ -158,6 +168,8 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
     }
     used_edges = set()
     solutions = []
+    search_states = 0
+    search_aborted = False
 
     def team_state_is_possible(row):
         if any(int(row[key]) < 0 for key in ("pj", "pts", "gf", "ga")):
@@ -171,7 +183,12 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
         return True
 
     def backtrack(current, chosen):
-        if len(solutions) > 1:
+        nonlocal search_states, search_aborted
+        if search_aborted or len(solutions) > 1:
+            return
+        search_states += 1
+        if search_states > max_search_states:
+            search_aborted = True
             return
         active = [team for team, row in current.items() if int(row["pj"]) > 0]
         if not active:
@@ -251,7 +268,18 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
                         return
 
     backtrack(state, [])
+    if search_aborted:
+        return [], (
+            "La conciliación determinística no se aplicó: la tabla deja demasiadas "
+            "combinaciones de fixture/marcadores abiertas para resolverlas dentro del "
+            "presupuesto seguro de búsqueda."
+        )
     if len(solutions) != 1:
+        if len(solutions) > 1:
+            return [], (
+                "La conciliación determinística no se aplicó: hay más de una "
+                "combinación de resultados compatible con PJ, puntos, GF, GC y DG."
+            )
         return [], ""
 
     solution_edges = solutions[0]

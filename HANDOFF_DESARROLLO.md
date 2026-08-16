@@ -1,18 +1,18 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.61
-## Conciliación incremental de resultados · 3.8.61
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.62
+## Conciliación incremental de resultados · 3.8.62
 
 El standings puede actualizarse antes que los feeds de marcadores. `prepare_automatic_update()` conserva una política transaccional: primero intenta reconstruir la tabla con resultados explícitos; si ninguna combinación de fuentes alcanza, `_lpf_infer_missing_results` puede completar la **base validada** sólo cuando fixture + deltas de PJ/puntos/GF/GC/DG determinan una única solución.
 
 Guardas que Desarrollo debe preservar:
 
-1. máximo **16 partidos inferidos** por actualización;
+1. **no usar un tope fijo de partidos**: la búsqueda tiene un presupuesto determinístico de 250.000 estados y debe fallar cerrada si lo excede;
 2. máximo **2 PJ nuevos por club** respecto de la base validada;
 3. sólo la ventana de fechas oficiales consecutivas que empieza en la primera fecha pendiente;
 4. una segunda solución compatible invalida toda la inferencia;
 5. el resultado combinado debe volver a pasar `_lpf_results_fit_zones`;
 6. nunca usar PJ por sí solo para marcar un partido como jugado ni saltar postergados.
 
-Caso de aceptación incluido: base con 49 resultados + tabla que implica 61 (resto de Fecha 4 y un partido de Fecha 5). Si los feeds externos llegan vacíos, los 12 faltantes sólo se aceptan si existe una única reconstrucción exacta. Esto es un **fallback de continuidad**, no reemplaza un futuro feed Opta con identidad/status de cada partido.
+Casos de aceptación incluidos: `49 → 61` (12 faltantes) y `49 → 67` (18 faltantes). En ambos, los feeds externos pueden venir vacíos y los marcadores sólo se aceptan si existe una única reconstrucción exacta. Un salto de dos fechas con múltiples soluciones debe seguir rechazándose. Esto es un **fallback de continuidad**, no reemplaza un futuro feed Opta con identidad/status de cada partido.
 
 ## Fallback exacto de G/E/P para fechas grandes · 3.8.60
 

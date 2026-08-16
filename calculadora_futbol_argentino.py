@@ -5201,6 +5201,7 @@ def cargar_lpf_espn(liga="arg.1"):
     jug_raw, _pen_raw, nota_espn, ferr_espn = espn_fixture(liga, 120, desde="2026-07-01")
     espn_played = normalize_results_for_zones(zones, jug_raw or [])
 
+    fa_raw = []
     fa_played = []
     fa_error = ""
     fa_url = ""
@@ -5265,6 +5266,14 @@ def cargar_lpf_espn(liga="arg.1"):
         result_source_warnings.append("ESPN no pudo completar los resultados: " + ferr_espn)
     if fa_error:
         result_source_warnings.append("FutbolArgentino.com no pudo completar los resultados: " + fa_error)
+    if jug_raw and not espn_played:
+        result_source_warnings.append(
+            f"ESPN devolvió {len(jug_raw)} partido(s), pero ninguno coincidió con los clubes/fixture de la tabla cargada."
+        )
+    if fa_raw and not fa_played:
+        result_source_warnings.append(
+            f"FutbolArgentino.com devolvió {len(fa_raw)} partido(s), pero ninguno coincidió con los clubes/fixture de la tabla cargada."
+        )
     if inferred_note:
         result_source_warnings.append(inferred_note)
 
@@ -5294,7 +5303,10 @@ def cargar_lpf_espn(liga="arg.1"):
                     "No reemplacé la base anterior porque los resultados no explicaban los PJ de la tabla."
                 ],
             }, None
-        detail = (" " + " ".join(diagnostic_notes[:2])) if diagnostic_notes else ""
+        detail_parts = []
+        detail_parts.extend(result_source_warnings[:2])
+        detail_parts.extend(diagnostic_notes[:2])
+        detail = (" " + " ".join(detail_parts)) if detail_parts else ""
         return None, (
             "Las tablas se actualizaron, pero ninguna fuente de resultados explica "
             "exactamente PJ, puntos y goles publicados. " + coverage_note + detail +

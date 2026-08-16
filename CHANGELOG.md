@@ -1,3 +1,12 @@
+## 3.8.62 · 2026-08-16
+
+- Corrige el caso real posterior a 3.8.61: una base validada de 49 resultados frente a una tabla que implica 67 partidos requiere conciliar 18 faltantes, por lo que el antiguo límite fijo de 16 bloqueaba antes de intentar una solución.
+- `_lpf_infer_missing_results` deja de usar un tope fijo de partidos y pasa a un presupuesto determinístico de **250.000 estados de búsqueda**. Se mantienen las guardas de máximo 2 PJ nuevos por club, fechas oficiales consecutivas y validación final exacta de PJ/puntos/GF/GC/DG.
+- Si la búsqueda supera el presupuesto, no infiere; si aparecen dos soluciones compatibles, tampoco infiere y devuelve un diagnóstico explícito de ambigüedad.
+- Nueva regresión `49 → 67`: completa Fecha 4 + siete partidos de Fecha 5 y reconstruye exactamente 18 marcadores cuando la solución es única. El caso de dos fechas completamente ambiguas sigue fallando cerrado.
+- Mejora el diagnóstico de fuentes en Streamlit: errores de ESPN/FutbolArgentino y filas recibidas pero descartadas por normalización se muestran en el error principal, en vez de quedar resumidos sólo como `aportó 0`.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.61 · 2026-08-15
 
 - Corrige la actualización transaccional cuando el standings se adelanta a los feeds de resultados: la conciliación determinística ahora puede completar una base validada con varios partidos nuevos, incluso si abarcan dos fechas consecutivas.
