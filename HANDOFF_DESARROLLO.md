@@ -1,18 +1,19 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.62
-## Conciliación incremental de resultados · 3.8.62
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.63
+## Resultados explícitos y conciliación · 3.8.63
 
-El standings puede actualizarse antes que los feeds de marcadores. `prepare_automatic_update()` conserva una política transaccional: primero intenta reconstruir la tabla con resultados explícitos; si ninguna combinación de fuentes alcanza, `_lpf_infer_missing_results` puede completar la **base validada** sólo cuando fixture + deltas de PJ/puntos/GF/GC/DG determinan una única solución.
+La prioridad de resultados públicos antes de Opta queda: **manual > LPF oficial > base validada > FutbolArgentino.com/ESPN**. La web oficial de Primera (`ligaprofesional.ar/notas/primera/`) se usa como primera fuente automática de marcadores porque hoy ESPN puede responder 403 desde servidores y FutbolArgentino.com puede servir HTML sin sus partidos renderizados.
 
-Guardas que Desarrollo debe preservar:
+Reglas que Desarrollo debe preservar:
 
-1. **no usar un tope fijo de partidos**: la búsqueda tiene un presupuesto determinístico de 250.000 estados y debe fallar cerrada si lo excede;
-2. máximo **2 PJ nuevos por club** respecto de la base validada;
-3. sólo la ventana de fechas oficiales consecutivas que empieza en la primera fecha pendiente;
-4. una segunda solución compatible invalida toda la inferencia;
-5. el resultado combinado debe volver a pasar `_lpf_results_fit_zones`;
-6. nunca usar PJ por sí solo para marcar un partido como jugado ni saltar postergados.
+1. un artículo oficial sólo se convierte en resultado si tiene **dos clubes + marcador explícito** y la pareja existe en `LPF_FIXTURE`;
+2. si LPF oficial + base validada ya reconstruyen exactamente la tabla, no es obligatorio golpear fallbacks externos;
+3. toda combinación final vuelve a pasar `_lpf_results_fit_zones` (PJ/puntos/GF/GC/DG);
+4. la conciliación desde tabla es respaldo/auditor, nunca fuente preferida frente a un marcador explícito;
+5. para 1-2 PJ nuevos por club se conserva el backtracking podado; para 3-4 PJ se usa MILP exacto;
+6. el MILP debe demostrar **unicidad** con una segunda factibilidad `no-good`; si existe otra solución o no puede probarse unicidad, no se publica;
+7. más de cuatro fechas sin marcadores explícitos se considera una brecha de fuente y no debe resolverse por inferencia automática.
 
-Casos de aceptación incluidos: `49 → 61` (12 faltantes) y `49 → 67` (18 faltantes). En ambos, los feeds externos pueden venir vacíos y los marcadores sólo se aceptan si existe una única reconstrucción exacta. Un salto de dos fechas con múltiples soluciones debe seguir rechazándose. Esto es un **fallback de continuidad**, no reemplaza un futuro feed Opta con identidad/status de cada partido.
+Casos de aceptación: `49 → 61`, `49 → 67`, `49 + 42 oficiales → 87` y `49 → 87` por MILP sólo cuando es único. En producción con Opta, el objetivo es que esta conciliación quede como auditor de integridad y no como camino normal de ingestión.
 
 ## Fallback exacto de G/E/P para fechas grandes · 3.8.60
 

@@ -192,3 +192,27 @@ def test_fetch_futbolargentino_results_pages_preserva_cache_buster_y_fallos():
             "error": "fallo simulado",
         },
     ]
+
+
+def test_fetch_html_pages_conserva_resultados_y_fallos_por_url():
+    calls = []
+
+    def fake_get(url, *, referer, timeout):
+        calls.append((url, referer, timeout))
+        if url.endswith("/2"):
+            raise RuntimeError("fallo simulado")
+        return "<html>" + ("x" * 600) + "</html>", url + "/final"
+
+    result = lpf_http.fetch_html_pages(
+        ("https://source.test/1", "https://source.test/2"),
+        referer="https://source.test/",
+        timeout=11,
+        get_html=fake_get,
+    )
+    assert len(result["attempts"]) == 2
+    assert result["attempts"][0]["final_url"].endswith("/final")
+    assert result["attempts"][1]["error"] == "fallo simulado"
+    assert calls == [
+        ("https://source.test/1", "https://source.test/", 11),
+        ("https://source.test/2", "https://source.test/", 11),
+    ]

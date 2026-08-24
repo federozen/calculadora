@@ -373,3 +373,35 @@ def test_panel_y_ultimas_fechas_comparten_un_solo_helper_editorial_de_necesidad(
     assert "lpf_descenso_texto" in helper
     radar_helper = source[source.index("def _definition_editorial_report_text"):source.index("def render_definition_radar")]
     assert "_lpf_editorial_need_text" in radar_helper
+
+
+def test_lpf_official_results_delega_transporte_y_parsers_fuera_de_streamlit():
+    tree = _module_tree()
+    fn = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "lpf_official_results"
+    )
+    called = {
+        node.func.id
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "fetch_html_pages" in called
+    assert "parse_lpf_official_listing_html" in called
+    assert "parse_lpf_official_results_article_html" in called
+    assert "played_pending_from_records" in called
+
+
+def test_carga_automatica_consulta_lpf_oficial_antes_de_fallbacks_de_resultados():
+    tree = _module_tree()
+    fn = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "cargar_lpf_espn"
+    )
+    calls = [
+        node.func.id
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    ]
+    assert "lpf_official_results" in calls
+    assert "prepare_automatic_update" in calls

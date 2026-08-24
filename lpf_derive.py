@@ -55,6 +55,166 @@ def derivar_apertura(anual, Z):
                       "Revisá que la anual y las tablas del Clausura sean de la misma fecha.")
     return out, avisos
 
+
+def _lpf_infer_missing_results_milp(deltas, edges, *, missing_matches, first_round, last_round):
+    """Resuelve una conciliación grande como MILP y exige unicidad exacta.
+
+    Variables por partido: jugado, goles local/visitante y resultado L/E/V. Los
+    acumulados de cada club fijan PJ, puntos, GF y GC. Una segunda resolución agrega
+    una restricción *no-good*: si existe cualquier solución con un partido o marcador
+    distinto, la reconstrucción se considera ambigua y no se publica.
+    """
+    try:
+        import numpy as np
+        from scipy.optimize import Bounds, LinearConstraint, milp
+    except Exception:
+        return [], "La conciliación grande requiere scipy.optimize.milp y no está disponible."
+
+    m = len(edges)
+    if not m or missing_matches <= 0:
+        return [], ""
+    # y, gh, ga, local-win, draw, away-win
+    n = 6 * m
+    Y, GH, GA, HW, DR, AW = (0, m, 2 * m, 3 * m, 4 * m, 5 * m)
+    lower = np.zeros(n, dtype=float)
+    upper = np.ones(n, dtype=float)
+    for j, (_rnd, home, away) in enumerate(edges):
+        upper[GH + j] = max(0, min(int(deltas[home]["gf"]), int(deltas[away]["ga"])))
+        upper[GA + j] = max(0, min(int(deltas[home]["ga"]), int(deltas[away]["gf"])))
+
+    rows = []
+    lbs = []
+    ubs = []
+
+    def add(coeffs, lb=-np.inf, ub=np.inf):
+        row = np.zeros(n, dtype=float)
+        for idx, value in coeffs.items():
+            row[int(idx)] = float(value)
+        rows.append(row); lbs.append(float(lb)); ubs.append(float(ub))
+
+    for j in range(m):
+        # Si el partido se juega, exactamente uno de L/E/V.
+        add({HW + j: 1, DR + j: 1, AW + j: 1, Y + j: -1}, 0, 0)
+        add({GH + j: 1, Y + j: -upper[GH + j]}, ub=0)
+        add({GA + j: 1, Y + j: -upper[GA + j]}, ub=0)
+        big = max(float(upper[GH + j]), float(upper[GA + j])) + 1.0
+        # Local gana => gh >= ga + 1.
+        add({GH + j: -1, GA + j: 1, HW + j: big}, ub=big - 1)
+        # Visitante gana => ga >= gh + 1.
+        add({GH + j: 1, GA + j: -1, AW + j: big}, ub=big - 1)
+        # Empate => gh == ga.
+        add({GH + j: 1, GA + j: -1, DR + j: big}, ub=big)
+        add({GH + j: -1, GA + j: 1, DR + j: big}, ub=big)
+
+    by_team = {team: [] for team, delta in deltas.items() if int(delta["pj"]) > 0}
+    for j, (_rnd, home, away) in enumerate(edges):
+        if home in by_team:
+            by_team[home].append((j, True))
+        if away in by_team:
+            by_team[away].append((j, False))
+
+    for team, incident in by_team.items():
+        delta = deltas[team]
+        # PJ
+        add({Y + j: 1 for j, _is_home in incident}, delta["pj"], delta["pj"])
+        # Puntos
+        coeff = {}
+        for j, is_home in incident:
+            coeff[(HW if is_home else AW) + j] = 3
+            coeff[DR + j] = 1
+        add(coeff, delta["pts"], delta["pts"])
+        # GF / GC
+        gf = {}; ga = {}
+        for j, is_home in incident:
+            gf[(GH if is_home else GA) + j] = 1
+            ga[(GA if is_home else GH) + j] = 1
+        add(gf, delta["gf"], delta["gf"])
+        add(ga, delta["ga"], delta["ga"])
+
+    A = np.vstack(rows)
+    constraint = LinearConstraint(A, np.asarray(lbs), np.asarray(ubs))
+    result = milp(
+        c=np.zeros(n),
+        integrality=np.ones(n, dtype=int),
+        bounds=Bounds(lower, upper),
+        constraints=constraint,
+        options={"time_limit": 4.0},
+    )
+    if not bool(getattr(result, "success", False)) or result.x is None:
+        return [], (
+            f"Fechas {first_round}-{last_round}: los acumulados no permitieron resolver "
+            "una combinación completa de marcadores mediante el solver exacto."
+        )
+
+    solution = np.rint(result.x).astype(int)
+    core = list(range(0, 3 * m))  # partido jugado + ambos marcadores
+
+    # Segunda factibilidad: obliga a que al menos una variable esencial difiera.
+    n2 = n + 2 * len(core)
+    A2 = np.pad(A, ((0, 0), (0, n2 - n)))
+    lb2 = list(lbs); ub2 = list(ubs)
+    extra_rows = []
+    extra_lb = []; extra_ub = []
+    for k, idx in enumerate(core):
+        dpos = n + 2 * k
+        dneg = dpos + 1
+        svalue = int(solution[idx])
+        max_value = int(round(upper[idx]))
+        big = float(max_value + 1)
+
+        row = np.zeros(n2); row[idx] = -1; row[dpos] = big
+        extra_rows.append(row); extra_lb.append(-np.inf); extra_ub.append(big - svalue - 1)
+        row = np.zeros(n2); row[idx] = 1; row[dneg] = big
+        extra_rows.append(row); extra_lb.append(-np.inf); extra_ub.append(svalue - 1 + big)
+        row = np.zeros(n2); row[dpos] = 1; row[dneg] = 1
+        extra_rows.append(row); extra_lb.append(-np.inf); extra_ub.append(1)
+
+    row = np.zeros(n2)
+    row[n:] = 1
+    extra_rows.append(row); extra_lb.append(1); extra_ub.append(np.inf)
+    A2 = np.vstack([A2, *extra_rows])
+    lb2.extend(extra_lb); ub2.extend(extra_ub)
+    lower2 = np.concatenate([lower, np.zeros(n2 - n)])
+    upper2 = np.concatenate([upper, np.ones(n2 - n)])
+    second = milp(
+        c=np.zeros(n2),
+        integrality=np.ones(n2, dtype=int),
+        bounds=Bounds(lower2, upper2),
+        constraints=LinearConstraint(A2, np.asarray(lb2), np.asarray(ub2)),
+        options={"time_limit": 4.0},
+    )
+    # status=2 es infeasible en HiGHS/SciPy: no existe otra solución.
+    if bool(getattr(second, "success", False)):
+        return [], (
+            f"Fechas {first_round}-{last_round}: hay más de una combinación de resultados "
+            "compatible con PJ, puntos, GF, GC y DG; no se infieren marcadores."
+        )
+    if int(getattr(second, "status", -1)) != 2:
+        return [], (
+            f"Fechas {first_round}-{last_round}: el solver encontró una reconstrucción, "
+            "pero no pudo demostrar que fuera única dentro del tiempo de seguridad."
+        )
+
+    inferred = []
+    for j, (_rnd, home, away) in enumerate(edges):
+        if int(solution[Y + j]) != 1:
+            continue
+        inferred.append((home, away, int(solution[GH + j]), int(solution[GA + j])))
+    if len(inferred) != int(missing_matches):
+        return [], "La conciliación exacta produjo una cantidad inesperada de partidos; se descartó."
+
+    stats = _lpf_result_stats(inferred)
+    for team, delta in deltas.items():
+        got = stats.get(team, {"pj": 0, "pts": 0, "gf": 0, "ga": 0})
+        if any(int(got.get(key, 0)) != int(delta[key]) for key in ("pj", "pts", "gf", "ga")):
+            return [], "La conciliación exacta no reprodujo los acumulados; se descartó."
+
+    return inferred, (
+        f"Fechas {first_round}-{last_round}: conciliación determinística por tabla reconstruyó "
+        f"{len(inferred)} resultado{'s' if len(inferred) != 1 else ''} y el solver demostró "
+        "que no existe una segunda combinación compatible."
+    )
+
 def _lpf_infer_missing_results(zones, baseline, fixture=None):
     """Reconstruye partidos faltantes sólo cuando la tabla fija una solución única.
 
@@ -67,7 +227,7 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
     partidos faltantes: la complejidad real depende de cuántos cruces del fixture
     siguen siendo candidatos y de cuántas ramas sobreviven a los acumulados.
 
-    - ningún club puede haber avanzado más de 2 PJ respecto de la base validada;
+    - para saltos de hasta 2 PJ usa backtracking podado; para 3-4 PJ usa MILP;
     - sólo considera la ventana de fechas consecutivas que empieza en la primera fecha
       todavía incompleta de la base;
     - la búsqueda tiene un presupuesto determinístico de estados para evitar bloquear
@@ -113,8 +273,13 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
         return [], ""
     missing_matches = total_team_games // 2
     max_delta_pj = max((delta["pj"] for delta in deltas.values()), default=0)
-    if max_delta_pj <= 0 or max_delta_pj > 2:
+    if max_delta_pj <= 0:
         return [], ""
+    if max_delta_pj > 4:
+        return [], (
+            f"La tabla avanzó hasta {max_delta_pj} PJ por club respecto de la base validada; "
+            "la conciliación automática no reconstruye más de cuatro fechas sin marcadores explícitos."
+        )
 
     advanced = {team for team, delta in deltas.items() if delta["pj"] > 0}
     played_pairs = {(canon_club(l), canon_club(v)) for l, v, _gl, _gv in baseline}
@@ -152,7 +317,17 @@ def _lpf_infer_missing_results(zones, baseline, fixture=None):
     if missing_matches > len(edges):
         return [], ""
 
-    # La ventana ya está limitada a como máximo dos fechas por el guard de PJ.
+    if max_delta_pj > 2:
+        return _lpf_infer_missing_results_milp(
+            deltas,
+            edges,
+            missing_matches=missing_matches,
+            first_round=first_pending_round,
+            last_round=last_candidate_round,
+        )
+
+    # Para una o dos fechas se conserva el backtracking histórico, que permite
+    # cortar muy rápido cuando encuentra una segunda solución.
     # En vez de cortar por una cantidad fija de partidos faltantes, el backtracking
     # usa un presupuesto de estados. Esto permite saltos reales como 49 -> 67
     # cuando los acumulados fijan rápidamente una solución, y abandona de forma

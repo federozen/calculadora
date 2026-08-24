@@ -1,10 +1,12 @@
-# Developer / Production Bootstrap · 3.8.62
+# Developer / Production Bootstrap · 3.8.63
 
-## Guard de actualización transaccional · 3.8.62
+## Guard de actualización transaccional · 3.8.63
 
-En staging probar dos situaciones de carrera entre fuentes: (a) resultados explícitos completos y (b) standings más nuevo que los feeds. En el segundo caso, cubrir tanto `49 → 61` como `49 → 67`. La conciliación no usa un tope fijo de partidos: sólo acepta una solución única dentro del presupuesto seguro de búsqueda, con máximo 2 PJ nuevos por club y ventana de fechas oficiales consecutivas. Si hay más de una solución o se agota el presupuesto, la actualización debe fallar cerrada y conservar la foto anterior.
+En staging probar tres niveles de resultados: (a) **LPF oficial explícita** + base validada, (b) fallbacks ESPN/FutbolArgentino cuando la oficial no alcanza y (c) conciliación determinística sólo como último respaldo. El caso principal de aceptación actual es `49 + 42 oficiales → 87`.
 
-Este fallback sirve para continuidad editorial mientras llega el feed; con Opta, priorizar siempre identidad/status/marcador explícito por partido y mantener la reconciliación como auditor, no como fuente primaria.
+La conciliación admite 1-2 PJ nuevos con backtracking y 3-4 PJ con MILP. El solver sólo publica si una segunda resolución demuestra que no existe otra reconstrucción de partido/marcador compatible con PJ, puntos, GF, GC y DG. Si hay ambigüedad, timeout o una brecha mayor a cuatro fechas, debe fallar cerrada y conservar la foto anterior.
+
+Con Opta, priorizar siempre identidad/status/marcador explícito por partido y mantener estas capas como verificación de integridad.
 
 ## Guard de Copas para fechas grandes · 3.8.60
 

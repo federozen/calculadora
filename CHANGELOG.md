@@ -1,3 +1,14 @@
+## 3.8.63 · 2026-08-24
+
+- Corrige el caso real `49 resultados incluidos → tabla que implica 87`: el problema deja de tratarse como una conciliación cada vez más grande y suma una **fuente primaria de marcadores explícitos en la web oficial de la Liga Profesional de Fútbol**.
+- Nuevo parser puro para notas de `ligaprofesional.ar/notas/primera/`: sólo acepta líneas con dos clubes + marcador explícito y una pareja existente en `LPF_FIXTURE`. Reconoce los dos formatos visibles de la LPF (`River 2 – Vélez 2` y `Aldosivi 1 – 3 Unión`) y no convierte programación/prosa en resultados.
+- La actualización automática consulta primero LPF oficial. Si `LPF oficial + base validada` ya reconstruye exactamente PJ/puntos/GF/GC/DG, **no consulta ESPN/FutbolArgentino.com**; quedan como fallback real. Esto evita depender del ESPN 403 y del HTML cambiante de FutbolArgentino.com cuando la fuente oficial alcanza.
+- La portada de Primera se recorre de forma acotada y sólo se descargan notas con títulos de cierre/resultado. El crawler se detiene cuando la unión con la base validada alcanza la cantidad de partidos implícita por la tabla; la reconciliación exacta posterior sigue decidiendo si la foto es válida.
+- `prepare_automatic_update` incorpora `official_played` con prioridad `manual > LPF oficial > base anterior > base incluida > FutbolArgentino.com > ESPN` para la foto completa. La cobertura y auditoría distinguen cuántos resultados aporta la LPF oficial.
+- El fallback determinístico grande deja de quedar mudo ante tres fechas de diferencia: para **3-4 PJ nuevos por club** usa `scipy.optimize.milp`. Modela partido jugado, marcador y L/E/V; una segunda resolución con restricción *no-good* exige demostrar que no existe otra reconstrucción. Si hay otra o no puede probar unicidad, no publica nada.
+- Regresiones nuevas: parser oficial, descubrimiento de notas, integración de LPF oficial, `49 → 87` con 42 marcadores oficiales explícitos y `49 → 87` por MILP cuando la reconstrucción es única.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.62 · 2026-08-16
 
 - Corrige el caso real posterior a 3.8.61: una base validada de 49 resultados frente a una tabla que implica 67 partidos requiere conciliar 18 faltantes, por lo que el antiguo límite fijo de 16 bloqueaba antes de intentar una solución.

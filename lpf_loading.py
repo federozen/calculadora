@@ -111,11 +111,13 @@ def prepare_automatic_update(
     builtin_played: Sequence[ResultRow] | None = None,
     futbolargentino_played: Sequence[ResultRow] | None = None,
     espn_played: Sequence[ResultRow] | None = None,
+    official_played: Sequence[ResultRow] | None = None,
     fixture: Sequence[Mapping[str, object]] | None = None,
 ) -> dict[str, Any]:
     """Prepara la actualización automática a partir de payloads ya obtenidos.
 
-    Conserva exactamente la prioridad histórica de fuentes de la aplicación. No
+    Conserva la política histórica y agrega la LPF oficial como fuente pública
+    prioritaria de marcadores. No
     realiza requests, no lee estado de UI y no guarda snapshots. El resultado puede
     pasarse luego a :func:`lpf_state.build_lpf_state` desde Streamlit o una API.
     """
@@ -125,15 +127,17 @@ def prepare_automatic_update(
     builtin_played = list(builtin_played or [])
     futbolargentino_played = list(futbolargentino_played or [])
     espn_played = list(espn_played or [])
+    official_played = list(official_played or [])
 
     # La colección más nueva gana sólo para hacer avanzar un standings atrasado.
-    # Esto replica el orden histórico del loader: manual > ESPN > FA para una
+    # Prioridad para avanzar una tabla atrasada: manual > LPF oficial > ESPN > FA.
     # corrección explícita del mismo partido en esta etapa.
     forward_results = _merge_lpf_results(
         builtin_played,
         previous_played,
         futbolargentino_played,
         espn_played,
+        official_played,
         manual_played,
     )
     prepared_zones, duplicate_repair_note = _lpf_repair_single_duplicate_in_zones(
@@ -155,12 +159,13 @@ def prepare_automatic_update(
                     row["source_pos"] = int(previous_pos)
             reconciled_annual = _lpf_reorder_source_positions(rebuilt_annual)
 
-    # Prioridad histórica de la foto completa: manual, base anterior, incluida,
+    # Prioridad de la foto completa: manual, LPF oficial, base anterior, incluida,
     # FutbolArgentino.com y ESPN. _lpf_complete_results_for_zones preserva el
     # primer origen cuando dos fuentes discrepan para una misma pareja.
     played = _lpf_complete_results_for_zones(
         prepared_zones,
         manual_played,
+        official_played,
         previous_played,
         builtin_played,
         futbolargentino_played,
@@ -171,7 +176,7 @@ def prepare_automatic_update(
     inferred_note = ""
     if not played:
         trusted_baseline = _merge_lpf_results(
-            builtin_played, previous_played, manual_played
+            builtin_played, previous_played, official_played, manual_played
         )
         inferred_played, inferred_note = _lpf_infer_missing_results(
             prepared_zones, trusted_baseline, fixture
@@ -180,6 +185,7 @@ def prepare_automatic_update(
             played = _lpf_complete_results_for_zones(
                 prepared_zones,
                 manual_played,
+                official_played,
                 previous_played,
                 builtin_played,
                 inferred_played,
@@ -189,6 +195,15 @@ def prepare_automatic_update(
 
     expected_results = expected_played_count(prepared_zones)
     diagnostic_candidates = [
+        (
+            "base validada + LPF oficial",
+            _merge_lpf_results(
+                builtin_played,
+                previous_played,
+                official_played,
+                manual_played,
+            ),
+        ),
         (
             "base validada + FutbolArgentino.com",
             _merge_lpf_results(
@@ -226,7 +241,8 @@ def prepare_automatic_update(
 
     coverage_note = (
         f"La tabla implica {expected_results if expected_results is not None else '?'} partidos; "
-        f"FutbolArgentino.com aportó {len(futbolargentino_played)}, "
+        f"LPF oficial aportó {len(official_played)}, "
+        f"FutbolArgentino.com {len(futbolargentino_played)}, "
         f"ESPN {len(espn_played)}, la base anterior {len(previous_played)}, "
         f"la base incluida {len(builtin_played)}"
         + (

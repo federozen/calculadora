@@ -67,7 +67,8 @@ from lpf_display import (
     editorialize_spec, editorialize_text,
 )
 from lpf_fixture_sources import (
-    parse_futbolargentino_results_html,
+    expected_played_count, merge_match_records, parse_futbolargentino_results_html,
+    parse_lpf_official_listing_html, parse_lpf_official_results_article_html,
     played_pending_from_records,
     validate_fixture_records,
 )
@@ -1019,7 +1020,7 @@ from lpf_loading import (
 from lpf_data_provider import CurrentProvider, provider_payload as _lpf_provider_payload
 from lpf_http import (
     fetch_espn_json, fetch_espn_scoreboard_window, fetch_futbolargentino_results_pages,
-    fetch_html, fetch_url_text,
+    fetch_html, fetch_html_pages, fetch_url_text,
 )
 from lpf_provider_adapters import (
     parse_espn_lpf_zones_payload, parse_espn_scoreboard_payloads,
@@ -2198,6 +2199,11 @@ FUTBOLARGENTINO_RESULTS_URLS = (
     "https://www.futbolargentino.com/primera-division/clausura/resultados",
 )
 FUTBOLARGENTINO_REFERER = "https://www.futbolargentino.com/primera-division/"
+LPF_OFFICIAL_PRIMERA_URL = "https://www.ligaprofesional.ar/notas/primera/"
+LPF_OFFICIAL_PRIMERA_PAGES = tuple(
+    LPF_OFFICIAL_PRIMERA_URL if page == 1 else f"{LPF_OFFICIAL_PRIMERA_URL}page/{page}/"
+    for page in range(1, 7)
+)
 LPF_SNAPSHOT_MAX_AGE_HOURS = 168  # una semana; después obliga a revisar/cargar manualmente
 
 
@@ -2224,6 +2230,83 @@ def futbolargentino_annual(timeout=30):
         timeout=timeout,
     )
     return parse_futbolargentino_annual_html(html), final_url
+
+def lpf_official_results(zones, baseline_played=None, timeout=30):
+    """Carga marcadores explícitos desde las notas oficiales de Primera.
+
+    Recorre páginas de noticias en orden reciente y sólo descarga artículos cuyos
+    títulos parecen cierres/resultados. Se detiene cuando, junto con la base validada,
+    ya hay suficientes parejas para explicar los PJ publicados. La reconciliación
+    exacta posterior sigue siendo la que decide si la foto es aceptable.
+    """
+    expected = expected_played_count(zones)
+    baseline = _merge_lpf_results(baseline_played or [])
+    baseline_pairs = {(l, v) for l, v, _gl, _gv in baseline}
+    records = []
+    seen_articles = set()
+    errors = []
+    last_url = LPF_OFFICIAL_PRIMERA_URL
+
+    for listing_url in LPF_OFFICIAL_PRIMERA_PAGES:
+        listing_transport = fetch_html_pages(
+            (listing_url,),
+            referer=LPF_OFFICIAL_PRIMERA_URL,
+            timeout=timeout,
+            get_html=_standings_html_get,
+        )
+        attempt = (listing_transport.get("attempts") or [{}])[0]
+        if attempt.get("error"):
+            errors.append(f"{listing_url}: {attempt['error']}")
+            continue
+        last_url = attempt.get("final_url") or listing_url
+        try:
+            links = parse_lpf_official_listing_html(
+                attempt.get("html") or "", base_url=last_url
+            )
+        except Exception as exc:
+            errors.append(f"{listing_url}: {exc}")
+            continue
+        article_urls = [
+            item["url"] for item in links
+            if item.get("url") and item["url"] not in seen_articles
+        ]
+        seen_articles.update(article_urls)
+        if article_urls:
+            article_transport = fetch_html_pages(
+                tuple(article_urls),
+                referer=last_url,
+                timeout=timeout,
+                get_html=_standings_html_get,
+            )
+            for article in article_transport.get("attempts") or []:
+                if article.get("error"):
+                    errors.append(f"{article.get('source_url')}: {article['error']}")
+                    continue
+                try:
+                    records.extend(parse_lpf_official_results_article_html(
+                        article.get("html") or "",
+                        canon_club=canon_club,
+                        official_fixture=LPF_FIXTURE,
+                        source_url=article.get("final_url") or article.get("source_url") or "",
+                    ))
+                except Exception as exc:
+                    errors.append(f"{article.get('source_url')}: {exc}")
+
+        merged_records = merge_match_records(records)
+        played, pending = played_pending_from_records(merged_records)
+        union_pairs = baseline_pairs | {(l, v) for l, v, _gl, _gv in played}
+        if expected is not None and len(union_pairs) >= expected:
+            return played, pending, last_url
+
+    merged_records = merge_match_records(records)
+    played, pending = played_pending_from_records(merged_records)
+    if not played:
+        raise RuntimeError(
+            "; ".join(errors[:3])
+            or "no pude identificar marcadores del Clausura en las notas oficiales de Primera"
+        )
+    return played, pending, last_url
+
 
 def futbolargentino_fixture(zones, timeout=30):
     """Carga resultados y programación del Clausura desde FutbolArgentino.com.
@@ -5177,7 +5260,11 @@ def cargar_lpf_todo():
     return len(zones["A"]), len(zones["B"]), len(state.get("anual_directo") or {}), len(state["pendientes"])
 
 def cargar_lpf_espn(liga="arg.1"):
-    """Actualiza tablas y reconcilia resultados entre dos fuentes automáticas."""
+    """Actualiza tablas y reconcilia resultados entre fuentes públicas.
+
+    Los marcadores de la web oficial LPF son la primera opción. ESPN y
+    FutbolArgentino.com quedan como respaldo cuando la fuente oficial no alcanza.
+    """
     # Este flujo se ejecuta por acción explícita del editor. No debe reutilizar un
     # scoreboard de minutos antes mientras la tabla ya refleja partidos terminados.
     for cached_getter in (_espn_get, _standings_html_get):
@@ -5198,23 +5285,51 @@ def cargar_lpf_espn(liga="arg.1"):
     elif not st.session_state.get("LPF_ANUAL"):
         st.session_state.LPF_ANUAL = parse_tabla_anual(TABLA_ANUAL_LPF_2026)[0]
 
-    jug_raw, _pen_raw, nota_espn, ferr_espn = espn_fixture(liga, 120, desde="2026-07-01")
-    espn_played = normalize_results_for_zones(zones, jug_raw or [])
-
-    fa_raw = []
-    fa_played = []
-    fa_error = ""
-    fa_url = ""
-    try:
-        fa_raw, _fa_pending, fa_url = futbolargentino_fixture(zones, timeout=30)
-        fa_played = normalize_results_for_zones(zones, fa_raw or [])
-    except Exception as exc:
-        fa_error = str(exc)
-
     previous_state = st.session_state.get("ESTADO") or {}
     previous_played = list(previous_state.get("jugados") or [])
     manual_played = parse_resultados_lpf(st.session_state.get("LPF_RES_TXT") or "")
     builtin_played = _lpf_builtin_results()
+    trusted_before_network = _merge_lpf_results(
+        builtin_played, previous_played, manual_played
+    )
+
+    official_raw = []
+    official_played = []
+    official_error = ""
+    official_url = LPF_OFFICIAL_PRIMERA_URL
+    try:
+        official_raw, _official_pending, official_url = lpf_official_results(
+            zones, baseline_played=trusted_before_network, timeout=30
+        )
+        official_played = normalize_results_for_zones(zones, official_raw or [])
+    except Exception as exc:
+        official_error = str(exc)
+
+    # Si la LPF oficial + la base validada ya reconstruyen exactamente la tabla,
+    # no golpear proveedores que hoy pueden bloquear servidores (ESPN 403) o
+    # devolver HTML sin resultados. Se mantienen como fallback real.
+    official_complete = _lpf_complete_results_for_zones(
+        zones, manual_played, official_played, previous_played, builtin_played
+    )
+
+    jug_raw = []
+    espn_played = []
+    nota_espn = ""
+    ferr_espn = ""
+    fa_raw = []
+    fa_played = []
+    fa_error = ""
+    fa_url = ""
+    if not official_complete:
+        jug_raw, _pen_raw, nota_espn, ferr_espn = espn_fixture(
+            liga, 120, desde="2026-07-01"
+        )
+        espn_played = normalize_results_for_zones(zones, jug_raw or [])
+        try:
+            fa_raw, _fa_pending, fa_url = futbolargentino_fixture(zones, timeout=30)
+            fa_played = normalize_results_for_zones(zones, fa_raw or [])
+        except Exception as exc:
+            fa_error = str(exc)
     opening_for_reconcile = canon_base(
         st.session_state.get("LPF_APERTURA")
         or globals().get("LPF_APERTURA_BASE_2026")
@@ -5230,6 +5345,7 @@ def cargar_lpf_espn(liga="arg.1"):
         builtin_played=builtin_played,
         futbolargentino_played=fa_played,
         espn_played=espn_played,
+        official_played=official_played,
         fixture=LPF_FIXTURE,
     )
     zones = prepared["zones"]
@@ -5248,6 +5364,8 @@ def cargar_lpf_espn(liga="arg.1"):
             st.session_state.LPF_ANUAL = canon_base(reconciled_annual)
 
     source_notes = []
+    if official_played:
+        source_notes.append(f"LPF oficial: {len(official_played)} resultados")
     if fa_played:
         source_notes.append(f"FutbolArgentino.com: {len(fa_played)} resultados")
     if espn_played:
@@ -5262,10 +5380,16 @@ def cargar_lpf_espn(liga="arg.1"):
     nota = "(" + " · ".join(source_notes) + ")" if source_notes else ""
 
     result_source_warnings = []
+    if official_error:
+        result_source_warnings.append("LPF oficial no pudo completar los resultados: " + official_error)
     if ferr_espn:
         result_source_warnings.append("ESPN no pudo completar los resultados: " + ferr_espn)
     if fa_error:
         result_source_warnings.append("FutbolArgentino.com no pudo completar los resultados: " + fa_error)
+    if official_raw and not official_played:
+        result_source_warnings.append(
+            f"LPF oficial devolvió {len(official_raw)} partido(s), pero ninguno coincidió con los clubes/fixture de la tabla cargada."
+        )
     if jug_raw and not espn_played:
         result_source_warnings.append(
             f"ESPN devolvió {len(jug_raw)} partido(s), pero ninguno coincidió con los clubes/fixture de la tabla cargada."
@@ -5329,6 +5453,7 @@ def cargar_lpf_espn(liga="arg.1"):
         _source_updated_at = (st.session_state.get("LPF_LAST_VALID_SNAPSHOT") or {}).get("updated_at")
     _result_source_name = " + ".join(
         [name for name, rows in (
+            ("Liga Profesional de Fútbol", official_played),
             ("FutbolArgentino.com", fa_played),
             ("ESPN", espn_played),
         ) if rows]
@@ -5360,7 +5485,7 @@ def cargar_lpf_espn(liga="arg.1"):
         "fuente": source_name,
         "avisos_fuente": list(source_warnings or []) + result_source_warnings,
         "fuente_resultados": _result_source_name,
-        "url_resultados": fa_url,
+        "url_resultados": official_url if official_played else fa_url,
     }, None
 
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────────
@@ -5454,7 +5579,7 @@ with st.sidebar:
     ui_caption("Incluye Zonas A y B, Tabla Anual, el histórico fijo usado por los Promedios "
                "y el **fixture completo de las 16 fechas** para los cruces mano a mano.")
     if st.button("\U0001F504 Actualizar a hoy (automático)", use_container_width=True, key="btn_espn_refresh_side"):
-        with st.spinner("Consultando ESPN y FutbolArgentino.com\u2026"):
+        with st.spinner("Consultando LPF oficial, ESPN y FutbolArgentino.com\u2026"):
             _r, _e = cargar_lpf_espn("arg.1")
         if _e:
             ui_warning(_e + "  \u2014 mientras tanto podés pegar las tablas en «Otras formas de cargar».")
@@ -5483,7 +5608,7 @@ with st.sidebar:
                 )
 
             st.rerun()
-    ui_caption("Para las tablas intenta ESPN y FutbolArgentino.com; para los resultados coteja ambas fuentes y sólo acepta una combinación consistente. Si un resultado final confirmado llega antes que la tabla, puede avanzar esa tabla únicamente cuando todos los PJ, puntos y goles cierran sin contradicciones; cada partido se identifica contra el fixture oficial para impedir dobles contabilizaciones. "
+    ui_caption("Para las tablas intenta ESPN y FutbolArgentino.com. Para los resultados usa primero las notas oficiales de Primera de la LPF y deja ESPN/FutbolArgentino.com como respaldo; sólo acepta una combinación que reconstruya exactamente PJ, puntos y goles. Si un resultado final confirmado llega antes que la tabla, puede avanzar esa tabla únicamente cuando todos los acumulados cierran sin contradicciones; cada partido se identifica contra el fixture oficial para impedir dobles contabilizaciones. "
                "_La Tabla Anual se recalcula automáticamente desde el Apertura fijo; revisá el semáforo después de actualizar._")
     with st.expander("\U0001F6E0\ufe0f Otras formas de cargar o editar a mano (avanzado)", expanded=False):
         modo_carga = st.radio("Fuente", ["🇦🇷 LPF 2026 (Clausura: zonas A y B)", "Otra liga / copa (avanzado)"], label_visibility="collapsed")
@@ -5492,7 +5617,7 @@ with st.sidebar:
             ui_caption("Reglamento LPF 2026: dos zonas de 15, una rueda, 16 fechas. Clasifican los **8 primeros de cada zona** "
                        "a Octavos. La **Tabla General** (para copas y descenso) suma Apertura + Clausura.")
             if st.button("⚡ Traer el Clausura automáticamente", use_container_width=True):
-                with st.spinner("Consultando ESPN y FutbolArgentino.com…"):
+                with st.spinner("Consultando LPF oficial, ESPN y FutbolArgentino.com…"):
                     _r, _e = cargar_lpf_espn("arg.1")
                 if _e:
                     ui_warning(_e)
@@ -5878,7 +6003,7 @@ if not st.session_state.ESTADO:
         st.rerun()
     with st.expander("\u2026o traerlo de fuentes autom\u00e1ticas"):
         if st.button("\u26a1 Traer el Clausura autom\u00e1ticamente", use_container_width=True, key="btn_espn_main"):
-            with st.spinner("Consultando ESPN y FutbolArgentino.com\u2026"):
+            with st.spinner("Consultando LPF oficial, ESPN y FutbolArgentino.com\u2026"):
                 _r, _e = cargar_lpf_espn("arg.1")
             if _e:
                 ui_error(_e)
@@ -7783,7 +7908,7 @@ AYUDA_LPF = """### ⚽ Calculadora LPF 2026 — guía de uso
 
 **Cómo cargar y actualizar los datos**
 1. Botón grande **«📥 Cargar TODO»** — trae de una las dos zonas, la Tabla Anual, los promedios, el fixture de las 16 fechas y los resultados de la fecha 1 (datos internos, sirve sin internet).
-2. **«🔄 Actualizar a hoy (automático)»** — una vez por fecha: intenta ESPN y FutbolArgentino.com para las tablas. Los resultados partido a partido se cotejan en ambas fuentes y sólo se aplican si reconstruyen exactamente PJ, puntos y goles; si no, se conserva la última base válida y queda el pegado manual.
+2. **«🔄 Actualizar a hoy (automático)»** — una vez por fecha: intenta ESPN y FutbolArgentino.com para las tablas. Para resultados consulta primero las notas oficiales de Primera de la LPF y usa ESPN/FutbolArgentino.com como respaldo. Sólo aplica marcadores que reconstruyen exactamente PJ, puntos y goles; si no, conserva la última base válida y queda el pegado manual.
 3. En **«🛠️ Otras formas de cargar»**: pegar las tablas de Promiedos, editar el histórico, y **«🥅 Resultados partido a partido»** para pegar/actualizar marcadores a mano.
 4. La app te avisa sola si los datos quedaron viejos o si hay una fecha en curso.
 
