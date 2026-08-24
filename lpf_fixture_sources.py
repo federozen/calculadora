@@ -1,7 +1,7 @@
 """Fuentes, normalizacion y respaldo del fixture LPF 2026.
 
 Este modulo no depende de Streamlit. Recibe callbacks para canonizar clubes y
-permite combinar ESPN, FutbolArgentino.com y una ultima foto JSON sin inferir
+permite combinar LPF oficial, ESPN, FutbolArgentino.com y una ultima foto JSON sin inferir
 resultados a partir de los PJ de la tabla.
 """
 from __future__ import annotations
@@ -12,6 +12,7 @@ import re
 import unicodedata
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
+from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 ARG_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
@@ -435,6 +436,152 @@ def parse_futbolargentino_results_html(
         raise RuntimeError("no pude identificar partidos del Clausura en el HTML")
     return merged
 
+
+
+_LPF_RESULT_TITLE_RE = re.compile(
+    r"\b(?:venci[oó]|gan[oó]|gole[oó]|derrot[oó]|super[oó]|empataron|igualaron|"
+    r"cerr[oó]|complet[oó]|triunf[oó]|victoria|cay[oó])\b",
+    flags=re.I,
+)
+
+
+def parse_lpf_official_listing_html(html: str, *, base_url: str) -> list[dict]:
+    """Extrae notas de Primera que probablemente contienen resultados.
+
+    La portada oficial mezcla programación, conferencias y otras noticias. Para no
+    descargar decenas de artículos en cada actualización, se conservan sólo títulos
+    con verbos típicos de una jornada ya disputada. El artículo se vuelve a filtrar
+    luego contra el fixture oficial, por lo que un título nunca alcanza para marcar
+    un partido como jugado.
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except Exception as exc:
+        raise RuntimeError(f"BeautifulSoup no está disponible: {exc}") from exc
+
+    soup = BeautifulSoup(html or "", "lxml")
+    out: list[dict] = []
+    seen: set[str] = set()
+    base_host = urlparse(base_url).netloc.lower()
+    for anchor in soup.find_all("a", href=True):
+        title = re.sub(r"\s+", " ", anchor.get_text(" ", strip=True)).strip()
+        href = urljoin(base_url, str(anchor.get("href") or "").strip())
+        parsed = urlparse(href)
+        if not href or href in seen:
+            continue
+        if parsed.netloc.lower() != base_host:
+            continue
+        if "/notas/primera/" not in parsed.path or not re.search(r"/2026/\d{2}/\d{2}/", parsed.path):
+            continue
+        if title.lower() in {"leer más", "leer mas"}:
+            # El mismo href suele aparecer una segunda vez con este texto; conservar
+            # la primera ancla con el título real.
+            continue
+        if not _LPF_RESULT_TITLE_RE.search(_ascii(title)):
+            continue
+        seen.add(href)
+        out.append({"title": title, "url": href})
+    return out
+
+
+def _official_score_line(
+    text: str,
+    *,
+    canon_club: Callable[[str], str],
+    expected: set[str],
+    fixture_index: Mapping[tuple[str, str], Mapping[str, object]],
+) -> tuple[str, str, int, int] | None:
+    """Reconoce las dos formas de marcador que usa la web oficial.
+
+    En sus notas aparecen tanto ``River 2 – Vélez 2`` como
+    ``Racing 0 – Banfield 1``. También puede haber zona, estadio o TV después del
+    marcador. La pareja resuelta siempre debe existir en el fixture de la app.
+    """
+    line = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not line or "–" not in line and "—" not in line and " - " not in line:
+        return None
+
+    patterns = (
+        # local 1 – 3 visitante
+        re.compile(r"^(?P<home>.+?)\s+(?P<hg>\d+)\s*[–—-]\s*(?P<ag>\d+)\s+(?P<away>.+)$"),
+        # local 1 – visitante 3
+        re.compile(r"^(?P<home>.+?)\s+(?P<hg>\d+)\s*[–—-]\s*(?P<away>.+?)\s+(?P<ag>\d+)(?:\s*[,;(].*)?$"),
+    )
+    for pattern in patterns:
+        match = pattern.match(line)
+        if not match:
+            continue
+        home = resolve_team_token(match.group("home"), canon_club=canon_club, expected_teams=expected)
+        away = resolve_team_token(match.group("away"), canon_club=canon_club, expected_teams=expected)
+        if not home or not away or home == away:
+            continue
+        key = (home, away)
+        if key not in fixture_index:
+            continue
+        return home, away, int(match.group("hg")), int(match.group("ag"))
+    return None
+
+
+def parse_lpf_official_results_article_html(
+    html: str,
+    *,
+    canon_club: Callable[[str], str],
+    official_fixture: Sequence[Mapping[str, object]],
+    source_url: str = "",
+) -> list[dict]:
+    """Extrae marcadores explícitos de notas de Primera de ligaprofesional.ar.
+
+    No interpreta titulares ni prosa: sólo líneas que contienen dos clubes, un
+    marcador explícito y una pareja existente en el fixture oficial. Esto permite
+    usar la web de la propia LPF como fuente de resultados sin convertir una noticia
+    en una inferencia.
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except Exception as exc:
+        raise RuntimeError(f"BeautifulSoup no está disponible: {exc}") from exc
+
+    fixture_index = official_fixture_index(official_fixture)
+    expected = {team for pair in fixture_index for team in pair}
+    soup = BeautifulSoup(html or "", "lxml")
+    for tag in soup(["script", "style", "noscript", "svg"]):
+        tag.decompose()
+
+    # Los resultados suelen vivir en párrafos, pero se agregan también strings
+    # individuales para tolerar cambios menores de markup. El dict preserva orden.
+    candidates: list[str] = []
+    for tag in soup.find_all(["p", "li", "h2", "h3", "h4", "div"]):
+        value = re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
+        if value:
+            candidates.append(value)
+    candidates.extend(re.sub(r"\s+", " ", value).strip() for value in soup.stripped_strings)
+
+    records: list[dict] = []
+    seen_lines: set[str] = set()
+    for text in candidates:
+        if not text or text in seen_lines:
+            continue
+        seen_lines.add(text)
+        parsed = _official_score_line(
+            text, canon_club=canon_club, expected=expected, fixture_index=fixture_index
+        )
+        if not parsed:
+            continue
+        home, away, home_score, away_score = parsed
+        meta = fixture_index[(home, away)]
+        records.append({
+            "match_id": f"LPF-F{int(meta.get('round') or 0):02d}-{_compact(home)}-{_compact(away)}",
+            "round": int(meta.get("round") or 0),
+            "home": home,
+            "away": away,
+            "scheduled_at": "",
+            "status": "played",
+            "home_score": home_score,
+            "away_score": away_score,
+            "source": "Liga Profesional de Fútbol",
+            "source_url": str(source_url or ""),
+        })
+    return merge_match_records(records)
 
 def records_from_legacy(
     played: Iterable[tuple[str, str, int, int]],

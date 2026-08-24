@@ -279,3 +279,45 @@ def fetch_espn_scoreboard_window(
         "limited": cursor <= end_date,
     }
 
+
+
+def fetch_html_pages(
+    source_urls: list[str] | tuple[str, ...],
+    *,
+    referer: str = "",
+    timeout: int = 30,
+    get_html: Callable[..., tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Descarga una lista acotada de páginas HTML conservando fallos por URL.
+
+    Es transporte puro y se usa para la fuente oficial LPF: la capa superior decide
+    qué links son notas de resultados y cómo parsearlas. ``get_html`` permite a la UI
+    reutilizar su cache sin acoplar Streamlit a este módulo.
+    """
+    getter = get_html or fetch_html
+    attempts: list[dict[str, Any]] = []
+    for raw_url in source_urls or ():
+        source_url = str(raw_url or "").strip()
+        if not source_url:
+            continue
+        try:
+            html, final_url = getter(
+                source_url,
+                referer=referer,
+                timeout=timeout,
+            )
+        except Exception as exc:
+            attempts.append({
+                "source_url": source_url,
+                "html": "",
+                "final_url": "",
+                "error": str(exc),
+            })
+            continue
+        attempts.append({
+            "source_url": source_url,
+            "html": html,
+            "final_url": final_url,
+            "error": "",
+        })
+    return {"attempts": attempts}
