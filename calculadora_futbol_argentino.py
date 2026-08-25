@@ -2234,10 +2234,12 @@ def futbolargentino_annual(timeout=30):
 def lpf_official_results(zones, baseline_played=None, timeout=30):
     """Carga marcadores explícitos desde las notas oficiales de Primera.
 
-    Recorre páginas de noticias en orden reciente y sólo descarga artículos cuyos
-    títulos parecen cierres/resultados. Se detiene cuando, junto con la base validada,
-    ya hay suficientes parejas para explicar los PJ publicados. La reconciliación
-    exacta posterior sigue siendo la que decide si la foto es aceptable.
+    Recorre páginas de noticias en orden reciente y descarga cierres/resultados y
+    hubs oficiales ``Agenda/Programación de la fecha N``. Se detiene cuando, junto
+    con la base validada, ya hay suficientes parejas para explicar los PJ publicados.
+    El parser del artículo sólo acepta líneas atómicas y, cuando identifica la fecha,
+    exige que el cruce pertenezca a esa misma jornada. La reconciliación exacta
+    posterior sigue siendo la que decide si la foto es aceptable.
     """
     expected = expected_played_count(zones)
     baseline = _merge_lpf_results(baseline_played or [])

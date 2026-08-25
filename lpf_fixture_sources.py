@@ -542,6 +542,62 @@ def _official_score_line(
     return None
 
 
+def _lpf_article_round(soup, source_url: str = "") -> int | None:
+    """Devuelve la fecha del Clausura cuando la nota la identifica sin ambigüedad.
+
+    Los hubs oficiales mantienen slugs como ``agenda-de-la-fecha-6`` incluso
+    después de actualizar el título. Para otras notas se toma la primera mención
+    estructural ``Fecha N`` del cuerpo. No se usan menciones de noticias relacionadas
+    del pie para evitar adjudicar una jornada ajena.
+    """
+    path = _ascii(urlparse(str(source_url or "")).path)
+    match = re.search(r"(?:^|/) [^/]*fecha-(\d{1,2})(?:-|/|$)", path, flags=re.X)
+    if match:
+        value = int(match.group(1))
+        if 1 <= value <= 16:
+            return value
+
+    # Buscar sólo bloques de contenido simples, en orden de documento. La primera
+    # mención "Fecha N" de las notas oficiales corresponde al artículo; las tarjetas
+    # de "Últimas noticias" aparecen después.
+    for tag in soup.find_all(["h1", "h2", "h3", "h4", "p", "li"], limit=80):
+        value = _ascii(tag.get_text(" ", strip=True))
+        match = re.search(r"\bfecha\s+(\d{1,2})\b", value)
+        if not match:
+            continue
+        round_number = int(match.group(1))
+        if 1 <= round_number <= 16:
+            return round_number
+    return None
+
+
+def _lpf_atomic_article_candidates(soup) -> list[str]:
+    """Extrae líneas de marcador sin concatenar contenedores de varios partidos.
+
+    El sitio LPF agrupa cada día/jornada en ``div`` que pueden contener varios
+    ``p``. Interpretar el texto completo de esos wrappers puede fabricar una pareja
+    válida con el marcador del primer partido y el nombre del último. Se aceptan
+    párrafos/listas/títulos y sólo ``div`` hoja (útiles cuando la fila está armada
+    con ``span``), además de strings individuales como respaldo.
+    """
+    candidates: list[str] = []
+    block_children = ["p", "li", "h1", "h2", "h3", "h4", "div", "section", "article"]
+    for tag in soup.find_all(["p", "li", "h2", "h3", "h4", "div"]):
+        if tag.name == "div" and tag.find(block_children):
+            continue
+        value = re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
+        # Un resultado oficial es una línea corta. El límite también impide que un
+        # wrapper no reconocido se convierta en un candidato gigante.
+        if value and len(value) <= 280:
+            candidates.append(value)
+    candidates.extend(
+        value
+        for raw in soup.stripped_strings
+        if (value := re.sub(r"\s+", " ", raw).strip()) and len(value) <= 280
+    )
+    return candidates
+
+
 def parse_lpf_official_results_article_html(
     html: str,
     *,
@@ -551,10 +607,11 @@ def parse_lpf_official_results_article_html(
 ) -> list[dict]:
     """Extrae marcadores explícitos de notas de Primera de ligaprofesional.ar.
 
-    No interpreta titulares ni prosa: sólo líneas que contienen dos clubes, un
-    marcador explícito y una pareja existente en el fixture oficial. Esto permite
-    usar la web de la propia LPF como fuente de resultados sin convertir una noticia
-    en una inferencia.
+    No interpreta titulares ni prosa: sólo líneas atómicas que contienen dos clubes,
+    un marcador explícito y una pareja existente en el fixture oficial. Cuando la
+    nota identifica una ``Fecha N``, el cruce debe pertenecer además a esa misma
+    jornada. Esta doble validación evita que un contenedor HTML que concatena varios
+    partidos fabrique un resultado de otra fecha del fixture.
     """
     try:
         from bs4 import BeautifulSoup
@@ -567,14 +624,8 @@ def parse_lpf_official_results_article_html(
     for tag in soup(["script", "style", "noscript", "svg"]):
         tag.decompose()
 
-    # Los resultados suelen vivir en párrafos, pero se agregan también strings
-    # individuales para tolerar cambios menores de markup. El dict preserva orden.
-    candidates: list[str] = []
-    for tag in soup.find_all(["p", "li", "h2", "h3", "h4", "div"]):
-        value = re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
-        if value:
-            candidates.append(value)
-    candidates.extend(re.sub(r"\s+", " ", value).strip() for value in soup.stripped_strings)
+    article_round = _lpf_article_round(soup, source_url)
+    candidates = _lpf_atomic_article_candidates(soup)
 
     records: list[dict] = []
     seen_lines: set[str] = set()
@@ -589,9 +640,12 @@ def parse_lpf_official_results_article_html(
             continue
         home, away, home_score, away_score = parsed
         meta = fixture_index[(home, away)]
+        match_round = int(meta.get("round") or 0)
+        if article_round is not None and match_round != article_round:
+            continue
         records.append({
-            "match_id": f"LPF-F{int(meta.get('round') or 0):02d}-{_compact(home)}-{_compact(away)}",
-            "round": int(meta.get("round") or 0),
+            "match_id": f"LPF-F{match_round:02d}-{_compact(home)}-{_compact(away)}",
+            "round": match_round,
             "home": home,
             "away": away,
             "scheduled_at": "",

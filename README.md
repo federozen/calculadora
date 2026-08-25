@@ -1,6 +1,13 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.65
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.66
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
+
+## Novedad 3.8.66 · parser LPF por fecha y bloques atómicos
+
+- Corrige falsos resultados originados por `div` que agrupaban varios partidos en las notas oficiales. El caso reproducido convertía el 2-1 de Rosario Central-Aldosivi de la Fecha 4 en un falso Rosario Central-Estudiantes (RC) de Fecha 16.
+- El parser sólo interpreta líneas atómicas; un `div` con varios `p` ya no se considera una línea de marcador.
+- Si la nota identifica `Fecha N` por URL o cuerpo, el cruce debe pertenecer a esa misma fecha del fixture.
+- Se conserva la regla transaccional: la foto sólo se publica cuando los resultados reconstruyen exactamente PJ, puntos, GF, GC y DG.
 
 ## Novedad 3.8.65 · hubs oficiales de fecha y cierre 49 → 90
 

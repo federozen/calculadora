@@ -1,4 +1,10 @@
-# Developer / Production Bootstrap · 3.8.65
+# Developer / Production Bootstrap · 3.8.66
+
+## Guard de parser oficial por fecha · 3.8.66
+
+En staging usar HTML de hubs con wrappers diarios reales: un contenedor que agrupa varios partidos no puede producir un registro adicional. Si el hub es `Fecha 4`, todos los registros devueltos deben tener `round=4`; lo mismo para Fechas 5 y 6. La regresión mínima debe comprobar que `Rosario Central-Estudiantes (RC)` de Fecha 16 no aparece al procesar el hub de Fecha 4.
+
+Con los 15 marcadores de cada una de las Fechas 4, 5 y 6, la unión con la base de 49 debe cerrar en 90 partidos y pasar `_lpf_results_fit_zones` sin conciliación inferida.
 
 ## Guard de hubs oficiales · 3.8.65
 

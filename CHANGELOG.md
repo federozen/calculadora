@@ -1,3 +1,12 @@
+## 3.8.66 · 2026-08-25
+
+- Endurece `parse_lpf_official_results_article_html` después del caso real en que LPF oficial aportaba 52 candidatos pero la combinación generaba 7 PJ para Rosario Central/Estudiantes RC sobre una tabla de 6 fechas.
+- Causa reproducida: el parser también intentaba interpretar `div` contenedores que concatenaban varios partidos. Un wrapper realista de la Fecha 4 podía fabricar `Rosario Central 2-1 Estudiantes (Río Cuarto)` y asociarlo al cruce existente de la Fecha 16.
+- Los candidatos de marcador pasan a ser bloques atómicos: párrafos/listas/títulos y `div` hoja; se descartan wrappers con otros bloques y textos anormalmente largos.
+- Cuando la nota o su URL identifica `Fecha N`, cada resultado debe pertenecer a esa misma jornada de `LPF_FIXTURE`. Un cruce real de otra fecha deja de ser suficiente para validar una línea contaminada.
+- Regresiones nuevas cubren el falso Central-Estudiantes RC, wrappers de Fecha 6 que podían reciclar marcadores sobre cruces de otras jornadas y filas reales armadas con `span`.
+- Reproducción de integración con los marcadores reales de Fechas 4-6: `49 base + 45 oficiales (4 solapados) -> 90`, con PJ/puntos/GF/GC/DG exactos y sin inferencia.
+
 ## 3.8.65 · 2026-08-25
 
 - Corrige el caso real en que la tabla ya implica **90 partidos** pero la fuente oficial queda clavada en la misma cobertura de la base incluida.

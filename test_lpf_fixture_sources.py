@@ -114,3 +114,117 @@ def test_lpf_oficial_article_formato_real_fecha6_extrae_15_jugados_al_cerrar_fec
         (row["home"], row["away"], row["home_score"], row["away_score"])
         for row in rows
     }
+
+
+def test_lpf_oficial_article_no_fabrica_partido_de_otra_fecha_desde_div_contenedor():
+    """Regresión real 25/8: un wrapper de Fecha 4 no puede crear Central-Estudiantes RC de F16."""
+    from lpf_clubs import canon_club
+    from lpf_data_2026 import LPF_FIXTURE
+    from lpf_fixture_sources import parse_lpf_official_results_article_html
+
+    friday = [
+        "Rosario Central 2 – 1 Aldosivi (Zona B)",
+        "Ind. Rivadavia Mza. 2 – 1 Estudiantes (Río Cuarto) (Zona B)",
+    ]
+    saturday = [
+        "Deportivo Riestra 2 – 0 Estudiantes (Zona A)",
+        "Atlético Tucumán 1 – 2 Sarmiento (Zona B)",
+        "Tigre 1 – River 0 (Zona B)",
+        "Boca 1 – Vélez 1, en el estadio Tomás A. Ducó (Zona A)",
+        "Independiente 0 – Platense 1 (Zona A)",
+        "Instituto 1 – Gimnasia (Mza.) 0 (Zona A)",
+    ]
+    sunday = [
+        "San Lorenzo 0 – Huracán 2 (Interzonal)",
+        "Defensa y Justicia 2 – Newell’s 1 (Zona A)",
+        "Gimnasia 2 – Barracas Central 0 (Zona B)",
+        "Argentinos 2 – Racing 1 (Zona B)",
+    ]
+    close = [
+        "Banfield 0 – Belgrano 2 (Zona B)",
+        "Unión 1 – Central Córdoba 2 (Zona A)",
+        "Talleres 0 – Lanús 3 (Zona A)",
+    ]
+    groups = [friday, saturday, sunday, close]
+    html = "<article><h2>Fecha 4</h2>" + "".join(
+        '<div class="day">' + "".join(f"<p>{line}</p>" for line in group) + "</div>"
+        for group in groups
+    ) + "</article>"
+
+    rows = parse_lpf_official_results_article_html(
+        html,
+        canon_club=canon_club,
+        official_fixture=LPF_FIXTURE,
+        source_url=(
+            "https://www.ligaprofesional.ar/notas/primera/2026/08/09/"
+            "programacion-de-la-fecha-4-3/"
+        ),
+    )
+
+    assert len(rows) == 15
+    assert {row["round"] for row in rows} == {4}
+    assert not any(
+        row["home"] == "Rosario Central" and row["away"] == "Estudiantes de Río Cuarto"
+        for row in rows
+    )
+
+
+def test_lpf_oficial_article_div_hoja_con_spans_sigue_siendo_parseable():
+    """Endurecer wrappers no debe romper una fila real armada con spans."""
+    from lpf_clubs import canon_club
+    from lpf_data_2026 import LPF_FIXTURE
+    from lpf_fixture_sources import parse_lpf_official_results_article_html
+
+    html = """
+    <main>
+      <h2>Fecha 6</h2>
+      <div class="score-row"><span>Lanús</span> <span>1 – 1</span> <span>Argentinos</span></div>
+    </main>
+    """
+    rows = parse_lpf_official_results_article_html(
+        html,
+        canon_club=canon_club,
+        official_fixture=LPF_FIXTURE,
+        source_url="https://www.ligaprofesional.ar/notas/primera/2026/08/15/agenda-de-la-fecha-6/",
+    )
+    assert [(r["home"], r["away"], r["home_score"], r["away_score"], r["round"]) for r in rows] == [
+        ("Lanús", "Argentinos Juniors", 1, 1, 6)
+    ]
+
+
+def test_lpf_oficial_article_fecha6_descarta_falsos_cruces_de_otras_fechas_en_wrappers():
+    """Un div de F6 no puede reciclar su primer marcador sobre un cruce real de F5/F12."""
+    from lpf_clubs import canon_club
+    from lpf_data_2026 import LPF_FIXTURE
+    from lpf_fixture_sources import parse_lpf_official_results_article_html
+
+    html = """
+    <article>
+      <h2>Fecha 6 – Interzonal</h2>
+      <div class="day">
+        <p>Estudiantes (Río Cuarto) 0 – San Lorenzo 0</p>
+        <p>Gimnasia 2 – 3 Gimnasia (Mza.)</p>
+        <p>Atlético Tucumán 0 – 0 Instituto</p>
+      </div>
+      <div class="day">
+        <p>Newell’s 2 – Banfield 1</p>
+        <p>Huracán 0 – Deportivo Riestra 0</p>
+      </div>
+    </article>
+    """
+    rows = parse_lpf_official_results_article_html(
+        html,
+        canon_club=canon_club,
+        official_fixture=LPF_FIXTURE,
+        source_url="https://www.ligaprofesional.ar/notas/primera/2026/08/15/agenda-de-la-fecha-6/",
+    )
+    assert len(rows) == 5
+    assert {row["round"] for row in rows} == {6}
+    assert not any(
+        row["home"] == "Estudiantes de Río Cuarto" and row["away"] == "Atlético Tucumán"
+        for row in rows
+    )
+    assert not any(
+        row["home"] == "Newell's Old Boys" and row["away"] == "Deportivo Riestra"
+        for row in rows
+    )

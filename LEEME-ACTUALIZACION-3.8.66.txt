@@ -1,0 +1,6 @@
+ACTUALIZACION 3.8.65 -> 3.8.66
+
+Reemplazar estos archivos sobre la raiz del repositorio 3.8.65 conservando las rutas.
+El cambio funcional esta en lpf_fixture_sources.py: bloques atomicos + validacion de Fecha N.
+Luego ejecutar: pytest -q tests/test_lpf_fixture_sources.py tests/test_lpf_loading.py
+Y, si el entorno lo permite: python tools/release.py check --root .
