@@ -1,4 +1,12 @@
-# Developer / Production Bootstrap · 3.8.63
+# Developer / Production Bootstrap · 3.8.65
+
+## Guard de hubs oficiales · 3.8.65
+
+En staging validar una portada LPF cuyo título siga diciendo `Agenda de la fecha 6` aunque el cuerpo del artículo ya tenga los 15 marcadores. El crawler debe descargar el hub por título/slug, extraer sólo marcadores explícitos y cerrar el caso `49 + 45 oficiales (4 repetidos) → 90`. Una `Programación de la fecha 7` sin scores debe devolver cero jugados y no alterar el estado.
+
+## Guard de definición/otra cancha · 3.8.64
+
+En staging, abrir `Últimas fechas`, elegir equipo principal, comparadores y otra cancha. La doble entrada debe salir del paquete `POST /v1/definition`/`lpf_services.calculate("definition")` con `key_team`; `key_rival_matrix` directo sólo puede aparecer si el Public Service falla y el fallback queda visible en auditoría.
 
 ## Guard de actualización transaccional · 3.8.63
 

@@ -1,8 +1,24 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.63
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.65
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
+## Novedad 3.8.65 · hubs oficiales de fecha y cierre 49 → 90
+
+- La fuente LPF oficial descubre también las notas `Agenda/Programación de la fecha N`, porque la Liga las actualiza en el mismo URL con resultados mientras el título de portada puede quedar atrasado por caché/CDN.
+- El artículo sólo aporta partidos si el cuerpo contiene dos clubes, marcador explícito y una pareja válida de `LPF_FIXTURE`; una agenda futura no se interpreta como resultado.
+- Queda cubierto el cierre completo de la Fecha 6 y el caso `49 resultados incluidos + 45 oficiales con 4 solapados = 90 partidos exactos`.
+- La actualización sigue siendo transaccional: si ninguna combinación reproduce PJ/puntos/GF/GC/DG, conserva la foto anterior.
+
 La versión vigente siempre está en `lpf_version.__version__` (única fuente de verdad compartida por Streamlit, auditoría y futuras interfaces). El historial completo está en `CHANGELOG.md`.
+
+
+## Novedad 3.8.64 · la doble entrada exacta también cruza Public Service
+
+- `Últimas fechas → Otra cancha clave` deja de llamar directamente a `key_rival_matrix` en el camino normal de la UI.
+- La configuración elegida (equipo principal, comparadores y `key_team` de la otra cancha) se envía en una única consulta a `definition`, que ya devolvía `key_rival` dentro del contrato existente.
+- El helper exacto directo se conserva únicamente dentro del fallback legacy si `definition` falla y el incidente queda registrado en auditoría.
+- Se evita una tercera ruta matemática para la misma doble entrada y se simplifica el handoff: Streamlit consume el mismo paquete exacto que una futura interfaz HTTP.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 no cambian.
 
 
 ## Novedad 3.8.63 · LPF oficial como fuente primaria de resultados

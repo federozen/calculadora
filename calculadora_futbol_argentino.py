@@ -5428,6 +5428,8 @@ def cargar_lpf_espn(liga="arg.1"):
                 ],
             }, None
         detail_parts = []
+        if inferred_note:
+            detail_parts.append(inferred_note)
         detail_parts.extend(result_source_warnings[:2])
         detail_parts.extend(diagnostic_notes[:2])
         detail = (" " + " ".join(detail_parts)) if detail_parts else ""
@@ -9824,7 +9826,7 @@ def _definition_guarantee_round(team, pending, current, guarantee):
 
 
 def _lpf_definition_package(E, objective, zone, team, selected_teams, round_no, *,
-                            base, rest, games, pending, cutoff):
+                            base, rest, games, pending, cutoff, key_team=None):
     """Paquete de Últimas fechas a través de ``lpf_services.definition``.
 
     El fallback conserva sesiones legacy; queda registrado en auditoría para que
@@ -9838,6 +9840,7 @@ def _lpf_definition_package(E, objective, zone, team, selected_teams, round_no, 
             zone=zone,
             round=round_no,
             selected_teams=list(selected_teams or [team]),
+            key_team=key_team,
             exact_window=VENTANA_EXACTA,
         )
     except _LPFServiceContractError as exc:
@@ -9862,6 +9865,10 @@ def _lpf_definition_package(E, objective, zone, team, selected_teams, round_no, 
                 base, rest, games, list(selected_teams or [team]), cutoff, max_other_matches=8
             ),
             "report": report,
+            "key_rival": (
+                key_rival_matrix(base, rest, games, team, key_team, cutoff)
+                if key_team else None
+            ),
             "guarantee": guarantee,
             "ladder": ladder,
             "guarantee_round_label": guarantee_round,
@@ -10374,6 +10381,29 @@ def render_definition_radar(E):
             help="Esta opción queda visible desde el inicio y se habilita cuando el equipo principal tiene una definición abierta.",
         )
 
+    selected_key_match = None
+    selected_key_team = None
+    if team_selected and not resolved and match_options:
+        selected_key_label = match_options[0] if key_match_choice == automatic_match_choice else key_match_choice
+        if selected_key_label not in match_by_label:
+            selected_key_label = match_options[0]
+        selected_key_match = match_by_label[selected_key_label]
+        selected_key_team = (
+            selected_key_match[0] if selected_key_match[0] in base else selected_key_match[1]
+        )
+
+    # Una vez elegidos comparadores y otra cancha, volvemos a pedir UN paquete público
+    # de definition con toda la configuración. Así la matriz de rival clave también
+    # cruza la frontera estable; el helper directo queda únicamente dentro del fallback.
+    if team_selected and not resolved and (comparators or selected_key_team):
+        package = _lpf_definition_package(
+            E, objective, lab, team_focus, selected_teams, current_round,
+            base=base, rest=rest, games=games, pending=pending, cutoff=cutoff,
+            key_team=selected_key_team,
+        )
+        report = package.get("report") or {}
+        fight = pd.DataFrame(package.get("fight_zone") or [])
+
     if team_selected:
         ui_caption(
             f"Configuración actual: **{ctx['label']}** · equipo principal: **{team_focus}** · "
@@ -10488,13 +10518,6 @@ def render_definition_radar(E):
         + ("También vas a ver: " + ", ".join(comparators) + "." if comparators else "No agregaste comparadores.")
     )
 
-    # Si el editor agrega comparadores, pedimos de nuevo el mismo paquete público
-    # con esa selección. El caso por defecto reutiliza la primera consulta.
-    if comparators:
-        package = _lpf_definition_package(
-            E, objective, lab, team_focus, selected_teams, current_round,
-            base=base, rest=rest, games=games, pending=pending, cutoff=cutoff,
-        )
     rows = list(package.get("matrix") or [])
     solver_matrix_teams = []
     if rows:
@@ -10593,17 +10616,14 @@ def render_definition_radar(E):
         "Acá se aplica el partido elegido arriba. Si dejaste Automática, el motor toma la otra cancha que más cambia los caminos exactos. "
         "La doble entrada cruza el resultado del equipo principal con gana local / empate / gana visitante."
     )
-    if match_options:
-        key_match_label = match_options[0] if key_match_choice == automatic_match_choice else key_match_choice
-        if key_match_label not in match_by_label:
-            key_match_label = match_options[0]
-        key_match = match_by_label[key_match_label]
-        key_team = key_match[0] if key_match[0] in base else key_match[1]
+    if selected_key_match and selected_key_team:
+        key_match = selected_key_match
+        key_team = selected_key_team
         ui_caption(
             f"Otra cancha seleccionada: **{key_match[0]} – {key_match[1]}**. "
             "Las columnas muestran gana local / empate / gana visitante; no hace falta elegir un segundo equipo."
         )
-        key_report = key_rival_matrix(base, rest, games, team_focus, key_team, cutoff)
+        key_report = package.get("key_rival") or {}
         if key_report.get("available"):
             key_spec = _definition_key_matrix_spec(team_focus, key_match, key_team, key_report, ctx["label"])
             ui_markdown(_html_tabla(key_spec), unsafe_allow_html=True)

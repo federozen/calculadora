@@ -444,15 +444,29 @@ _LPF_RESULT_TITLE_RE = re.compile(
     flags=re.I,
 )
 
+_LPF_ROUND_HUB_TITLE_RE = re.compile(
+    r"^(?:agenda|programacion)(?:\s+de)?\s+la\s+fecha\s+\d+\s*$",
+    flags=re.I,
+)
+
+_LPF_ROUND_HUB_PATH_RE = re.compile(
+    r"/(?:agenda|programacion)-de-la-fecha-\d+(?:-\d+)?/?$",
+    flags=re.I,
+)
+
 
 def parse_lpf_official_listing_html(html: str, *, base_url: str) -> list[dict]:
-    """Extrae notas de Primera que probablemente contienen resultados.
+    """Extrae notas de Primera que pueden contener marcadores explícitos.
 
-    La portada oficial mezcla programación, conferencias y otras noticias. Para no
-    descargar decenas de artículos en cada actualización, se conservan sólo títulos
-    con verbos típicos de una jornada ya disputada. El artículo se vuelve a filtrar
-    luego contra el fixture oficial, por lo que un título nunca alcanza para marcar
-    un partido como jugado.
+    La LPF usa las notas ``Agenda/Programación de la fecha N`` como *round hubs*:
+    nacen con horarios y, a medida que se juega la jornada, el mismo URL se actualiza
+    con marcadores. El título de la portada puede quedar desfasado respecto del cuerpo
+    por caché/CDN, por lo que no alcanza con buscar sólo verbos de resultado.
+
+    Se descargan dos clases acotadas de notas: títulos de cierre/resultado y hubs de
+    una fecha individual. La seguridad sigue en el parser del artículo: sólo una línea
+    con dos clubes + marcador explícito + pareja existente en el fixture puede volverse
+    un partido jugado. Una agenda todavía no disputada aporta cero resultados.
     """
     try:
         from bs4 import BeautifulSoup
@@ -477,7 +491,13 @@ def parse_lpf_official_listing_html(html: str, *, base_url: str) -> list[dict]:
             # El mismo href suele aparecer una segunda vez con este texto; conservar
             # la primera ancla con el título real.
             continue
-        if not _LPF_RESULT_TITLE_RE.search(_ascii(title)):
+        ascii_title = _ascii(title)
+        is_result_story = bool(_LPF_RESULT_TITLE_RE.search(ascii_title))
+        is_round_hub = bool(
+            _LPF_ROUND_HUB_TITLE_RE.fullmatch(ascii_title)
+            or _LPF_ROUND_HUB_PATH_RE.search(_ascii(parsed.path))
+        )
+        if not is_result_story and not is_round_hub:
             continue
         seen.add(href)
         out.append({"title": title, "url": href})

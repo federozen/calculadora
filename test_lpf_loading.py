@@ -335,6 +335,57 @@ def test_prepare_automatic_update_reconstruye_49_a_87_con_lpf_oficial_explicita(
     assert "LPF oficial aportó 42" in prepared["coverage_note"]
 
 
+def test_prepare_automatic_update_reconstruye_49_a_90_al_cerrar_fecha6():
+    """Regresión del caso real 25/8: la Fecha 6 ya terminó completa.
+
+    La base incluida conserva 45 partidos de Fechas 1-3 + cuatro de Fecha 4. El
+    hub oficial de las Fechas 4-6 puede aportar las 45 fichas explícitas de esas
+    jornadas; cuatro se superponen con la base y la unión exacta debe cerrar en 90.
+    """
+    rng = random.Random(3868)
+    by_pair = {
+        (row["l"], row["v"]): (row["l"], row["v"], rng.randrange(4), rng.randrange(4))
+        for row in LPF_FIXTURE if int(row["f"]) <= 6
+    }
+    round3 = [
+        by_pair[(row["l"], row["v"])]
+        for row in LPF_FIXTURE if int(row["f"]) <= 3
+    ]
+    built_round4_pairs = {
+        ("Rosario Central", "Aldosivi"),
+        ("Independiente Rivadavia", "Estudiantes de Río Cuarto"),
+        ("Deportivo Riestra", "Estudiantes de La Plata"),
+        ("Atlético Tucumán", "Sarmiento"),
+    }
+    baseline = round3 + [by_pair[pair] for pair in built_round4_pairs]
+    official = [
+        by_pair[(row["l"], row["v"])]
+        for row in LPF_FIXTURE if int(row["f"]) in {4, 5, 6}
+    ]
+    full = [
+        by_pair[(row["l"], row["v"])]
+        for row in LPF_FIXTURE if int(row["f"]) <= 6
+    ]
+    zones = _zones_from_results(full)
+
+    assert len(baseline) == 49
+    assert len(official) == 45
+    assert len(full) == 90
+    prepared = prepare_automatic_update(
+        zones,
+        builtin_played=baseline,
+        official_played=official,
+        futbolargentino_played=[],
+        espn_played=[],
+    )
+
+    assert len(prepared["played"]) == 90
+    assert _lpf_results_fit_zones(zones, prepared["played"])
+    assert prepared["inferred_played"] == []
+    assert "La tabla implica 90 partidos" in prepared["coverage_note"]
+    assert "LPF oficial aportó 45" in prepared["coverage_note"]
+
+
 def test_prepare_automatic_update_milp_reconcilia_49_a_87_si_no_hay_feeds():
     """El respaldo grande puede resolver tres fechas, pero sólo si demuestra unicidad."""
     rng = random.Random(3867)

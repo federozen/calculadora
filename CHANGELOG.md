@@ -1,3 +1,22 @@
+## 3.8.65 · 2026-08-25
+
+- Corrige el caso real en que la tabla ya implica **90 partidos** pero la fuente oficial queda clavada en la misma cobertura de la base incluida.
+- La LPF actualiza durante cada jornada las mismas notas que nacen como `Agenda/Programación de la fecha N`; el crawler ya no depende de que el título de portada haya mutado a “ganó/empataron/cerró”. También descubre esos **round hubs** por título/slug y luego mantiene la validación estricta del cuerpo: dos clubes + marcador explícito + pareja existente en `LPF_FIXTURE`.
+- Una agenda todavía no jugada sigue aportando cero resultados; incluir el hub no convierte programación en marcador ni relaja la validación transaccional.
+- Regresión actualizada de la Fecha 6 cerrada: el parser acepta los 15 resultados, incluidos Tigre 2-1 Central Córdoba, Lanús 1-1 Argentinos y Talleres 2-2 Rosario Central.
+- Nueva regresión de integración `49 base + 45 oficiales (4 solapados) → 90`, sin inferencia determinística.
+- Si la conciliación determinística también falla, su motivo deja de quedar escondido detrás de los dos primeros errores de feed y aparece en el mensaje principal de diagnóstico.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
+## 3.8.64 · 2026-08-24
+
+- Cierra una excepción deliberada de arquitectura en `Últimas fechas`: la **doble entrada de otra cancha** ya no calcula `key_rival_matrix` directamente desde la UI en el camino normal.
+- `_lpf_definition_package` envía `key_team` a `lpf_services.calculate("definition")`; el paquete público ya existente devuelve `key_rival` y la UI lo usa para la matriz, la explicación `¿Por qué?` y la exportación detallada.
+- Cuando hay comparadores y/o otra cancha, Streamlit recompone una sola vez el paquete `definition` con toda la configuración seleccionada, en vez de pedir un paquete para comparadores y luego volver a calcular el rival clave por fuera del servicio.
+- El helper directo `key_rival_matrix` queda únicamente como fallback de compatibilidad si falla `definition`; ese fallback continúa registrado en `LPF_PUBLIC_SERVICE_FALLBACKS`.
+- Se agrega una regresión estática que impide que `render_definition_radar` vuelva a saltar el Public Service para la otra cancha.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.63 · 2026-08-24
 
 - Corrige el caso real `49 resultados incluidos → tabla que implica 87`: el problema deja de tratarse como una conciliación cada vez más grande y suma una **fuente primaria de marcadores explícitos en la web oficial de la Liga Profesional de Fútbol**.

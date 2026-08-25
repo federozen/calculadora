@@ -1,4 +1,18 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.63
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.65
+## Hubs oficiales de fecha · 3.8.65
+
+La fuente LPF debe tratar como candidatos tanto las notas con título de resultado como los hubs `Agenda/Programación de la fecha N`. La Liga reutiliza esos URLs y actualiza el cuerpo con marcadores; el listado puede conservar un título anterior por caché/CDN. **Nunca** marcar un partido como jugado por el título: `parse_lpf_official_results_article_html` sigue exigiendo dos clubes + marcador explícito + pareja de `LPF_FIXTURE`.
+
+Caso de aceptación vigente: `49 base + 45 oficiales de Fechas 4-6 (4 solapados) → 90`. Si una agenda no tiene marcadores todavía, aporta cero y no modifica la foto.
+
+## Otra cancha exacta detrás del Public Service · 3.8.64
+
+`Últimas fechas` debe pedir la doble entrada exacta mediante `definition` con `key_team`. El resultado utilizable está en `result.key_rival`; la UI no debe volver a ejecutar `key_rival_matrix` por su cuenta en el camino normal.
+
+El helper directo se conserva sólo dentro del fallback de `_lpf_definition_package` para sesiones/contratos legacy y ese uso debe quedar registrado en auditoría. Comparadores y otra cancha se resuelven en un único paquete público una vez que el editor termina la configuración visible.
+
+Este cambio no modifica Public Service v1, DataProvider v2, snapshot schema 3 ni Runtime API 21.
+
 ## Resultados explícitos y conciliación · 3.8.63
 
 La prioridad de resultados públicos antes de Opta queda: **manual > LPF oficial > base validada > FutbolArgentino.com/ESPN**. La web oficial de Primera (`ligaprofesional.ar/notas/primera/`) se usa como primera fuente automática de marcadores porque hoy ESPN puede responder 403 desde servidores y FutbolArgentino.com puede servir HTML sin sus partidos renderizados.
@@ -279,7 +293,7 @@ El consumidor no debe reconstruir `base`, `cutoff` ni la Tabla Anual reducida.
 
 ## Excepciones deliberadas que siguen pendientes
 
-- La matriz de **rival clave** conserva un helper exacto directo por rendimiento; no es una segunda lógica matemática.
+- La matriz de **rival clave** ya cruza `definition`; `key_rival_matrix` directo queda sólo como fallback legacy registrado en auditoría.
 - Las tablas comparativas completas de probabilidades y la probabilidad de descenso conservan temporalmente el simulador contextual directo; la cifra individual de Playoffs/Copas ya cruza `objective_chances`.
 - `api/` ya implementa la capa fina `HTTP -> calculate() -> JSON`; Desarrollo debe agregar autenticación/infraestructura según el entorno y conectar el snapshot server-side a Opta/cache.
 - `CurrentProvider` puede tener timestamp desconocido en carga offline/manual. Esto es correcto: no debe reemplazarse por la hora del snapshot.

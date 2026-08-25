@@ -1,6 +1,6 @@
 
 
-def test_lpf_oficial_listing_descubre_solo_notas_de_resultados():
+def test_lpf_oficial_listing_descubre_resultados_y_hubs_de_fecha():
     from lpf_fixture_sources import parse_lpf_official_listing_html
 
     html = """
@@ -8,6 +8,8 @@ def test_lpf_oficial_listing_descubre_solo_notas_de_resultados():
       <a href="/notas/primera/2026/08/15/agenda-de-la-fecha-6/">Racing y Boca empataron 1 a 1</a>
       <a href="/notas/primera/2026/08/15/agenda-de-la-fecha-6/">Leer más</a>
       <a href="/notas/primera/2026/08/20/programacion-de-la-fecha-7/">Programación de la fecha 7</a>
+      <a href="/notas/primera/2026/08/10/agenda-de-la-fecha-5-5/">Agenda de la fecha 5</a>
+      <a href="/notas/primera/2026/08/07/agenda-de-la-fecha-4-a-la-7/">Agenda de la fecha 4 a la 7</a>
       <a href="/notas/proyeccion/2026/08/15/resultados/">Proyección goleó</a>
       <a href="https://www.ligaprofesional.ar/notas/primera/2026/08/09/programacion-de-la-fecha-4-3/">Cerró la 4 en el Kempes</a>
     </body></html>
@@ -17,9 +19,29 @@ def test_lpf_oficial_listing_descubre_solo_notas_de_resultados():
     )
     assert [row["title"] for row in rows] == [
         "Racing y Boca empataron 1 a 1",
+        "Programación de la fecha 7",
+        "Agenda de la fecha 5",
         "Cerró la 4 en el Kempes",
     ]
     assert all("/notas/primera/2026/" in row["url"] for row in rows)
+
+
+def test_lpf_oficial_listing_incluye_hub_aunque_el_titulo_siga_siendo_agenda():
+    """Regresión real 25/8: el cuerpo puede estar actualizado antes que la portada."""
+    from lpf_fixture_sources import parse_lpf_official_listing_html
+
+    html = """
+    <html><body>
+      <a href="/notas/primera/2026/08/15/agenda-de-la-fecha-6/">Agenda de la fecha 6</a>
+      <a href="/notas/primera/2026/08/15/agenda-de-la-fecha-6/">Leer más</a>
+    </body></html>
+    """
+    rows = parse_lpf_official_listing_html(
+        html, base_url="https://www.ligaprofesional.ar/notas/primera/"
+    )
+    assert [row["url"] for row in rows] == [
+        "https://www.ligaprofesional.ar/notas/primera/2026/08/15/agenda-de-la-fecha-6/"
+    ]
 
 
 def test_lpf_oficial_article_parsea_ambos_formatos_y_descarta_programados():
@@ -56,7 +78,7 @@ def test_lpf_oficial_article_parsea_ambos_formatos_y_descarta_programados():
     assert all(row["source"] == "Liga Profesional de Fútbol" for row in rows)
 
 
-def test_lpf_oficial_article_formato_real_fecha6_extrae_12_jugados_y_no_programados():
+def test_lpf_oficial_article_formato_real_fecha6_extrae_15_jugados_al_cerrar_fecha():
     from lpf_clubs import canon_club
     from lpf_data_2026 import LPF_FIXTURE
     from lpf_fixture_sources import parse_lpf_official_results_article_html
@@ -74,17 +96,21 @@ def test_lpf_oficial_article_formato_real_fecha6_extrae_12_jugados_y_no_programa
         "Belgrano 1 – Defensa y Justicia 2",
         "River 2 – Vélez 2",
         "Racing 1 – Boca 1",
-        "19.00 Tigre – Central Córdoba -TNT Sports-",
-        "21.15 Lanús – Argentinos -TNT Sports-",
-        "21.15 Talleres – Rosario Central -ESPN Premium-",
+        "Tigre 2 – Central Córdoba 1",
+        "Lanús 1 – Argentinos 1",
+        "Talleres 2 – Rosario Central 2",
     ]
     html = "<article>" + "".join(f"<p>{line}</p>" for line in lines) + "</article>"
     rows = parse_lpf_official_results_article_html(
         html, canon_club=canon_club, official_fixture=LPF_FIXTURE
     )
-    assert len(rows) == 12
+    assert len(rows) == 15
     assert {row["round"] for row in rows} == {6}
     assert ("River Plate", "Vélez Sarsfield", 2, 2) in {
+        (row["home"], row["away"], row["home_score"], row["away_score"])
+        for row in rows
+    }
+    assert ("Tigre", "Central Córdoba", 2, 1) in {
         (row["home"], row["away"], row["home_score"], row["away_score"])
         for row in rows
     }
