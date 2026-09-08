@@ -1,28 +1,11 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.66
-## Parser oficial acotado a la jornada · 3.8.66
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.64
 
-La fuente LPF oficial debe preservar dos guardas antes de entregar un marcador:
+## Copa Argentina viva · 3.8.64
 
-1. **Bloque atómico:** no interpretar `div` que contienen varios `p/li/div`. Esos wrappers concatenan partidos y pueden fabricar una pareja válida con el score de otro encuentro. Se aceptan párrafos/listas/títulos y `div` hoja cortos.
-2. **Misma jornada:** si URL/cuerpo identifica `Fecha N`, el `round` del cruce en `LPF_FIXTURE` debe ser exactamente N. Que dos clubes se enfrenten en otra fecha no valida una línea contaminada.
-
-Caso real reproducido: un wrapper de Fecha 4 con `Rosario Central 2-1 Aldosivi` seguido por `Ind. Rivadavia-Estudiantes (RC)` llegaba a producir `Rosario Central 2-1 Estudiantes (RC)` y lo vinculaba a la Fecha 16. Eso elevaba equipos a 7 PJ cuando la tabla publicada tenía 6.
-
-La aceptación de resultados mantiene el objetivo `49 base + 45 oficiales de Fechas 4-6 (4 solapados) -> 90` y vuelve a verificar PJ/puntos/GF/GC/DG completos. No reemplazar esta guarda por una selección heurística de candidatos.
-
-## Hubs oficiales de fecha · 3.8.65
-
-La fuente LPF debe tratar como candidatos tanto las notas con título de resultado como los hubs `Agenda/Programación de la fecha N`. La Liga reutiliza esos URLs y actualiza el cuerpo con marcadores; el listado puede conservar un título anterior por caché/CDN. **Nunca** marcar un partido como jugado por el título: `parse_lpf_official_results_article_html` sigue exigiendo dos clubes + marcador explícito + pareja de `LPF_FIXTURE`.
-
-Caso de aceptación vigente: `49 base + 45 oficiales de Fechas 4-6 (4 solapados) → 90`. Si una agenda no tiene marcadores todavía, aporta cero y no modifica la foto.
-
-## Otra cancha exacta detrás del Public Service · 3.8.64
-
-`Últimas fechas` debe pedir la doble entrada exacta mediante `definition` con `key_team`. El resultado utilizable está en `result.key_rival`; la UI no debe volver a ejecutar `key_rival_matrix` por su cuenta en el camino normal.
-
-El helper directo se conserva sólo dentro del fallback de `_lpf_definition_package` para sesiones/contratos legacy y ese uso debe quedar registrado en auditoría. Comparadores y otra cancha se resuelven en un único paquete público una vez que el editor termina la configuración visible.
-
-Este cambio no modifica Public Service v1, DataProvider v2, snapshot schema 3 ni Runtime API 21.
+- El conjunto que puede afectar escenarios futuros de cupos ya no parte de la foto de octavos del 18/07. La referencia canónica 2026 es el cuadro de cuartos confirmado al 08/09.
+- La normalización pura `copa_argentina_alive` acepta `eligible_pool` para impedir que una foto vieja reintroduzca eliminados. En Streamlit el pool máximo es `COPA_ARGENTINA_CUARTOS_2026`; futuras rondas son subconjuntos de ese pool.
+- La lista sigue siendo editable en `Datos y auditoría` para retirar al perdedor de cada cruce. El filtro sólo restringe; nunca agrega un club.
+- Esta corrección es editorial/competitiva de contexto y no cambia `PUBLIC_SERVICE_VERSION`, DataProvider, Snapshot ni Runtime API. En producción, Opta deberá proveer el estado de Copa Argentina como dato de fuente en lugar de depender de una foto estática/manual.
 
 ## Resultados explícitos y conciliación · 3.8.63
 
@@ -304,7 +287,7 @@ El consumidor no debe reconstruir `base`, `cutoff` ni la Tabla Anual reducida.
 
 ## Excepciones deliberadas que siguen pendientes
 
-- La matriz de **rival clave** ya cruza `definition`; `key_rival_matrix` directo queda sólo como fallback legacy registrado en auditoría.
+- La matriz de **rival clave** conserva un helper exacto directo por rendimiento; no es una segunda lógica matemática.
 - Las tablas comparativas completas de probabilidades y la probabilidad de descenso conservan temporalmente el simulador contextual directo; la cifra individual de Playoffs/Copas ya cruza `objective_chances`.
 - `api/` ya implementa la capa fina `HTTP -> calculate() -> JSON`; Desarrollo debe agregar autenticación/infraestructura según el entorno y conectar el snapshot server-side a Opta/cache.
 - `CurrentProvider` puede tener timestamp desconocido en carga offline/manual. Esto es correcto: no debe reemplazarse por la hora del snapshot.

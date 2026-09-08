@@ -1,29 +1,11 @@
-## 3.8.66 · 2026-08-25
+## 3.8.64 · 2026-09-08
 
-- Endurece `parse_lpf_official_results_article_html` después del caso real en que LPF oficial aportaba 52 candidatos pero la combinación generaba 7 PJ para Rosario Central/Estudiantes RC sobre una tabla de 6 fechas.
-- Causa reproducida: el parser también intentaba interpretar `div` contenedores que concatenaban varios partidos. Un wrapper realista de la Fecha 4 podía fabricar `Rosario Central 2-1 Estudiantes (Río Cuarto)` y asociarlo al cruce existente de la Fecha 16.
-- Los candidatos de marcador pasan a ser bloques atómicos: párrafos/listas/títulos y `div` hoja; se descartan wrappers con otros bloques y textos anormalmente largos.
-- Cuando la nota o su URL identifica `Fecha N`, cada resultado debe pertenecer a esa misma jornada de `LPF_FIXTURE`. Un cruce real de otra fecha deja de ser suficiente para validar una línea contaminada.
-- Regresiones nuevas cubren el falso Central-Estudiantes RC, wrappers de Fecha 6 que podían reciclar marcadores sobre cruces de otras jornadas y filas reales armadas con `span`.
-- Reproducción de integración con los marcadores reales de Fechas 4-6: `49 base + 45 oficiales (4 solapados) -> 90`, con PJ/puntos/GF/GC/DG exactos y sin inferencia.
-
-## 3.8.65 · 2026-08-25
-
-- Corrige el caso real en que la tabla ya implica **90 partidos** pero la fuente oficial queda clavada en la misma cobertura de la base incluida.
-- La LPF actualiza durante cada jornada las mismas notas que nacen como `Agenda/Programación de la fecha N`; el crawler ya no depende de que el título de portada haya mutado a “ganó/empataron/cerró”. También descubre esos **round hubs** por título/slug y luego mantiene la validación estricta del cuerpo: dos clubes + marcador explícito + pareja existente en `LPF_FIXTURE`.
-- Una agenda todavía no jugada sigue aportando cero resultados; incluir el hub no convierte programación en marcador ni relaja la validación transaccional.
-- Regresión actualizada de la Fecha 6 cerrada: el parser acepta los 15 resultados, incluidos Tigre 2-1 Central Córdoba, Lanús 1-1 Argentinos y Talleres 2-2 Rosario Central.
-- Nueva regresión de integración `49 base + 45 oficiales (4 solapados) → 90`, sin inferencia determinística.
-- Si la conciliación determinística también falla, su motivo deja de quedar escondido detrás de los dos primeros errores de feed y aparece en el mensaje principal de diagnóstico.
-- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
-
-## 3.8.64 · 2026-08-24
-
-- Cierra una excepción deliberada de arquitectura en `Últimas fechas`: la **doble entrada de otra cancha** ya no calcula `key_rival_matrix` directamente desde la UI en el camino normal.
-- `_lpf_definition_package` envía `key_team` a `lpf_services.calculate("definition")`; el paquete público ya existente devuelve `key_rival` y la UI lo usa para la matriz, la explicación `¿Por qué?` y la exportación detallada.
-- Cuando hay comparadores y/o otra cancha, Streamlit recompone una sola vez el paquete `definition` con toda la configuración seleccionada, en vez de pedir un paquete para comparadores y luego volver a calcular el rival clave por fuera del servicio.
-- El helper directo `key_rival_matrix` queda únicamente como fallback de compatibilidad si falla `definition`; ese fallback continúa registrado en `LPF_PUBLIC_SERVICE_FALLBACKS`.
-- Se agrega una regresión estática que impide que `render_definition_radar` vuelva a saltar el Public Service para la otra cancha.
+- Corrige la consideración de **Copa Argentina** en la Tabla Anual: la app todavía inicializaba una foto de octavos del 18/07 y podía presentar clubes ya eliminados como posibles campeones capaces de mover/liberar cupos.
+- La foto canónica 2026 pasa a los **ocho cuartofinalistas confirmados al 08/09**: Deportivo Riestra, Banfield, Racing, Boca Juniors, Atlético Tucumán, Independiente Rivadavia, Estudiantes de La Plata y Platense.
+- `copa_argentina_alive(..., eligible_pool=...)` suma un guard aditivo de instancia: aunque una sesión o lista manual arrastre nombres viejos de octavos, ningún club que no haya alcanzado cuartos puede volver a entrar en los escenarios de liberación de cupos.
+- Streamlit migra automáticamente el `session_state` histórico sólo cuando reconoce exactamente la foto vieja de octavos; una lista realmente editada por el usuario se preserva.
+- `Datos y auditoría` cambia el reset a **Restaurar cuadro actual de cuartos**, muestra la fuente oficial de cuartos y recuerda actualizar los sobrevivientes después de cada cruce.
+- Agrega regresión pura que verifica que Vélez, Instituto, Independiente, Belgrano y otros eliminados no reaparezcan aunque se entregue la lista vieja completa de octavos.
 - Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
 
 ## 3.8.63 · 2026-08-24

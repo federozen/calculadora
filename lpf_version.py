@@ -1,3 +1,3 @@
 """Versión pública de la calculadora."""
 
-__version__ = "3.8.66"
+__version__ = "3.8.64"

@@ -102,15 +102,30 @@ def fixed_libertadores_qualifiers(
 def copa_argentina_alive(
     annual: Mapping[str, Mapping[str, object]],
     alive: Sequence[object] | None = None,
+    *,
+    eligible_pool: Sequence[object] | None = None,
 ) -> list[str]:
-    """Normaliza equipos todavía vivos en Copa Argentina contra la Anual."""
+    """Normaliza equipos todavía vivos en Copa Argentina contra la Anual.
+
+    ``eligible_pool`` es un guard opcional de instancia: cuando se conoce el
+    conjunto que alcanzó una ronda posterior, una foto vieja no puede reintroducir
+    eliminados de rondas previas. Es aditivo y no cambia la semántica histórica
+    cuando el argumento se omite.
+    """
     order = list(liga_tabla_df(annual)["Equipo"]) if annual else []
+    allowed: set[str] | None = None
+    if eligible_pool is not None:
+        allowed = set()
+        for raw in eligible_pool:
+            team = _match_team_name_raw(raw, order)
+            if team:
+                allowed.add(team)
     result: list[str] = []
     for raw in alive or ():
         # El helper histórico llamaba ``_match_eq`` incluso con cadenas vacías.
         # Preservamos esa semántica exacta por compatibilidad de comportamiento.
         team = _match_team_name_raw(raw, order)
-        if team and team not in result:
+        if team and (allowed is None or team in allowed) and team not in result:
             result.append(team)
     return result
 

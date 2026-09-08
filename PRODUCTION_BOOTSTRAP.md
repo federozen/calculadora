@@ -1,18 +1,9 @@
-# Developer / Production Bootstrap · 3.8.66
+# Developer / Production Bootstrap · 3.8.64
 
-## Guard de parser oficial por fecha · 3.8.66
+## Contexto Copa Argentina · 3.8.64
 
-En staging usar HTML de hubs con wrappers diarios reales: un contenedor que agrupa varios partidos no puede producir un registro adicional. Si el hub es `Fecha 4`, todos los registros devueltos deben tener `round=4`; lo mismo para Fechas 5 y 6. La regresión mínima debe comprobar que `Rosario Central-Estudiantes (RC)` de Fecha 16 no aparece al procesar el hub de Fecha 4.
+El bootstrap/API no cambia. La UI corrige la foto de equipos vivos de Copa Argentina y filtra contra los cuartofinalistas confirmados al 08/09/2026 para no proyectar cupos con clubes eliminados. En la integración Opta, este estado debe venir del proveedor como dato competitivo vigente; no debe codificarse en la API ni en los motores de cupos.
 
-Con los 15 marcadores de cada una de las Fechas 4, 5 y 6, la unión con la base de 49 debe cerrar en 90 partidos y pasar `_lpf_results_fit_zones` sin conciliación inferida.
-
-## Guard de hubs oficiales · 3.8.65
-
-En staging validar una portada LPF cuyo título siga diciendo `Agenda de la fecha 6` aunque el cuerpo del artículo ya tenga los 15 marcadores. El crawler debe descargar el hub por título/slug, extraer sólo marcadores explícitos y cerrar el caso `49 + 45 oficiales (4 repetidos) → 90`. Una `Programación de la fecha 7` sin scores debe devolver cero jugados y no alterar el estado.
-
-## Guard de definición/otra cancha · 3.8.64
-
-En staging, abrir `Últimas fechas`, elegir equipo principal, comparadores y otra cancha. La doble entrada debe salir del paquete `POST /v1/definition`/`lpf_services.calculate("definition")` con `key_team`; `key_rival_matrix` directo sólo puede aparecer si el Public Service falla y el fallback queda visible en auditoría.
 
 ## Guard de actualización transaccional · 3.8.63
 

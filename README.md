@@ -1,32 +1,17 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.66
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.64
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
-
-## Novedad 3.8.66 · parser LPF por fecha y bloques atómicos
-
-- Corrige falsos resultados originados por `div` que agrupaban varios partidos en las notas oficiales. El caso reproducido convertía el 2-1 de Rosario Central-Aldosivi de la Fecha 4 en un falso Rosario Central-Estudiantes (RC) de Fecha 16.
-- El parser sólo interpreta líneas atómicas; un `div` con varios `p` ya no se considera una línea de marcador.
-- Si la nota identifica `Fecha N` por URL o cuerpo, el cruce debe pertenecer a esa misma fecha del fixture.
-- Se conserva la regla transaccional: la foto sólo se publica cuando los resultados reconstruyen exactamente PJ, puntos, GF, GC y DG.
-
-## Novedad 3.8.65 · hubs oficiales de fecha y cierre 49 → 90
-
-- La fuente LPF oficial descubre también las notas `Agenda/Programación de la fecha N`, porque la Liga las actualiza en el mismo URL con resultados mientras el título de portada puede quedar atrasado por caché/CDN.
-- El artículo sólo aporta partidos si el cuerpo contiene dos clubes, marcador explícito y una pareja válida de `LPF_FIXTURE`; una agenda futura no se interpreta como resultado.
-- Queda cubierto el cierre completo de la Fecha 6 y el caso `49 resultados incluidos + 45 oficiales con 4 solapados = 90 partidos exactos`.
-- La actualización sigue siendo transaccional: si ninguna combinación reproduce PJ/puntos/GF/GC/DG, conserva la foto anterior.
 
 La versión vigente siempre está en `lpf_version.__version__` (única fuente de verdad compartida por Streamlit, auditoría y futuras interfaces). El historial completo está en `CHANGELOG.md`.
 
 
-## Novedad 3.8.64 · la doble entrada exacta también cruza Public Service
+## Novedad 3.8.64 · Copa Argentina: sólo siguen vivos los que realmente siguen en carrera
 
-- `Últimas fechas → Otra cancha clave` deja de llamar directamente a `key_rival_matrix` en el camino normal de la UI.
-- La configuración elegida (equipo principal, comparadores y `key_team` de la otra cancha) se envía en una única consulta a `definition`, que ya devolvía `key_rival` dentro del contrato existente.
-- El helper exacto directo se conserva únicamente dentro del fallback legacy si `definition` falla y el incidente queda registrado en auditoría.
-- Se evita una tercera ruta matemática para la misma doble entrada y se simplifica el handoff: Streamlit consume el mismo paquete exacto que una futura interfaz HTTP.
-- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 no cambian.
-
+- La foto por defecto de Copa Argentina se actualiza de octavos a **cuartos de final (08/09/2026)**.
+- Para mover la línea de Libertadores/Sudamericana sólo se consideran los ocho cuartofinalistas confirmados: Deportivo Riestra, Banfield, Racing, Boca Juniors, Atlético Tucumán, Independiente Rivadavia, Estudiantes de La Plata y Platense.
+- Una sesión vieja ya no puede reintroducir eliminados: el wrapper aplica un guard de instancia sobre la lista viva.
+- El reset de `Datos y auditoría` restaura la foto actual de cuartos y la lista manual puede seguir reduciéndose después de cada partido.
+- No cambian contratos de servicio, snapshot ni Runtime API.
 
 ## Novedad 3.8.63 · LPF oficial como fuente primaria de resultados
 

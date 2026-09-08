@@ -698,10 +698,11 @@ if "texto_torneo_cache" not in st.session_state: st.session_state.texto_torneo_c
 if "ZONAS"              not in st.session_state: st.session_state.ZONAS              = []
 if "ZONAS_TXT"          not in st.session_state: st.session_state.ZONAS_TXT          = ""
 
-# Foto de referencia de los octavos de final de la Copa Argentina 2026.
-# Se usa para explicar qué equipos todavía pueden obtener la plaza ARGENTINA 3.
-# La lista se puede actualizar/cotejar desde Datos y auditoría.
+# Copa Argentina 2026 · control de equipos todavía vivos.
+# La foto vieja de octavos se conserva sólo para migrar session_state de releases
+# anteriores. La foto canónica vigente es la de cuartos confirmada el 08/09/2026.
 COPA_ARGENTINA_FIXTURE_OFICIAL = "https://www.copaargentina.org/es/fixture.html"
+COPA_ARGENTINA_CUARTOS_OFICIAL = "https://www.copaargentina.org/es/news/11971_Diez-datos-en-la-previa-a-los-Cuartos-de-Final.html"
 COPA_ARGENTINA_CUADRO_ESPN = "https://www.espn.com.ar/futbol/argentina/nota/_/id/16215014/copa-argentina-2026-asi-esta-el-cuadro-llave-fase-final"
 COPA_ARGENTINA_OCTAVOS_2026 = [
     "Banfield", "Ferrocarril Midland", "Atlético Tucumán", "Independiente",
@@ -709,16 +710,38 @@ COPA_ARGENTINA_OCTAVOS_2026 = [
     "Deportivo Riestra", "Gimnasia La Plata", "Racing", "Belgrano",
     "Boca Juniors", "Vélez Sarsfield", "Aldosivi", "Independiente Rivadavia",
 ]
+COPA_ARGENTINA_CUARTOS_2026 = [
+    "Deportivo Riestra", "Banfield", "Racing", "Boca Juniors",
+    "Atlético Tucumán", "Independiente Rivadavia",
+    "Estudiantes de La Plata", "Platense",
+]
+COPA_ARGENTINA_CUARTOS_UPDATED = "08/09/2026 · cuadro de cuartos completo"
+COPA_ARGENTINA_CUARTOS_SOURCE = "Sitio oficial de Copa Argentina · previa de Cuartos de Final"
+
+_old_copa_default = list(COPA_ARGENTINA_OCTAVOS_2026)
+_old_copa_text = "\n".join(_old_copa_default)
 if "LPF_COPA_ARG_VIVOS" not in st.session_state:
-    st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_OCTAVOS_2026)
+    st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_CUARTOS_2026)
+else:
+    # Migración automática: un usuario que tenía abierta la app antes del cambio
+    # puede conservar session_state aun después del redeploy. Sólo reemplazamos la
+    # foto histórica exacta de octavos; una lista editada manualmente se respeta.
+    _saved_copa = list(st.session_state.get("LPF_COPA_ARG_VIVOS") or [])
+    _saved_updated = str(st.session_state.get("LPF_COPA_ARG_UPDATED") or "")
+    if _saved_copa == _old_copa_default or _saved_updated.startswith("18/07/2026"):
+        st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_CUARTOS_2026)
+        st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CUARTOS_UPDATED
+        st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CUARTOS_SOURCE
 if "LPF_COPA_ARG_UPDATED" not in st.session_state:
-    st.session_state.LPF_COPA_ARG_UPDATED = "18/07/2026 · cuadro de octavos completo"
+    st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CUARTOS_UPDATED
 if "LPF_COPA_ARG_SOURCE" not in st.session_state:
-    st.session_state.LPF_COPA_ARG_SOURCE = "Sitio oficial de Copa Argentina + cotejo ESPN"
+    st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CUARTOS_SOURCE
 if "LPF_COPA_ARG_REEMPLAZO" not in st.session_state:
     st.session_state.LPF_COPA_ARG_REEMPLAZO = ""
 if "lpf_copa_arg_alive_txt" not in st.session_state:
     st.session_state.lpf_copa_arg_alive_txt = "\n".join(st.session_state.LPF_COPA_ARG_VIVOS)
+elif str(st.session_state.get("lpf_copa_arg_alive_txt") or "").strip() == _old_copa_text.strip():
+    st.session_state.lpf_copa_arg_alive_txt = "\n".join(COPA_ARGENTINA_CUARTOS_2026)
 
 def _secret(k, default=""):
     try:
@@ -2234,12 +2257,10 @@ def futbolargentino_annual(timeout=30):
 def lpf_official_results(zones, baseline_played=None, timeout=30):
     """Carga marcadores explícitos desde las notas oficiales de Primera.
 
-    Recorre páginas de noticias en orden reciente y descarga cierres/resultados y
-    hubs oficiales ``Agenda/Programación de la fecha N``. Se detiene cuando, junto
-    con la base validada, ya hay suficientes parejas para explicar los PJ publicados.
-    El parser del artículo sólo acepta líneas atómicas y, cuando identifica la fecha,
-    exige que el cruce pertenezca a esa misma jornada. La reconciliación exacta
-    posterior sigue siendo la que decide si la foto es aceptable.
+    Recorre páginas de noticias en orden reciente y sólo descarga artículos cuyos
+    títulos parecen cierres/resultados. Se detiene cuando, junto con la base validada,
+    ya hay suficientes parejas para explicar los PJ publicados. La reconciliación
+    exacta posterior sigue siendo la que decide si la foto es aceptable.
     """
     expected = expected_played_count(zones)
     baseline = _merge_lpf_results(baseline_played or [])
@@ -3101,10 +3122,18 @@ def _lpf_fixed_lib_qualifiers(anual, camps=("", "", ""), extras=("", "")):
     )
 
 def _lpf_copa_arg_alive_for_annual(anual, vivos=None):
-    """Wrapper Streamlit de los equipos vivos en Copa Argentina."""
+    """Wrapper Streamlit de los equipos vivos en Copa Argentina 2026.
+
+    Además de normalizar nombres contra la Tabla Anual, aplica como techo la
+    última instancia oficialmente confirmada (cuartos). Así una sesión vieja de
+    octavos no puede volver a presentar a un eliminado como posible campeón.
+    Las futuras actualizaciones manuales sólo pueden reducir este conjunto.
+    """
     if vivos is None:
         vivos = st.session_state.get("LPF_COPA_ARG_VIVOS") or []
-    return _qualification_copa_argentina_alive(anual, vivos)
+    return _qualification_copa_argentina_alive(
+        anual, vivos, eligible_pool=COPA_ARGENTINA_CUARTOS_2026
+    )
 
 def _lpf_copa_snapshot(updated="", source=""):
     """Wrapper Streamlit de la etiqueta de actualización de Copa Argentina."""
@@ -5430,8 +5459,6 @@ def cargar_lpf_espn(liga="arg.1"):
                 ],
             }, None
         detail_parts = []
-        if inferred_note:
-            detail_parts.append(inferred_note)
         detail_parts.extend(result_source_warnings[:2])
         detail_parts.extend(diagnostic_notes[:2])
         detail = (" " + " ".join(detail_parts)) if detail_parts else ""
@@ -5738,11 +5765,11 @@ with st.sidebar:
                         st.session_state.LPF_COPA_ARG_SOURCE = "ESPN API · arg.copa" + (f" · {_nota_espn}" if _nota_espn else "")
                         ui_success(f"Cotejo aplicado: {len(_vivos_espn)} equipos en partidos pendientes.")
                         st.rerun()
-                if _ca2.button("Restaurar cuadro de octavos", use_container_width=True, key="lpf_ca_reset"):
-                    st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_OCTAVOS_2026)
-                    st.session_state.lpf_copa_arg_alive_txt = "\n".join(COPA_ARGENTINA_OCTAVOS_2026)
-                    st.session_state.LPF_COPA_ARG_UPDATED = "18/07/2026 · cuadro de octavos completo"
-                    st.session_state.LPF_COPA_ARG_SOURCE = "Sitio oficial de Copa Argentina + cotejo ESPN"
+                if _ca2.button("Restaurar cuadro actual de cuartos", use_container_width=True, key="lpf_ca_reset"):
+                    st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_CUARTOS_2026)
+                    st.session_state.lpf_copa_arg_alive_txt = "\n".join(COPA_ARGENTINA_CUARTOS_2026)
+                    st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CUARTOS_UPDATED
+                    st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CUARTOS_SOURCE
                     st.rerun()
                 _ca_txt = st.text_area(
                     "Un equipo por línea", key="lpf_copa_arg_alive_txt", height=150,
@@ -5752,9 +5779,11 @@ with st.sidebar:
                 ui_caption(
                     f"Foto: {st.session_state.get('LPF_COPA_ARG_UPDATED','sin fecha')} · "
                     f"{st.session_state.get('LPF_COPA_ARG_SOURCE','sin fuente')}. "
-                    "La fuente oficial manda; ESPN se usa como cotejo y no reemplaza una lista incompleta."
+                    "Filtro de seguridad 2026: los eliminados antes de cuartos no pueden volver a liberar cupos aunque persistan en una sesión vieja. "
+                    "Después de cada cruce de cuartos, actualizá esta lista con los sobrevivientes."
                 )
                 ui_markdown(
+                    f"[Abrir previa oficial de cuartos]({COPA_ARGENTINA_CUARTOS_OFICIAL}) · "
                     f"[Abrir fixture oficial]({COPA_ARGENTINA_FIXTURE_OFICIAL}) · "
                     f"[Abrir cuadro de ESPN]({COPA_ARGENTINA_CUADRO_ESPN})"
                 )
@@ -9828,7 +9857,7 @@ def _definition_guarantee_round(team, pending, current, guarantee):
 
 
 def _lpf_definition_package(E, objective, zone, team, selected_teams, round_no, *,
-                            base, rest, games, pending, cutoff, key_team=None):
+                            base, rest, games, pending, cutoff):
     """Paquete de Últimas fechas a través de ``lpf_services.definition``.
 
     El fallback conserva sesiones legacy; queda registrado en auditoría para que
@@ -9842,7 +9871,6 @@ def _lpf_definition_package(E, objective, zone, team, selected_teams, round_no, 
             zone=zone,
             round=round_no,
             selected_teams=list(selected_teams or [team]),
-            key_team=key_team,
             exact_window=VENTANA_EXACTA,
         )
     except _LPFServiceContractError as exc:
@@ -9867,10 +9895,6 @@ def _lpf_definition_package(E, objective, zone, team, selected_teams, round_no, 
                 base, rest, games, list(selected_teams or [team]), cutoff, max_other_matches=8
             ),
             "report": report,
-            "key_rival": (
-                key_rival_matrix(base, rest, games, team, key_team, cutoff)
-                if key_team else None
-            ),
             "guarantee": guarantee,
             "ladder": ladder,
             "guarantee_round_label": guarantee_round,
@@ -10383,29 +10407,6 @@ def render_definition_radar(E):
             help="Esta opción queda visible desde el inicio y se habilita cuando el equipo principal tiene una definición abierta.",
         )
 
-    selected_key_match = None
-    selected_key_team = None
-    if team_selected and not resolved and match_options:
-        selected_key_label = match_options[0] if key_match_choice == automatic_match_choice else key_match_choice
-        if selected_key_label not in match_by_label:
-            selected_key_label = match_options[0]
-        selected_key_match = match_by_label[selected_key_label]
-        selected_key_team = (
-            selected_key_match[0] if selected_key_match[0] in base else selected_key_match[1]
-        )
-
-    # Una vez elegidos comparadores y otra cancha, volvemos a pedir UN paquete público
-    # de definition con toda la configuración. Así la matriz de rival clave también
-    # cruza la frontera estable; el helper directo queda únicamente dentro del fallback.
-    if team_selected and not resolved and (comparators or selected_key_team):
-        package = _lpf_definition_package(
-            E, objective, lab, team_focus, selected_teams, current_round,
-            base=base, rest=rest, games=games, pending=pending, cutoff=cutoff,
-            key_team=selected_key_team,
-        )
-        report = package.get("report") or {}
-        fight = pd.DataFrame(package.get("fight_zone") or [])
-
     if team_selected:
         ui_caption(
             f"Configuración actual: **{ctx['label']}** · equipo principal: **{team_focus}** · "
@@ -10520,6 +10521,13 @@ def render_definition_radar(E):
         + ("También vas a ver: " + ", ".join(comparators) + "." if comparators else "No agregaste comparadores.")
     )
 
+    # Si el editor agrega comparadores, pedimos de nuevo el mismo paquete público
+    # con esa selección. El caso por defecto reutiliza la primera consulta.
+    if comparators:
+        package = _lpf_definition_package(
+            E, objective, lab, team_focus, selected_teams, current_round,
+            base=base, rest=rest, games=games, pending=pending, cutoff=cutoff,
+        )
     rows = list(package.get("matrix") or [])
     solver_matrix_teams = []
     if rows:
@@ -10618,14 +10626,17 @@ def render_definition_radar(E):
         "Acá se aplica el partido elegido arriba. Si dejaste Automática, el motor toma la otra cancha que más cambia los caminos exactos. "
         "La doble entrada cruza el resultado del equipo principal con gana local / empate / gana visitante."
     )
-    if selected_key_match and selected_key_team:
-        key_match = selected_key_match
-        key_team = selected_key_team
+    if match_options:
+        key_match_label = match_options[0] if key_match_choice == automatic_match_choice else key_match_choice
+        if key_match_label not in match_by_label:
+            key_match_label = match_options[0]
+        key_match = match_by_label[key_match_label]
+        key_team = key_match[0] if key_match[0] in base else key_match[1]
         ui_caption(
             f"Otra cancha seleccionada: **{key_match[0]} – {key_match[1]}**. "
             "Las columnas muestran gana local / empate / gana visitante; no hace falta elegir un segundo equipo."
         )
-        key_report = package.get("key_rival") or {}
+        key_report = key_rival_matrix(base, rest, games, team_focus, key_team, cutoff)
         if key_report.get("available"):
             key_spec = _definition_key_matrix_spec(team_focus, key_match, key_team, key_report, ctx["label"])
             ui_markdown(_html_tabla(key_spec), unsafe_allow_html=True)
