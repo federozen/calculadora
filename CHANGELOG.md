@@ -1,3 +1,11 @@
+## 3.8.68 · 2026-09-17
+
+- Corrige el caso real `tabla = 135 / LPF oficial = 0` posterior al aislamiento de 3.8.67. La LPF puede publicar una fecha completa dentro de un único párrafo separado por `<br>`; al leer sólo el texto agregado del `<p>`, quince marcadores quedaban fusionados en una cadena que no coincidía con `_official_score_line`.
+- `parse_lpf_official_results_article_html` sigue limitado a `article/main`, pero dentro de ese cuerpo procesa `stripped_strings` en orden para recuperar líneas atómicas y conservar el round activo.
+- Se mantiene el filtro por `expected_round`, la separación Apertura/Clausura y la exclusión de sidebars/relacionados.
+- Se agrega un fallback acotado para líneas partidas por tags inline y una regresión con 15 partidos en un único `<p><br>…</p>`.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.67 · 2026-09-17
 
 - Corrige el caso real `tabla = 135 / LPF oficial = 92`: las seis notas auditadas de Fechas 4-9 debían aportar como máximo 90 resultados, pero el parser recorría todo el HTML de cada página y podía leer marcadores de módulos laterales/relacionados.

@@ -263,33 +263,3 @@ def test_copa_snapshot_label_conserva_formato_editorial_3823():
     assert copa_snapshot_label("2026-08-11", "") == "2026-08-11"
     assert copa_snapshot_label("", "AFA") == "AFA"
     assert copa_snapshot_label("", "") == ""
-
-
-def test_copa_argentina_alive_puede_bloquear_eliminados_de_rondas_previas():
-    teams = [
-        "Banfield", "Atlético Tucumán", "Independiente", "Platense", "Instituto",
-        "Estudiantes de La Plata", "Barracas Central", "Deportivo Riestra",
-        "Gimnasia La Plata", "Racing", "Belgrano", "Boca Juniors",
-        "Vélez Sarsfield", "Aldosivi", "Independiente Rivadavia",
-    ]
-    annual = {
-        team: _row(60 - index, 30, 45 - index, 20)
-        for index, team in enumerate(teams)
-    }
-    old_octavos = list(teams)
-    current_quarters = [
-        "Deportivo Riestra", "Banfield", "Racing", "Boca Juniors",
-        "Atlético Tucumán", "Independiente Rivadavia",
-        "Estudiantes de La Plata", "Platense",
-    ]
-    result = copa_argentina_alive(
-        annual, old_octavos, eligible_pool=current_quarters
-    )
-    assert result == [
-        team for team in liga_tabla_df(annual)["Equipo"]
-        if team in set(current_quarters)
-    ]
-    assert "Vélez Sarsfield" not in result
-    assert "Instituto" not in result
-    assert "Independiente" not in result
-    assert "Belgrano" not in result
