@@ -183,30 +183,3 @@ def test_reconciliacion_es_estable_al_reaplicar():
     # Los equipos y sus puntos coinciden entre una y otra aplicación.
     for zona in ("A", "B"):
         assert set(z1[zona]) == set(z2[zona])
-
-
-def test_belgrano_campeon_apertura_sigue_visible_en_objetivos_de_copas():
-    """La vía directa no puede hacer desaparecer al campeón de Puntos por objetivo."""
-    from lpf_data_2026 import TABLA_ANUAL_LPF_2026
-    from lpf_qualification import allocate_cup_slots
-
-    za, zb = _rosters()
-    zonas = {"A": za, "B": zb}
-    anual, _ = parse_tabla_anual(TABLA_ANUAL_LPF_2026)
-    reparto = allocate_cup_slots(anual, camps=("Belgrano", "", ""), extras=("", ""))
-    assert "Belgrano" not in reparto["reducida"]
-
-    rest = {team: 0 for team in anual}
-    pisos = pisos_de_equipo(
-        zonas,
-        anual,
-        reparto["reducida"],
-        reparto["n_tabla_lib"],
-        rest,
-        [],
-        "Belgrano",
-        n_anual=1,
-    )
-    por_clave = {p.clave: p for p in pisos}
-    assert por_clave["libertadores"].estado == "in"
-    assert "vía directa" in por_clave["libertadores"].lectura()

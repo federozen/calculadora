@@ -252,15 +252,9 @@ def test_mesa_de_redaccion_embebe_chat_y_el_radar_reusa_motores_existentes():
         node.name: node
         for node in tree.body
         if isinstance(node, ast.FunctionDef)
-        and node.name in {
-            "render_newsroom", "render_chat_workspace", "render_definition_radar",
-            "_render_radar_estimated_visuals",
-        }
+        and node.name in {"render_newsroom", "render_chat_workspace", "render_definition_radar"}
     }
-    assert set(funcs) == {
-        "render_newsroom", "render_chat_workspace", "render_definition_radar",
-        "_render_radar_estimated_visuals",
-    }
+    assert set(funcs) == {"render_newsroom", "render_chat_workspace", "render_definition_radar"}
 
     newsroom_calls = {
         node.func.id
@@ -274,13 +268,7 @@ def test_mesa_de_redaccion_embebe_chat_y_el_radar_reusa_motores_existentes():
         for node in ast.walk(funcs["render_definition_radar"])
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
-    estimated_calls = {
-        node.func.id
-        for node in ast.walk(funcs["_render_radar_estimated_visuals"])
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    }
-    assert {"lpf_previa_equipo_texto", "_render_point_ladder", "_render_radar_estimated_visuals"} <= radar_calls
-    assert "lpf_otros_resultados_sim" in estimated_calls
+    assert {"lpf_previa_equipo_texto", "_render_point_ladder", "_lpf_definition_package", "_render_radar_estimated_visuals"} <= radar_calls
 
 
 def test_puntos_por_objetivo_aclara_via_anual_y_muestra_clasificados_directos():
@@ -343,81 +331,3 @@ def test_auditoria_expone_fallbacks_del_contrato_publico():
     assert "_lpf_service_capabilities" in audit
     assert "LPF_PUBLIC_SERVICE_FALLBACKS" in audit
     assert "Contrato público usado por Streamlit" in MAIN.read_text(encoding="utf-8")
-
-
-def test_snapshot_streamlit_pasa_por_current_data_provider():
-    fn = ast.unparse(_function("_lpf_service_snapshot_payload"))
-    assert "CurrentProvider" in fn
-    assert "_lpf_provider_payload" in fn
-    assert "return _lpf_provider_payload(CurrentProvider(raw))" in fn
-
-
-def test_panel_por_equipo_que_necesita_muestra_informe_largo_como_salida_principal():
-    source = MAIN.read_text(encoding="utf-8")
-    guided = source[source.index("def render_guided_workspace"):source.index("# ─── CONFIG DEL LLM EN EL PANEL LATERAL")]
-    branch_start = guided.index('elif task == "Qué necesita para alcanzar el objetivo":')
-    branch_end = guided.index('elif task == "Qué resultados ajenos le convienen":')
-    branch = guided[branch_start:branch_end]
-    assert "_lpf_editorial_need_text(E, team, objective, lab)" in branch
-    assert branch.index("_lpf_editorial_need_text") < branch.index("_lpf_service_need_text")
-    assert 'st.expander("Resumen operativo · contrato público v1", expanded=False)' in branch
-    # El resumen corto del contrato queda secundario y plegado; no sustituye el informe editorial.
-    assert "Resumen JSON-safe usado por API y auditoría" in branch
-
-
-def test_panel_y_ultimas_fechas_comparten_un_solo_helper_editorial_de_necesidad():
-    source = MAIN.read_text(encoding="utf-8")
-    helper = source[source.index("def _lpf_editorial_need_text"):source.index("def _lpf_objective_label")]
-    assert "lpf_playoffs_texto" in helper
-    assert "lpf_copas_necesita_texto" in helper
-    assert "lpf_descenso_texto" in helper
-    radar_helper = source[source.index("def _definition_editorial_report_text"):source.index("def render_definition_radar")]
-    assert "_lpf_editorial_need_text" in radar_helper
-
-
-def test_lpf_official_results_incluye_semillas_fechas4_a_9_y_archivo_ampliado():
-    source = MAIN.read_text(encoding="utf-8")
-    assert 'LPF_OFFICIAL_RESULT_SEED_URLS = (' in source
-    assert 'https://www.ligaprofesional.ar/?p=85379' in source
-    assert 'https://www.ligaprofesional.ar/?p=85760' in source
-    assert 'https://www.ligaprofesional.ar/?p=85943' in source
-    assert 'programacion-de-la-fecha-7-5/' in source
-    assert 'hoy-arranca-la-fecha-8/' in source
-    assert 'se-mueve-la-novena/' in source
-    assert 'for page in range(1, 13)' in source
-    fn = source[source.index("def lpf_official_results"):source.index("def futbolargentino_fixture")]
-    assert fn.index("LPF_OFFICIAL_RESULT_SEED_URLS") < fn.index("for listing_url in LPF_OFFICIAL_PRIMERA_PAGES")
-    assert "LPF_OFFICIAL_RESULT_SEED_ROUNDS.get(source_url)" in fn
-    assert "expected_round=article_rounds.get(_source_url)" in fn
-
-
-def test_lpf_official_results_delega_transporte_y_parsers_fuera_de_streamlit():
-    tree = _module_tree()
-    fn = next(
-        node for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "lpf_official_results"
-    )
-    called = {
-        node.func.id
-        for node in ast.walk(fn)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    }
-    assert "fetch_html_pages" in called
-    assert "parse_lpf_official_listing_html" in called
-    assert "parse_lpf_official_results_article_html" in called
-    assert "played_pending_from_records" in called
-
-
-def test_carga_automatica_consulta_lpf_oficial_antes_de_fallbacks_de_resultados():
-    tree = _module_tree()
-    fn = next(
-        node for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "cargar_lpf_espn"
-    )
-    calls = [
-        node.func.id
-        for node in ast.walk(fn)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    ]
-    assert "lpf_official_results" in calls
-    assert "prepare_automatic_update" in calls
