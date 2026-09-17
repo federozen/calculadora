@@ -23,7 +23,7 @@ from typing import Any
 
 from lpf_clubs import canon_base, canon_club
 from lpf_data_2026 import LPF_FIXTURE
-from lpf_data_quality import fixture_records, sum_opening_and_zones
+from lpf_data_quality import sum_opening_and_zones
 from lpf_derive import _lpf_infer_missing_results
 from lpf_fixture_sources import expected_played_count
 from lpf_reconcile import (
@@ -193,32 +193,6 @@ def prepare_automatic_update(
                 espn_played,
             )
 
-    history_partial = False
-    partial_played: list[ResultRow] = []
-    if not played:
-        # 3.8.69: preservar la mejor historia confirmada disponible sin hacerla
-        # pasar por una reconstrucción completa. El caller puede usarla sólo si el
-        # quality gate demuestra un frente uniforme de PJ seguro.
-        partial_played = _merge_lpf_results(
-            espn_played,
-            futbolargentino_played,
-            builtin_played,
-            previous_played,
-            official_played,
-            manual_played,
-        )
-        if partial_played:
-            _records, partial_issues = fixture_records(
-                fixture, partial_played, prepared_zones
-            )
-            history_partial = any(
-                issue.code == "fixture_history_partial" and issue.level == "warning"
-                for issue in partial_issues
-            ) and not any(
-                issue.level == "blocked" and issue.domain == "data"
-                for issue in partial_issues
-            )
-
     expected_results = expected_played_count(prepared_zones)
     diagnostic_candidates = [
         (
@@ -289,9 +263,6 @@ def prepare_automatic_update(
         "reconcile_note": reconcile_note,
         "inferred_played": inferred_played,
         "inferred_note": inferred_note,
-        "history_partial": history_partial,
-        "partial_played": partial_played,
-        "partial_results_text": results_text(partial_played),
         "expected_results": expected_results,
         "diagnostic_notes": diagnostic_notes,
         "coverage_note": coverage_note,

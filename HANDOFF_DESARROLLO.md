@@ -1,4 +1,12 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.68
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.69
+
+## Tabla autoritativa con historial parcial · 3.8.69
+
+El runtime deja de tratar la reconstrucción completa de marcadores históricos como condición necesaria para usar una tabla vigente. Cuando todos los clubes comparten el mismo PJ y el fixture valida ese frente de forma exacta, los partidos de fechas ya consumidas sin marcador quedan `unconfirmed` y el fixture posterior se usa como futuro. La tabla publicada es el estado competitivo autoritativo; los marcadores conocidos quedan como evidencia parcial para forma, racha y auditoría.
+
+Guardas obligatorias: el modo no se activa con PJ desparejos, si aparece un resultado explícito de una fecha posterior al frente, si el fixture no entrega exactamente N apariciones por club hasta N PJ, o si los marcadores confirmados contradicen PJ/puntos/GF/GC. En cualquiera de esos casos se conserva el fallo cerrado. No se infiere ni inventa un score faltante.
+
+La ingesta oficial automática migra a `https://www.lpf.org.ar/categoria/primera/`. Esta capa queda como backfill/auditor y ya no debe bloquear la operación si el frente de tabla es estructuralmente seguro. Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 no cambian.
 
 
 ## Fragmentos atómicos dentro de `article/main` · 3.8.68

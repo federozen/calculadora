@@ -1,4 +1,12 @@
-# Developer / Production Bootstrap · 3.8.68
+# Developer / Production Bootstrap · 3.8.69
+
+## Modo tabla autoritativa · 3.8.69
+
+En staging agregar un caso con tabla uniforme de 9 PJ y sólo historial parcial de resultados. El fixture de Fechas 1-9 debe quedar histórico (`unconfirmed` donde falte score), Fechas 10-16 deben permanecer pendientes y la calidad debe degradar a warning en vez de bloquear. Ningún marcador faltante puede sintetizarse.
+
+Agregar también negativos para PJ desparejos, resultado explícito posterior al frente e incompatibilidad entre resultados parciales y acumulados: los tres deben seguir bloqueando. La ingesta de `lpf.org.ar` queda como auditor/backfill y no como dependencia dura del cálculo.
+
+No cambia Public Service v1, DataProvider v2, Snapshot schema 3 ni Runtime API 21.
 
 
 ## Guard de `<br>` en notas oficiales · 3.8.68

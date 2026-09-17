@@ -1,3 +1,13 @@
+## 3.8.69 · 2026-09-17
+
+- Cambia la estrategia ante el caso real `tabla = 135 / resultados confirmados = 49`: la calculadora deja de exigir reconstruir los 135 marcadores para poder usar una tabla vigente y coherente.
+- Nuevo **modo tabla autoritativa**: si todos los clubes tienen el mismo PJ, el fixture hasta ese frente contiene exactamente esa cantidad de partidos por equipo, no hay un resultado explícito de una fecha posterior y los marcadores parciales no contradicen puntos/GF/GC publicados, los cruces históricos sin score quedan `unconfirmed` como advertencia y no bloquean el cálculo.
+- Los partidos futuros se determinan desde el fixture posterior al frente uniforme de PJ. Para una foto de 9 PJ, Fechas 1-9 quedan históricas y Fechas 10-16 siguen siendo pendientes, aunque sólo haya 49 marcadores cargados. No se inventa ningún resultado faltante.
+- Los marcadores parciales se conservan para forma, racha y auditoría; `estimate_team_strength` ya cae a la tabla vigente cuando un club no tiene forma reciente suficiente.
+- La fuente oficial automática migra al dominio vigente `lpf.org.ar`, usa la categoría `/categoria/primera/` y actualiza la semilla de Fecha 8 (`?p=86880`). Esto queda como backfill/auditor y deja de ser una dependencia dura para operar.
+- Si los PJ son desparejos, aparece un resultado explícito de una fecha posterior al frente o los resultados parciales contradicen los acumulados, el sistema sigue fallando cerrado.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.68 · 2026-09-17
 
 - Corrige el caso real `tabla = 135 / LPF oficial = 0` posterior al aislamiento de 3.8.67. La LPF puede publicar una fecha completa dentro de un único párrafo separado por `<br>`; al leer sólo el texto agregado del `<p>`, quince marcadores quedaban fusionados en una cadena que no coincidía con `_official_score_line`.

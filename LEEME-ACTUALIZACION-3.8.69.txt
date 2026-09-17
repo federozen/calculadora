@@ -1,0 +1,9 @@
+ACTUALIZACION 3.8.68 -> 3.8.69
+
+Cambio de estrategia: no seguir bloqueando la calculadora por no reconstruir todos los marcadores históricos.
+
+Si la tabla vigente tiene un frente uniforme y estructuralmente seguro (por ejemplo, 30 clubes con 9 PJ y fixture completo de Fechas 1-9), la tabla pasa a ser el estado autoritativo. Los marcadores faltantes quedan como historial parcial, sin inventarse, y el fixture de Fechas 10-16 alimenta los cálculos futuros.
+
+Además, la fuente oficial pasa al dominio vigente lpf.org.ar y a /categoria/primera/.
+
+Guardas: si hay PJ desparejos, postergados/adelantados detectables o incompatibilidad entre resultados confirmados y la tabla, el fallback no se activa y el sistema sigue bloqueando.

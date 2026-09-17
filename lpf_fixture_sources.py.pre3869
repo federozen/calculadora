@@ -26,7 +26,7 @@ LPF_CLAUSURA_2026_RESULTS_START = date(2026, 7, 20)
 # ``/?p=...`` descubierto en el archivo: WordPress también conserva entradas del
 # Apertura sin fecha visible en la URL y una pareja repetida podría contaminar la
 # foto actual. Los nuevos permalinks cortos se incorporan de forma explícita.
-LPF_CLAUSURA_2026_SHORT_POST_IDS = {"85379", "85760", "85943", "86880"}
+LPF_CLAUSURA_2026_SHORT_POST_IDS = {"85379", "85760", "85943"}
 
 _SPANISH_MONTHS = {
     "enero": 1,
@@ -568,7 +568,7 @@ def parse_lpf_official_listing_html(html: str, *, base_url: str) -> list[dict]:
         if parsed.netloc.lower() != base_host:
             continue
         base_path = urlparse(base_url).path or ""
-        allow_short = "/notas/primera" in base_path or "/categoria/primera" in base_path
+        allow_short = "/notas/primera" in base_path
         if not _lpf_official_url_is_current_clausura(href, allow_short_post=allow_short):
             continue
         if title.lower() in {"leer más", "leer mas"}:
@@ -632,7 +632,7 @@ def parse_lpf_official_results_article_html(
     source_url: str = "",
     expected_round: int | None = None,
 ) -> list[dict]:
-    """Extrae marcadores explícitos de notas de Primera de la web oficial LPF.
+    """Extrae marcadores explícitos de notas de Primera de ligaprofesional.ar.
 
     No interpreta titulares ni prosa: sólo líneas que contienen dos clubes, un
     marcador explícito y una pareja existente en el fixture oficial. Esto permite

@@ -2222,7 +2222,7 @@ FUTBOLARGENTINO_RESULTS_URLS = (
     "https://www.futbolargentino.com/primera-division/clausura/resultados",
 )
 FUTBOLARGENTINO_REFERER = "https://www.futbolargentino.com/primera-division/"
-LPF_OFFICIAL_PRIMERA_URL = "https://www.lpf.org.ar/categoria/primera/"
+LPF_OFFICIAL_PRIMERA_URL = "https://www.ligaprofesional.ar/notas/primera/"
 LPF_OFFICIAL_PRIMERA_PAGES = tuple(
     LPF_OFFICIAL_PRIMERA_URL if page == 1 else f"{LPF_OFFICIAL_PRIMERA_URL}page/{page}/"
     for page in range(1, 13)
@@ -2234,12 +2234,12 @@ LPF_OFFICIAL_PRIMERA_PAGES = tuple(
 # Todas pasan por la misma guarda Clausura + fixture; una URL por sí sola no valida
 # ningún marcador.
 LPF_OFFICIAL_RESULT_SEED_URLS = (
-    "https://www.lpf.org.ar/?p=85379",  # Fecha 4 · Cerró la 4 en el Kempes
-    "https://www.lpf.org.ar/?p=85760",  # Fecha 5
-    "https://www.lpf.org.ar/?p=85943",  # Fecha 6 · Todo sobre la sexta
-    "https://www.lpf.org.ar/notas/primera/2026/08/25/programacion-de-la-fecha-7-5/",  # Fecha 7
-    "https://www.lpf.org.ar/?p=86880",  # Fecha 8
-    "https://www.lpf.org.ar/notas/primera/2026/09/10/se-mueve-la-novena/",  # Fecha 9
+    "https://www.ligaprofesional.ar/?p=85379",  # Fecha 4 · Cerró la 4 en el Kempes
+    "https://www.ligaprofesional.ar/?p=85760",  # Fecha 5
+    "https://www.ligaprofesional.ar/?p=85943",  # Fecha 6 · Todo sobre la sexta
+    "https://www.ligaprofesional.ar/notas/primera/2026/08/25/programacion-de-la-fecha-7-5/",  # Fecha 7
+    "https://www.ligaprofesional.ar/notas/primera/2026/09/07/hoy-arranca-la-fecha-8/",  # Fecha 8
+    "https://www.ligaprofesional.ar/notas/primera/2026/09/10/se-mueve-la-novena/",  # Fecha 9
 )
 LPF_OFFICIAL_RESULT_SEED_ROUNDS = {
     LPF_OFFICIAL_RESULT_SEED_URLS[0]: 4,
@@ -5458,8 +5458,6 @@ def cargar_lpf_espn(liga="arg.1"):
     reconciled_annual = prepared["reconciled_annual"]
     inferred_played = prepared["inferred_played"]
     inferred_note = prepared["inferred_note"]
-    history_partial = bool(prepared.get("history_partial"))
-    partial_played = list(prepared.get("partial_played") or [])
     coverage_note = prepared["coverage_note"]
     diagnostic_notes = prepared["diagnostic_notes"]
 
@@ -5506,12 +5504,6 @@ def cargar_lpf_espn(liga="arg.1"):
         )
     if inferred_note:
         result_source_warnings.append(inferred_note)
-    if history_partial:
-        result_source_warnings.append(
-            "Historial de marcadores incompleto: se usa la tabla publicada como estado autoritativo y el fixture futuro desde el frente uniforme de PJ. Los resultados confirmados disponibles quedan para forma, racha y auditoría."
-        )
-        if not played and partial_played:
-            played = partial_played
 
     # La actualización es transaccional: una consulta vacía o incompleta jamás
     # reemplaza una foto válida por cero resultados. Si ninguna combinación explica
@@ -5549,10 +5541,7 @@ def cargar_lpf_espn(liga="arg.1"):
             " No se reemplazó la base con datos incompletos."
         )
 
-    st.session_state.LPF_RES_TXT = (
-        prepared.get("partial_results_text") if history_partial
-        else prepared["results_text"]
-    )
+    st.session_state.LPF_RES_TXT = prepared["results_text"]
     _ensure_lpf_prom_history()
 
     state, report = _lpf_rebuild_state(
@@ -5574,7 +5563,6 @@ def cargar_lpf_espn(liga="arg.1"):
         ) if rows]
         + (["conciliación por resultados finales"] if reconcile_note else [])
         + (["conciliación determinística por tabla"] if inferred_played else [])
-        + (["tabla vigente autoritativa + historial parcial"] if history_partial else [])
     ) or "base validada"
     _set_lpf_source_meta(
         source_name=source_name,

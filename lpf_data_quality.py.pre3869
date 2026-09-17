@@ -93,16 +93,15 @@ def fixture_records(
 ) -> tuple[list[MatchRecord], list[AuditIssue]]:
     """Reconcilia fixture y resultados explícitos sin inventar qué partido se jugó.
 
-    Los marcadores partido a partido son la fuente preferida para el historial.
-    Los PJ de la tabla controlan su cobertura. Desde 3.8.69, si todos los clubes
-    comparten un frente uniforme de PJ y el fixture demuestra exactamente ese
-    frente sin contradicciones, la tabla vigente puede actuar como estado
-    autoritativo: los encuentros históricos sin marcador quedan ``unconfirmed``
-    y sólo el fixture posterior se considera futuro. Nunca se inventa un score.
+    Los marcadores partido a partido son la fuente autoritativa. Los PJ de las
+    tablas se usan únicamente como control. Si faltan resultados para explicar
+    esos PJ, los encuentros tempranos compatibles quedan con estado
+    ``unconfirmed`` y el dominio de datos se bloquea hasta completar la fuente.
 
-    Si hay PJ desparejos, adelantados/postergados detectables o incompatibilidad
-    con los acumulados, se conserva el bloqueo. Esto evita que una inferencia
-    codiciosa marque como jugado un cruce equivocado.
+    Este comportamiento evita el error anterior: cuando un club tenía un
+    postergado, una inferencia codiciosa podía marcar como jugados los primeros
+    partidos del fixture y dejar como pendiente uno posterior que sí se había
+    disputado.
     """
     issues: list[AuditIssue] = []
     played_map: dict[tuple[str, str], tuple[int, int]] = {}
@@ -214,94 +213,23 @@ def fixture_records(
             )
             uncertain_count += 1
 
-        # 3.8.69 · modo tabla autoritativa.
-        # Si los 30 clubes tienen exactamente el mismo PJ, el fixture hasta esa
-        # fecha contiene exactamente esa cantidad de partidos por club, no hay
-        # resultados explícitos de una fecha posterior y los marcadores confirmados
-        # son compatibles con los acumulados publicados, podemos separar dos cosas:
-        #   - historial de marcadores: parcial / auditable;
-        #   - estado competitivo actual: autoritativo por tabla.
-        #
-        # En ese caso los cruces tempranos sin marcador siguen rotulados
-        # ``unconfirmed`` (nunca se inventa un score), pero no bloquean Playoffs,
-        # Copas ni descenso: el fixture posterior al frente uniforme de PJ sí es
-        # inequívocamente futuro para los cálculos. Si hay PJ desparejos, un
-        # postergado/adelantado o cualquier incompatibilidad, se conserva el bloqueo.
-        pj_values = {int(row.get("pj", 0)) for row in table.values()}
-        common_pj = next(iter(pj_values)) if len(pj_values) == 1 else None
-        frontier_counts = Counter()
-        if common_pj is not None:
-            for rec in rows:
-                if rec.round_number <= common_pj:
-                    frontier_counts[rec.home] += 1
-                    frontier_counts[rec.away] += 1
-        frontier_structurally_safe = bool(
-            common_pj is not None
-            and common_pj >= 0
-            and set(frontier_counts) == set(table)
-            and all(frontier_counts.get(team, 0) == common_pj for team in table)
-            and max(explicit_rounds, default=0) <= common_pj
-        )
-
-        partial_compatible = True
-        for team, expected in table.items():
-            got = {"pj": 0, "pts": 0, "gf": 0, "ga": 0}
-            for rec in rows:
-                if rec.status != "played" or team not in (rec.home, rec.away):
-                    continue
-                got["pj"] += 1
-                if team == rec.home:
-                    gf, ga = int(rec.home_goals or 0), int(rec.away_goals or 0)
-                else:
-                    gf, ga = int(rec.away_goals or 0), int(rec.home_goals or 0)
-                got["gf"] += gf
-                got["ga"] += ga
-                got["pts"] += 3 if gf > ga else 1 if gf == ga else 0
-            left = int(expected.get("pj", 0)) - got["pj"]
-            if (
-                left < 0
-                or got["pts"] > int(expected.get("pts", 0))
-                or int(expected.get("pts", 0)) > got["pts"] + 3 * left
-                or got["gf"] > int(expected.get("gf", 0))
-                or got["ga"] > int(expected.get("ga", 0))
-            ):
-                partial_compatible = False
-                break
-
         missing_detail = ", ".join(
             f"{team} ({missing[team]})" for team in unresolved_teams[:10]
         )
         message = (
             "Faltan resultados partido a partido para explicar los PJ de: "
-            f"{missing_detail}. No se asignó ningún marcador por descarte."
+            f"{missing_detail}. No se asignó ningún partido como jugado por descarte."
         )
         if uncertain_count:
-            message += f" Hay {uncertain_count} cruce(s) históricos con marcador sin confirmar."
-
-        if frontier_structurally_safe and partial_compatible:
-            message += (
-                f" La tabla tiene un frente uniforme de {common_pj} PJ y el fixture "
-                f"desde la Fecha {common_pj + 1} queda habilitado como futuro. "
-                "La tabla vigente es el estado autoritativo; el historial parcial sólo "
-                "afecta forma/racha y auditoría, no la cantidad de partidos restantes."
-            )
-            issues.append(AuditIssue(
-                "fixture_history_partial",
-                message,
-                "warning",
-                "data",
-                tuple(unresolved_teams),
-                "Completar los marcadores históricos cuando haya una fuente estable; no es necesario para calcular desde la tabla vigente.",
-            ))
-        else:
-            issues.append(AuditIssue(
-                "fixture_unconfirmed",
-                message,
-                "blocked",
-                "data",
-                tuple(unresolved_teams),
-                "Actualizar los resultados desde el inicio del Clausura o cargar los marcadores faltantes.",
-            ))
+            message += f" Hay {uncertain_count} cruce(s) con estado sin confirmar."
+        issues.append(AuditIssue(
+            "fixture_unconfirmed",
+            message,
+            "blocked",
+            "data",
+            tuple(unresolved_teams),
+            "Actualizar los resultados desde el inicio del Clausura o cargar los marcadores faltantes.",
+        ))
 
     return rows, issues
 
