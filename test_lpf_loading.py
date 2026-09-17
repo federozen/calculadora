@@ -266,3 +266,171 @@ def test_prepare_automatic_update_no_duplica_diagnostico_si_feeds_aportan_lo_mis
     assert prepared["diagnostic_notes"][0].startswith(
         "base validada + LPF oficial:"
     )
+
+
+def test_prepare_automatic_update_prioriza_lpf_oficial_y_completa_foto():
+    baseline = _results_through_round(3, seed=3900)
+    official = _results_through_round(6, seed=3900)
+    zones = _zones_from_results(official)
+
+    prepared = prepare_automatic_update(
+        zones,
+        builtin_played=baseline,
+        official_played=official,
+        futbolargentino_played=[],
+        espn_played=[],
+    )
+
+    assert len(prepared["played"]) == 90
+    assert _lpf_results_fit_zones(zones, prepared["played"])
+    assert "LPF oficial aportó 90" in prepared["coverage_note"]
+    assert prepared["inferred_played"] == []
+
+
+def test_prepare_automatic_update_reconstruye_49_a_87_con_lpf_oficial_explicita():
+    """Caso real de agosto: 49 incluidos + resultados oficiales de Fechas 4-6."""
+    rng = random.Random(3867)
+    by_pair = {
+        (row["l"], row["v"]): (row["l"], row["v"], rng.randrange(4), rng.randrange(4))
+        for row in LPF_FIXTURE
+        if int(row["f"]) <= 6
+    }
+    round3 = [
+        by_pair[(row["l"], row["v"])]
+        for row in LPF_FIXTURE if int(row["f"]) <= 3
+    ]
+    built_round4_pairs = {
+        ("Rosario Central", "Aldosivi"),
+        ("Independiente Rivadavia", "Estudiantes de Río Cuarto"),
+        ("Deportivo Riestra", "Estudiantes de La Plata"),
+        ("Atlético Tucumán", "Sarmiento"),
+    }
+    baseline = round3 + [by_pair[pair] for pair in built_round4_pairs]
+    round4_5 = [
+        by_pair[(row["l"], row["v"])]
+        for row in LPF_FIXTURE if int(row["f"]) in {4, 5}
+    ]
+    round6 = [
+        by_pair[(row["l"], row["v"])]
+        for row in LPF_FIXTURE if int(row["f"]) == 6
+    ]
+    # La foto del lunes 24/8 tenía 12 de 15 partidos de la Fecha 6 finalizados.
+    full = [*round3, *round4_5, *round6[:12]]
+    official = [*round4_5, *round6[:12]]
+    zones = _zones_from_results(full)
+
+    assert len(baseline) == 49
+    assert len(full) == 87
+    prepared = prepare_automatic_update(
+        zones,
+        builtin_played=baseline,
+        official_played=official,
+        futbolargentino_played=[],
+        espn_played=[],
+    )
+
+    assert len(prepared["played"]) == 87
+    assert _lpf_results_fit_zones(zones, prepared["played"])
+    assert prepared["inferred_played"] == []
+    assert "LPF oficial aportó 42" in prepared["coverage_note"]
+
+
+def test_prepare_automatic_update_reconstruye_49_a_90_al_cerrar_fecha6():
+    """Regresión del caso real 25/8: la Fecha 6 ya terminó completa.
+
+    La base incluida conserva 45 partidos de Fechas 1-3 + cuatro de Fecha 4. El
+    hub oficial de las Fechas 4-6 puede aportar las 45 fichas explícitas de esas
+    jornadas; cuatro se superponen con la base y la unión exacta debe cerrar en 90.
+    """
+    rng = random.Random(3868)
+    by_pair = {
+        (row["l"], row["v"]): (row["l"], row["v"], rng.randrange(4), rng.randrange(4))
+        for row in LPF_FIXTURE if int(row["f"]) <= 6
+    }
+    round3 = [
+        by_pair[(row["l"], row["v"])]
+        for row in LPF_FIXTURE if int(row["f"]) <= 3
+    ]
+    built_round4_pairs = {
+        ("Rosario Central", "Aldosivi"),
+        ("Independiente Rivadavia", "Estudiantes de Río Cuarto"),
+        ("Deportivo Riestra", "Estudiantes de La Plata"),
+        ("Atlético Tucumán", "Sarmiento"),
+    }
+    baseline = round3 + [by_pair[pair] for pair in built_round4_pairs]
+    official = [
+        by_pair[(row["l"], row["v"])]
+        for row in LPF_FIXTURE if int(row["f"]) in {4, 5, 6}
+    ]
+    full = [
+        by_pair[(row["l"], row["v"])]
+        for row in LPF_FIXTURE if int(row["f"]) <= 6
+    ]
+    zones = _zones_from_results(full)
+
+    assert len(baseline) == 49
+    assert len(official) == 45
+    assert len(full) == 90
+    prepared = prepare_automatic_update(
+        zones,
+        builtin_played=baseline,
+        official_played=official,
+        futbolargentino_played=[],
+        espn_played=[],
+    )
+
+    assert len(prepared["played"]) == 90
+    assert _lpf_results_fit_zones(zones, prepared["played"])
+    assert prepared["inferred_played"] == []
+    assert "La tabla implica 90 partidos" in prepared["coverage_note"]
+    assert "LPF oficial aportó 45" in prepared["coverage_note"]
+
+
+def test_prepare_automatic_update_milp_reconcilia_49_a_87_si_no_hay_feeds():
+    """El respaldo grande puede resolver tres fechas, pero sólo si demuestra unicidad."""
+    rng = random.Random(3867)
+    by_pair = {
+        (row["l"], row["v"]): (row["l"], row["v"], rng.randrange(4), rng.randrange(4))
+        for row in LPF_FIXTURE if int(row["f"]) <= 6
+    }
+    round3 = [by_pair[(row["l"], row["v"])] for row in LPF_FIXTURE if int(row["f"]) <= 3]
+    built_pairs = {
+        ("Rosario Central", "Aldosivi"),
+        ("Independiente Rivadavia", "Estudiantes de Río Cuarto"),
+        ("Deportivo Riestra", "Estudiantes de La Plata"),
+        ("Atlético Tucumán", "Sarmiento"),
+    }
+    baseline = round3 + [by_pair[pair] for pair in built_pairs]
+    round4_5 = [by_pair[(row["l"], row["v"])] for row in LPF_FIXTURE if int(row["f"]) in {4, 5}]
+    round6 = [by_pair[(row["l"], row["v"])] for row in LPF_FIXTURE if int(row["f"]) == 6]
+    full = [*round3, *round4_5, *round6[:12]]
+    zones = _zones_from_results(full)
+
+    prepared = prepare_automatic_update(zones, builtin_played=baseline)
+
+    assert len(prepared["played"]) == 87
+    assert len(prepared["inferred_played"]) == 38
+    assert _lpf_results_fit_zones(zones, prepared["played"])
+    assert "solver demostró" in prepared["inferred_note"]
+
+
+def test_prepare_automatic_update_tyc_completa_foto_de_nueve_fechas():
+    """3.8.70: una fuente completa de TyC debe cerrar 135 sin ESPN ni FA."""
+    full = _results_through_round(9, seed=3870)
+    zones = _zones_from_results(full)
+    baseline = full[:49]
+
+    prepared = prepare_automatic_update(
+        zones,
+        builtin_played=baseline,
+        tyc_played=full,
+        official_played=[],
+        futbolargentino_played=[],
+        espn_played=[],
+    )
+
+    assert len(full) == 135
+    assert len(prepared["played"]) == 135
+    assert _lpf_results_fit_zones(zones, prepared["played"])
+    assert "TyC Sports 135" in prepared["coverage_note"]
+    assert prepared["inferred_played"] == []
