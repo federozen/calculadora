@@ -504,6 +504,39 @@ def _lpf_official_url_is_current_clausura(url: str, *, allow_short_post: bool = 
     return False
 
 
+_LPF_ORDINAL_ROUNDS = {
+    "cuarta": 4,
+    "quinta": 5,
+    "sexta": 6,
+    "septima": 7,
+    "octava": 8,
+    "novena": 9,
+    "decima": 10,
+    "undecima": 11,
+    "duodecima": 12,
+}
+
+
+def _lpf_round_from_text(value: object) -> int | None:
+    """Devuelve una fecha oficial cuando el texto la identifica sin ambigüedad."""
+    text = _ascii(value)
+    match = re.search(r"\bfecha\s+(?:n[°ºo]?\s*)?(\d{1,2})\b", text)
+    if match:
+        return int(match.group(1))
+    matches = {
+        number
+        for word, number in _LPF_ORDINAL_ROUNDS.items()
+        if re.search(rf"\b(?:la|fecha)\s+{word}\b", text)
+    }
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
+def _lpf_round_from_url(value: object) -> int | None:
+    parsed = urlparse(str(value or ""))
+    match = re.search(r"(?:^|[-_/])fecha-(\d{1,2})(?:[-_/]|$)", parsed.path.lower())
+    return int(match.group(1)) if match else None
+
+
 def parse_lpf_official_listing_html(html: str, *, base_url: str) -> list[dict]:
     """Extrae notas actuales de Primera que pueden contener resultados.
 
@@ -545,7 +578,11 @@ def parse_lpf_official_listing_html(html: str, *, base_url: str) -> list[dict]:
         if not _lpf_official_listing_candidate(title):
             continue
         seen.add(href)
-        out.append({"title": title, "url": href})
+        out.append({
+            "title": title,
+            "url": href,
+            "round": _lpf_round_from_text(title) or _lpf_round_from_url(href),
+        })
     return out
 
 
@@ -593,6 +630,7 @@ def parse_lpf_official_results_article_html(
     canon_club: Callable[[str], str],
     official_fixture: Sequence[Mapping[str, object]],
     source_url: str = "",
+    expected_round: int | None = None,
 ) -> list[dict]:
     """Extrae marcadores explícitos de notas de Primera de ligaprofesional.ar.
 
@@ -633,21 +671,30 @@ def parse_lpf_official_results_article_html(
         ):
             return []
 
-    # Los resultados suelen vivir en párrafos, pero se agregan también strings
-    # individuales para tolerar cambios menores de markup. El dict preserva orden.
-    candidates: list[str] = []
-    for tag in soup.find_all(["p", "li", "h2", "h3", "h4", "div"]):
+    # 3.8.67: nunca recorrer el HTML completo. WordPress inserta módulos de
+    # relacionados/sidebar con marcadores de otras notas y torneos; si se parsean
+    # junto con el cuerpo principal pueden sumar partidos futuros o históricos.
+    # Además, una nota de Fecha N sólo puede aportar partidos cuyo round del fixture
+    # sea N. La pareja por sí sola no alcanza porque un mismo cruce puede aparecer
+    # en otra instancia/temporada.
+    candidates: list[tuple[str, int | None]] = []
+    current_round = int(expected_round) if expected_round is not None else None
+    for tag in content_root.find_all(["h1", "h2", "h3", "h4", "p", "li"]):
         value = re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
-        if value:
-            candidates.append(value)
-    candidates.extend(re.sub(r"\s+", " ", value).strip() for value in soup.stripped_strings)
+        if not value:
+            continue
+        marker = _lpf_round_from_text(value)
+        if marker is not None and expected_round is None:
+            current_round = marker
+        candidates.append((value, current_round))
 
     records: list[dict] = []
-    seen_lines: set[str] = set()
-    for text in candidates:
-        if not text or text in seen_lines:
+    seen_lines: set[tuple[str, int | None]] = set()
+    for text, scoped_round in candidates:
+        key_line = (text, scoped_round)
+        if key_line in seen_lines:
             continue
-        seen_lines.add(text)
+        seen_lines.add(key_line)
         parsed = _official_score_line(
             text, canon_club=canon_club, expected=expected, fixture_index=fixture_index
         )
@@ -655,9 +702,15 @@ def parse_lpf_official_results_article_html(
             continue
         home, away, home_score, away_score = parsed
         meta = fixture_index[(home, away)]
+        match_round = int(meta.get("round") or 0)
+        required_round = int(expected_round) if expected_round is not None else scoped_round
+        # Sin contexto de fecha no publicamos un marcador automático de una nota
+        # genérica: es preferible perder una fila a contaminar el torneo.
+        if required_round is None or match_round != int(required_round):
+            continue
         records.append({
-            "match_id": f"LPF-F{int(meta.get('round') or 0):02d}-{_compact(home)}-{_compact(away)}",
-            "round": int(meta.get("round") or 0),
+            "match_id": f"LPF-F{match_round:02d}-{_compact(home)}-{_compact(away)}",
+            "round": match_round,
             "home": home,
             "away": away,
             "scheduled_at": "",

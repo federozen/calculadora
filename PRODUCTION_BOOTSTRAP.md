@@ -1,4 +1,11 @@
-# Developer / Production Bootstrap · 3.8.66
+# Developer / Production Bootstrap · 3.8.67
+
+## Guard de artículo/round LPF oficial · 3.8.67
+
+En staging simular una página oficial válida con 15 resultados de una fecha y agregar al HTML sidebar/cards con marcadores de otras fechas del mismo fixture. La fuente debe devolver sólo los 15 del `expected_round`. Para Fechas 4-9, la suma de las seis notas auditadas debe ser exactamente 90 antes de unir la base incluida.
+
+No cambia el contrato HTTP ni DataProvider. Con Opta, exigir `competition + season + round + match_id` en la normalización y conservar esta guarda web únicamente como fallback/auditor.
+
 
 ## Guard de temporada en LPF oficial · 3.8.66
 

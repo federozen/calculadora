@@ -387,6 +387,8 @@ def test_lpf_official_results_incluye_semillas_fechas4_a_9_y_archivo_ampliado():
     assert 'for page in range(1, 13)' in source
     fn = source[source.index("def lpf_official_results"):source.index("def futbolargentino_fixture")]
     assert fn.index("LPF_OFFICIAL_RESULT_SEED_URLS") < fn.index("for listing_url in LPF_OFFICIAL_PRIMERA_PAGES")
+    assert "LPF_OFFICIAL_RESULT_SEED_ROUNDS.get(source_url)" in fn
+    assert "expected_round=article_rounds.get(_source_url)" in fn
 
 
 def test_lpf_official_results_delega_transporte_y_parsers_fuera_de_streamlit():

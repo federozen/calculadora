@@ -2241,6 +2241,14 @@ LPF_OFFICIAL_RESULT_SEED_URLS = (
     "https://www.ligaprofesional.ar/notas/primera/2026/09/07/hoy-arranca-la-fecha-8/",  # Fecha 8
     "https://www.ligaprofesional.ar/notas/primera/2026/09/10/se-mueve-la-novena/",  # Fecha 9
 )
+LPF_OFFICIAL_RESULT_SEED_ROUNDS = {
+    LPF_OFFICIAL_RESULT_SEED_URLS[0]: 4,
+    LPF_OFFICIAL_RESULT_SEED_URLS[1]: 5,
+    LPF_OFFICIAL_RESULT_SEED_URLS[2]: 6,
+    LPF_OFFICIAL_RESULT_SEED_URLS[3]: 7,
+    LPF_OFFICIAL_RESULT_SEED_URLS[4]: 8,
+    LPF_OFFICIAL_RESULT_SEED_URLS[5]: 9,
+}
 LPF_SNAPSHOT_MAX_AGE_HOURS = 168  # una semana; después obliga a revisar/cargar manualmente
 
 
@@ -2306,6 +2314,7 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
                 canon_club=canon_club,
                 official_fixture=LPF_FIXTURE,
                 source_url=article.get("final_url") or source_url,
+                expected_round=LPF_OFFICIAL_RESULT_SEED_ROUNDS.get(source_url),
             ))
             last_url = article.get("final_url") or source_url or last_url
         except Exception as exc:
@@ -2346,6 +2355,11 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
             # Clausura. No seguir bajando hacia el Apertura 2026.
             if empty_current_pages >= 2:
                 break
+        article_rounds = {
+            item["url"]: item.get("round")
+            for item in links
+            if item.get("url")
+        }
         article_urls = [
             item["url"] for item in links
             if item.get("url") and item["url"] not in seen_articles
@@ -2363,11 +2377,13 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
                     errors.append(f"{article.get('source_url')}: {article['error']}")
                     continue
                 try:
+                    _source_url = article.get("source_url") or ""
                     records.extend(parse_lpf_official_results_article_html(
                         article.get("html") or "",
                         canon_club=canon_club,
                         official_fixture=LPF_FIXTURE,
-                        source_url=article.get("final_url") or article.get("source_url") or "",
+                        source_url=article.get("final_url") or _source_url,
+                        expected_round=article_rounds.get(_source_url),
                     ))
                 except Exception as exc:
                     errors.append(f"{article.get('source_url')}: {exc}")

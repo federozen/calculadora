@@ -28,6 +28,7 @@ def test_lpf_oficial_listing_descubre_cierres_y_notas_vivas_de_fecha():
         "Cerró la 4 en el Kempes",
     ]
     assert all("/notas/primera/2026/" in row["url"] for row in rows)
+    assert [row["round"] for row in rows] == [6, 9, 8, 7, 6, 4]
 
 
 def test_lpf_oficial_listing_incluye_agendas_de_fecha_pero_no_conferencias():
@@ -105,7 +106,7 @@ def test_lpf_oficial_article_formato_real_fecha6_extrae_12_jugados_y_no_programa
     ]
     html = "<article>" + "".join(f"<p>{line}</p>" for line in lines) + "</article>"
     rows = parse_lpf_official_results_article_html(
-        html, canon_club=canon_club, official_fixture=LPF_FIXTURE
+        html, canon_club=canon_club, official_fixture=LPF_FIXTURE, expected_round=6
     )
     assert len(rows) == 12
     assert {row["round"] for row in rows} == {6}
@@ -114,6 +115,82 @@ def test_lpf_oficial_article_formato_real_fecha6_extrae_12_jugados_y_no_programa
         for row in rows
     }
 
+
+
+def test_lpf_oficial_article_limita_cuerpo_y_fecha_para_no_sumar_relacionados():
+    from lpf_clubs import canon_club
+    from lpf_data_2026 import LPF_FIXTURE
+    from lpf_fixture_sources import parse_lpf_official_results_article_html
+
+    html = """
+    <html><body>
+      <article>
+        <h1>Culminó la novena</h1>
+        <p>Fecha 9</p>
+        <p>Tigre 0 – Rosario Central 1 (Zona B)</p>
+        <p>Antecedente: Rosario Central 2 – 1 Estudiantes (Río Cuarto)</p>
+      </article>
+      <aside>
+        <p>Rosario Central 2 – 1 Argentinos</p>
+        <p>Estudiantes (Río Cuarto) 4 – 0 Racing</p>
+      </aside>
+    </body></html>
+    """
+    rows = parse_lpf_official_results_article_html(
+        html,
+        canon_club=canon_club,
+        official_fixture=LPF_FIXTURE,
+        source_url="https://www.ligaprofesional.ar/notas/primera/2026/09/10/se-mueve-la-novena/",
+        expected_round=9,
+    )
+    assert [(row["home"], row["away"], row["home_score"], row["away_score"]) for row in rows] == [
+        ("Tigre", "Rosario Central", 0, 1)
+    ]
+
+
+def test_lpf_oficial_article_infiere_fecha_del_cuerpo_y_rechaza_cruce_de_otro_round():
+    from lpf_clubs import canon_club
+    from lpf_data_2026 import LPF_FIXTURE
+    from lpf_fixture_sources import parse_lpf_official_results_article_html
+
+    html = """
+    <article>
+      <p>Fecha 9</p>
+      <p>Tigre 0 – Rosario Central 1</p>
+      <p>Rosario Central 2 – 1 Estudiantes (Río Cuarto)</p>
+    </article>
+    """
+    rows = parse_lpf_official_results_article_html(
+        html, canon_club=canon_club, official_fixture=LPF_FIXTURE
+    )
+    assert {(row["home"], row["away"], row["round"]) for row in rows} == {
+        ("Tigre", "Rosario Central", 9)
+    }
+
+
+def test_lpf_oficial_seis_fechas_auditadas_no_pueden_superar_90_resultados():
+    from lpf_clubs import canon_club
+    from lpf_data_2026 import LPF_FIXTURE
+    from lpf_fixture_sources import merge_match_records, parse_lpf_official_results_article_html
+
+    records = []
+    for round_number in range(4, 10):
+        games = [row for row in LPF_FIXTURE if int(row.get("f") or 0) == round_number]
+        assert len(games) == 15
+        body = [f"<p>Fecha {round_number}</p>"]
+        body.extend(f"<p>{row['l']} 0 – 0 {row['v']}</p>" for row in games)
+        html = "<html><body><article>" + "".join(body) + "</article>"
+        # Dos tarjetas relacionadas que antes podían contaminar el parseo global.
+        html += "<aside><p>Rosario Central 2 – 1 Argentinos</p><p>Estudiantes (Río Cuarto) 4 – 0 Racing</p></aside></body></html>"
+        records.extend(parse_lpf_official_results_article_html(
+            html,
+            canon_club=canon_club,
+            official_fixture=LPF_FIXTURE,
+            expected_round=round_number,
+        ))
+    merged = merge_match_records(records)
+    assert len(merged) == 90
+    assert {row["round"] for row in merged} == {4, 5, 6, 7, 8, 9}
 
 def test_lpf_oficial_listing_acepta_permalink_corto_y_excluye_apertura_fechado():
     from lpf_fixture_sources import parse_lpf_official_listing_html

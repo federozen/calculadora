@@ -1,4 +1,18 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.66
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.67
+
+## Aislamiento de artículo y fecha oficial · 3.8.67
+
+El incidente `tabla=135 / LPF oficial=92` mostró que filtrar la temporada a nivel URL no alcanza. WordPress puede insertar cards/relacionados con marcadores de otros artículos dentro del HTML de una página válida. Reglas a preservar:
+
+1. parsear resultados sólo dentro del cuerpo principal `article/main`, nunca sobre todo el documento;
+2. toda nota usada como fuente de resultados debe tener una fecha oficial esperada;
+3. un marcador sólo es válido si `(local, visitante)` existe en `LPF_FIXTURE` **y** su `round` coincide con la fecha esperada del artículo;
+4. las semillas F4-F9 usan mapping explícito URL→round; el crawler infiere round por título/URL sólo si es inequívoco;
+5. sin contexto de fecha, fallar cerrado: no publicar el marcador automático;
+6. aceptación actual: las seis notas F4-F9 no pueden producir más de 90 resultados, aunque el HTML incluya cards con partidos futuros/históricos.
+
+Con Opta, conservar esta lógica como auditor de integridad del fallback web; el proveedor principal deberá entregar `competition/season/round/match_id` explícitos.
+
 
 ## Separación Apertura/Clausura en LPF oficial · 3.8.66
 

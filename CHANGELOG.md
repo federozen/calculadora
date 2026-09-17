@@ -1,3 +1,12 @@
+## 3.8.67 · 2026-09-17
+
+- Corrige el caso real `tabla = 135 / LPF oficial = 92`: las seis notas auditadas de Fechas 4-9 debían aportar como máximo 90 resultados, pero el parser recorría todo el HTML de cada página y podía leer marcadores de módulos laterales/relacionados.
+- `parse_lpf_official_results_article_html` queda limitado al cuerpo principal (`article`/`main`) y deja de recorrer sidebars, cards y strings globales de WordPress.
+- Cada nota oficial se ata además a una **fecha oficial esperada**. Un artículo de Fecha 9 sólo puede aportar partidos cuyo `round` en `LPF_FIXTURE` sea 9, aunque en el HTML aparezca un marcador histórico o futuro de otra pareja válida.
+- `parse_lpf_official_listing_html` expone el `round` cuando puede inferirlo por título/URL; las semillas auditadas de Fechas 4-9 llevan un mapa explícito URL → fecha.
+- Nueva regresión construye seis artículos con 15 partidos cada uno más tarjetas relacionadas contaminantes y exige exactamente **90** resultados únicos, todos de Fechas 4-9.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.66 · 2026-09-17
 
 - Corrige la regresión posterior a 3.8.65: `LPF oficial` subía de 68 a 100 resultados pero seguía sin reproducir la tabla de 135 y algunos clubes aparecían con más PJ que la tabla publicada.

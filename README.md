@@ -1,8 +1,18 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.66
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.67
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
 La versión vigente siempre está en `lpf_version.__version__` (única fuente de verdad compartida por Streamlit, auditoría y futuras interfaces). El historial completo está en `CHANGELOG.md`.
+
+
+## Novedad 3.8.67 · LPF oficial: cada nota queda atada a su fecha
+
+- Corrige el caso `tabla = 135 / LPF oficial = 92`: Fechas 4-9 son 90 partidos, por lo que esos dos extras demostraban contaminación dentro del HTML de las propias páginas.
+- El parser ya no recorre toda la página WordPress: sólo procesa el cuerpo principal del artículo y no puede leer marcadores de módulos laterales/relacionados.
+- Cada semilla oficial de Fecha 4-9 lleva su `expected_round`. Un marcador sólo entra si la pareja existe en `LPF_FIXTURE` **y pertenece a esa misma fecha**.
+- El crawler futuro infiere la fecha desde el título/URL cuando es inequívoca y aplica la misma guarda. Sin contexto de fecha, un marcador automático no se publica.
+- Regresión de aceptación: seis notas × 15 partidos + cards contaminantes deben devolver exactamente **90 resultados**; unidos a la base validada de 49 con cuatro solapamientos de Fecha 4, explican 135 partidos.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 no cambian.
 
 
 
