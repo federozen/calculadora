@@ -375,10 +375,15 @@ def test_panel_y_ultimas_fechas_comparten_un_solo_helper_editorial_de_necesidad(
     assert "_lpf_editorial_need_text" in radar_helper
 
 
-def test_lpf_official_results_incluye_semilla_fecha5_y_archivo_ampliado():
+def test_lpf_official_results_incluye_semillas_fechas4_a_9_y_archivo_ampliado():
     source = MAIN.read_text(encoding="utf-8")
     assert 'LPF_OFFICIAL_RESULT_SEED_URLS = (' in source
+    assert 'https://www.ligaprofesional.ar/?p=85379' in source
     assert 'https://www.ligaprofesional.ar/?p=85760' in source
+    assert 'https://www.ligaprofesional.ar/?p=85943' in source
+    assert 'programacion-de-la-fecha-7-5/' in source
+    assert 'hoy-arranca-la-fecha-8/' in source
+    assert 'se-mueve-la-novena/' in source
     assert 'for page in range(1, 13)' in source
     fn = source[source.index("def lpf_official_results"):source.index("def futbolargentino_fixture")]
     assert fn.index("LPF_OFFICIAL_RESULT_SEED_URLS") < fn.index("for listing_url in LPF_OFFICIAL_PRIMERA_PAGES")

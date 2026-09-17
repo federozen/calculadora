@@ -1,4 +1,17 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.65
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.66
+
+## Separación Apertura/Clausura en LPF oficial · 3.8.66
+
+El incidente `tabla=135 / LPF oficial=100` era una contaminación entre torneos del mismo año. La categoría de Primera conserva Apertura y Clausura, y varias parejas se repiten. Reglas de integración que deben preservarse:
+
+1. una URL fechada anterior al inicio del Clausura no puede aportar resultados del Clausura aunque la pareja exista en el fixture;
+2. si el contenido identifica `Torneo Apertura` y no `Torneo Clausura`, se rechaza el artículo completo;
+3. los permalinks cortos sin fecha sólo son válidos mediante allowlist auditada, no por descubrimiento abierto;
+4. para la foto vigente se consultan primero cierres oficiales de Fechas 4-9; el crawler histórico sólo completa fechas posteriores;
+5. la validación final continúa siendo transaccional contra PJ, puntos, GF, GC y DG;
+6. con Opta esta lógica queda como auditor/fallback, no como fuente primaria.
+
+Caso de aceptación actual: `base incluida=49 + LPF oficial F4-F9 = tabla de 135`, sin que ningún club supere los PJ publicados.
 
 ## Cobertura completa de resultados LPF oficial · 3.8.65
 

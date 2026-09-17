@@ -1,3 +1,12 @@
+## 3.8.66 · 2026-09-17
+
+- Corrige la regresión posterior a 3.8.65: `LPF oficial` subía de 68 a 100 resultados pero seguía sin reproducir la tabla de 135 y algunos clubes aparecían con más PJ que la tabla publicada.
+- La causa era mezcla de temporadas dentro del archivo de Primera: notas del Apertura 2026 podían aportar marcadores de parejas que también existen en el fixture del Clausura. Los permalinks fechados quedan limitados a la ventana del Clausura y los artículos identificados como Apertura se rechazan antes de parsear resultados.
+- Los permalinks cortos de WordPress dejan de aceptarse genéricamente: sólo se permiten los IDs auditados `85379`, `85760` y `85943` de Fechas 4-6.
+- `LPF_OFFICIAL_RESULT_SEED_URLS` pasa a cubrir explícitamente Fechas 4-9. Para la foto de 9 fechas, `base incluida 49 + notas oficiales F4-F9` puede explicar exactamente 135 partidos antes de recorrer páginas históricas.
+- Se agregan regresiones para URL pre-Clausura sin etiqueta textual de Apertura, permalink corto no auditado y presencia de las seis semillas oficiales actuales.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.65 · 2026-09-17
 
 - Corrige la actualización con la tabla actual de **135 partidos**: LPF oficial aportaba sólo 68 porque el descubridor de noticias exigía títulos con verbos de resultado y omitía notas oficiales vivas con títulos como `Todo sobre la sexta`, `Se fue la séptima`, `Adiós a la fecha 8` y `Culminó la novena`.

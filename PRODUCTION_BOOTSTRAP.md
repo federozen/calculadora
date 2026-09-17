@@ -1,4 +1,10 @@
-# Developer / Production Bootstrap · 3.8.65
+# Developer / Production Bootstrap · 3.8.66
+
+## Guard de temporada en LPF oficial · 3.8.66
+
+En staging probar una instalación fresca con tabla de 9 PJ: la unión de la base incluida con las notas oficiales de Fechas 4-9 debe reproducir 135 partidos y ningún club puede quedar con PJ superior al publicado. Agregar un fixture de regresión con una nota del Apertura que use una pareja repetida del Clausura: debe ser descartada antes de la conciliación. Los permalinks cortos no auditados también deben rechazarse.
+
+No cambia el contrato HTTP ni DataProvider. En producción con Opta, conservar esta capa sólo como auditor/fallback.
 
 ## Ingesta oficial hasta 135 partidos · 3.8.65
 

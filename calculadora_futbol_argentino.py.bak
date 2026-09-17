@@ -2227,19 +2227,12 @@ LPF_OFFICIAL_PRIMERA_PAGES = tuple(
     LPF_OFFICIAL_PRIMERA_URL if page == 1 else f"{LPF_OFFICIAL_PRIMERA_URL}page/{page}/"
     for page in range(1, 13)
 )
-# Algunas notas vivas del Clausura quedaron publicadas con permalink corto de
-# WordPress. El archivo de Primera puede enlazarlas como ``/?p=...`` y versiones
-# anteriores las descartaban por no contener ``/notas/primera/``. Se mantienen
-# además como semillas auditadas para que una variación del archivo no abra huecos.
-# Todas pasan por la misma guarda Clausura + fixture; una URL por sí sola no valida
-# ningún marcador.
+# Excepción oficial 2026: la nota de la Fecha 5 quedó publicada con permalink
+# corto de WordPress y no aparece de forma estable en el archivo /notas/primera/.
+# Se consulta como semilla adicional; sus marcadores siguen pasando por el mismo
+# parser estricto + validación contra LPF_FIXTURE.
 LPF_OFFICIAL_RESULT_SEED_URLS = (
-    "https://www.ligaprofesional.ar/?p=85379",  # Fecha 4 · Cerró la 4 en el Kempes
-    "https://www.ligaprofesional.ar/?p=85760",  # Fecha 5
-    "https://www.ligaprofesional.ar/?p=85943",  # Fecha 6 · Todo sobre la sexta
-    "https://www.ligaprofesional.ar/notas/primera/2026/08/25/programacion-de-la-fecha-7-5/",  # Fecha 7
-    "https://www.ligaprofesional.ar/notas/primera/2026/09/07/hoy-arranca-la-fecha-8/",  # Fecha 8
-    "https://www.ligaprofesional.ar/notas/primera/2026/09/10/se-mueve-la-novena/",  # Fecha 9
+    "https://www.ligaprofesional.ar/?p=85760",
 )
 LPF_SNAPSHOT_MAX_AGE_HOURS = 168  # una semana; después obliga a revisar/cargar manualmente
 
@@ -2317,7 +2310,6 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
     if expected is not None and len(union_pairs) >= expected:
         return played, pending, last_url
 
-    empty_current_pages = 0
     for listing_url in LPF_OFFICIAL_PRIMERA_PAGES:
         listing_transport = fetch_html_pages(
             (listing_url,),
@@ -2337,15 +2329,6 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
         except Exception as exc:
             errors.append(f"{listing_url}: {exc}")
             continue
-        if links:
-            empty_current_pages = 0
-        else:
-            empty_current_pages += 1
-            # Una vez recorridas las páginas recientes, dos páginas seguidas sin
-            # notas elegibles indican que ya entramos en el archivo anterior al
-            # Clausura. No seguir bajando hacia el Apertura 2026.
-            if empty_current_pages >= 2:
-                break
         article_urls = [
             item["url"] for item in links
             if item.get("url") and item["url"] not in seen_articles

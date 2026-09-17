@@ -113,3 +113,103 @@ def test_lpf_oficial_article_formato_real_fecha6_extrae_12_jugados_y_no_programa
         (row["home"], row["away"], row["home_score"], row["away_score"])
         for row in rows
     }
+
+
+def test_lpf_oficial_listing_acepta_permalink_corto_y_excluye_apertura_fechado():
+    from lpf_fixture_sources import parse_lpf_official_listing_html
+
+    html = """
+    <html><body>
+      <a href="/?p=85379">Cerró la 4 en el Kempes</a>
+      <a href="/?p=85943">Todo sobre la sexta</a>
+      <a href="/notas/primera/2026/03/15/agenda-de-la-fecha-11-3/">Estudiantes remontó y le ganó 2 a 1 a Gimnasia de Mendoza</a>
+      <a href="/notas/primera/2026/09/10/se-mueve-la-novena/">Culminó la novena</a>
+    </body></html>
+    """
+    rows = parse_lpf_official_listing_html(
+        html, base_url="https://www.ligaprofesional.ar/notas/primera/"
+    )
+    assert [row["title"] for row in rows] == [
+        "Cerró la 4 en el Kempes",
+        "Todo sobre la sexta",
+        "Culminó la novena",
+    ]
+    assert not any("2026/03/" in row["url"] for row in rows)
+
+
+def test_lpf_oficial_article_rechaza_marcadores_del_apertura_aunque_la_pareja_exista():
+    from lpf_clubs import canon_club
+    from lpf_data_2026 import LPF_FIXTURE
+    from lpf_fixture_sources import parse_lpf_official_results_article_html
+
+    html = """
+    <html><body><article>
+      <h1>Estudiantes remontó y le ganó 2 a 1 a Gimnasia de Mendoza</h1>
+      <p>La Liga Profesional de Fútbol presenta la fecha 11 del Torneo Apertura Mercado Libre.</p>
+      <p>Platense 0 – Vélez 2 (Zona A)</p>
+      <p>Rosario Central 2 – Banfield 1 (Zona B)</p>
+    </article></body></html>
+    """
+    rows = parse_lpf_official_results_article_html(
+        html,
+        canon_club=canon_club,
+        official_fixture=LPF_FIXTURE,
+        source_url="https://www.ligaprofesional.ar/notas/primera/2026/03/15/agenda-de-la-fecha-11-3/",
+    )
+    assert rows == []
+
+
+def test_lpf_oficial_article_acepta_clausura_en_permalink_corto():
+    from lpf_clubs import canon_club
+    from lpf_data_2026 import LPF_FIXTURE
+    from lpf_fixture_sources import parse_lpf_official_results_article_html
+
+    html = """
+    <html><body><article>
+      <h1>Cerró la 4 en el Kempes</h1>
+      <p>La Liga Profesional de Fútbol presenta la fecha 4 del Torneo Clausura Mercado Libre 2026.</p>
+      <p>Rosario Central 2 – 1 Aldosivi (Zona B)</p>
+      <p>Ind. Rivadavia Mza. 2 – 1 Estudiantes (Río Cuarto) (Zona B)</p>
+    </article></body></html>
+    """
+    rows = parse_lpf_official_results_article_html(
+        html,
+        canon_club=canon_club,
+        official_fixture=LPF_FIXTURE,
+        source_url="https://www.ligaprofesional.ar/?p=85379",
+    )
+    assert {(row["home"], row["away"], row["home_score"], row["away_score"]) for row in rows} == {
+        ("Rosario Central", "Aldosivi", 2, 1),
+        ("Independiente Rivadavia", "Estudiantes de Río Cuarto", 2, 1),
+    }
+
+
+def test_lpf_oficial_article_rechaza_url_preclausura_aunque_no_nombre_apertura():
+    from lpf_clubs import canon_club
+    from lpf_data_2026 import LPF_FIXTURE
+    from lpf_fixture_sources import parse_lpf_official_results_article_html
+
+    html = """
+    <html><body><article>
+      <h1>Rosario Central venció a Banfield</h1>
+      <p>Rosario Central 2 – Banfield 1 (Zona B)</p>
+    </article></body></html>
+    """
+    rows = parse_lpf_official_results_article_html(
+        html,
+        canon_club=canon_club,
+        official_fixture=LPF_FIXTURE,
+        source_url="https://www.ligaprofesional.ar/notas/primera/2026/03/15/resultado/",
+    )
+    assert rows == []
+
+
+def test_lpf_oficial_permalink_corto_no_auditado_no_se_acepta():
+    from lpf_fixture_sources import _lpf_official_url_is_current_clausura
+
+    assert _lpf_official_url_is_current_clausura(
+        "https://www.ligaprofesional.ar/?p=85379", allow_short_post=True
+    )
+    assert not _lpf_official_url_is_current_clausura(
+        "https://www.ligaprofesional.ar/?p=70000", allow_short_post=True
+    )

@@ -17,17 +17,6 @@ from zoneinfo import ZoneInfo
 
 ARG_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# El Clausura 2026 de Primera comenzó a fines de julio. El archivo de la LPF
-# conserva también notas del Apertura 2026 y varias parejas de clubes se repiten
-# entre ambos torneos. Si se aceptan esas notas viejas sólo porque la pareja existe
-# en LPF_FIXTURE, un marcador del Apertura puede contaminar el Clausura.
-LPF_CLAUSURA_2026_RESULTS_START = date(2026, 7, 20)
-# Permalinks cortos auditados que pertenecen al Clausura. No aceptar cualquier
-# ``/?p=...`` descubierto en el archivo: WordPress también conserva entradas del
-# Apertura sin fecha visible en la URL y una pareja repetida podría contaminar la
-# foto actual. Los nuevos permalinks cortos se incorporan de forma explícita.
-LPF_CLAUSURA_2026_SHORT_POST_IDS = {"85379", "85760", "85943"}
-
 _SPANISH_MONTHS = {
     "enero": 1,
     "febrero": 2,
@@ -481,41 +470,14 @@ def _lpf_official_listing_candidate(title: str) -> bool:
     )
 
 
-def _lpf_official_url_is_current_clausura(url: str, *, allow_short_post: bool = False) -> bool:
-    """Filtra permalinks de Primera al período del Clausura 2026.
-
-    La categoría ``/notas/primera/`` también contiene el Apertura 2026. Además,
-    WordPress publicó algunos cierres del Clausura como ``/?p=NNNNN``. Los links
-    fechados se aceptan sólo desde el inicio del Clausura; los permalinks cortos se
-    admiten únicamente cuando provienen del propio archivo de Primera y luego pasan
-    por la guarda de competencia del artículo.
-    """
-    parsed = urlparse(str(url or ""))
-    match = re.search(r"/notas/primera/(\d{4})/(\d{2})/(\d{2})/", parsed.path)
-    if match:
-        try:
-            published = date(*(int(part) for part in match.groups()))
-        except ValueError:
-            return False
-        return published >= LPF_CLAUSURA_2026_RESULTS_START
-    if allow_short_post and parsed.path in {"", "/"}:
-        match = re.search(r"(?:^|&)p=(\d+)(?:&|$)", parsed.query)
-        return bool(match and match.group(1) in LPF_CLAUSURA_2026_SHORT_POST_IDS)
-    return False
-
-
 def parse_lpf_official_listing_html(html: str, *, base_url: str) -> list[dict]:
-    """Extrae notas actuales de Primera que pueden contener resultados.
+    """Extrae notas de Primera que pueden contener resultados.
 
     La portada oficial mezcla programación, conferencias y otras noticias. La LPF
     también actualiza notas de agenda y usa títulos editoriales sin verbos clásicos
     de resultado. Por eso se conservan títulos con semántica de fecha/jornada además
-    de cierres explícitos.
-
-    Dos guardas evitan mezclar torneos: los permalinks fechados deben pertenecer a
-    la ventana del Clausura 2026 y los permalinks cortos ``/?p=...`` sólo se aceptan
-    cuando fueron descubiertos desde el archivo de Primera. El artículo vuelve a
-    validarse por competencia y contra el fixture oficial antes de aportar un marcador.
+    de cierres explícitos. El artículo se vuelve a filtrar contra el fixture oficial,
+    de modo que un título nunca alcanza para marcar un partido como jugado.
     """
     try:
         from bs4 import BeautifulSoup
@@ -534,9 +496,7 @@ def parse_lpf_official_listing_html(html: str, *, base_url: str) -> list[dict]:
             continue
         if parsed.netloc.lower() != base_host:
             continue
-        base_path = urlparse(base_url).path or ""
-        allow_short = "/notas/primera" in base_path
-        if not _lpf_official_url_is_current_clausura(href, allow_short_post=allow_short):
+        if "/notas/primera/" not in parsed.path or not re.search(r"/2026/\d{2}/\d{2}/", parsed.path):
             continue
         if title.lower() in {"leer más", "leer mas"}:
             # El mismo href suele aparecer una segunda vez con este texto; conservar
@@ -611,27 +571,6 @@ def parse_lpf_official_results_article_html(
     soup = BeautifulSoup(html or "", "lxml")
     for tag in soup(["script", "style", "noscript", "svg"]):
         tag.decompose()
-
-    # Primera conserva en el mismo archivo notas del Apertura y del Clausura 2026.
-    # Una pareja válida del fixture no alcanza para distinguir torneos porque muchos
-    # clubes se enfrentan en ambos. Rechazar explícitamente una nota identificada como
-    # Apertura evita sumar un partido viejo o incluso adelantar un PJ futuro.
-    content_root = soup.find("article") or soup.find("main") or soup
-    article_text = _ascii(content_root.get_text(" ", strip=True))
-    if "torneo apertura" in article_text and "torneo clausura" not in article_text:
-        return []
-    if source_url:
-        parsed_source = urlparse(str(source_url))
-        has_dated_primera = bool(re.search(
-            r"/notas/primera/\d{4}/\d{2}/\d{2}/", parsed_source.path
-        ))
-        has_short_post = parsed_source.path in {"", "/"} and bool(
-            re.search(r"(?:^|&)p=\d+(?:&|$)", parsed_source.query)
-        )
-        if (has_dated_primera or has_short_post) and not _lpf_official_url_is_current_clausura(
-            source_url, allow_short_post=True
-        ):
-            return []
 
     # Los resultados suelen vivir en párrafos, pero se agregan también strings
     # individuales para tolerar cambios menores de markup. El dict preserva orden.
