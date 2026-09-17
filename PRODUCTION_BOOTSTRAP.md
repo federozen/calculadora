@@ -1,4 +1,11 @@
-# Developer / Production Bootstrap · 3.8.67
+# Developer / Production Bootstrap · 3.8.68
+
+
+## Guard de `<br>` en notas oficiales · 3.8.68
+
+En staging agregar un fixture HTML realista donde los 15 resultados de una fecha estén dentro de un solo `<p>` separados por `<br>`. El parser debe recuperar exactamente 15 resultados del `expected_round`, sin leer un marcador agregado en `aside`/relacionados. Luego verificar que la unión base incluida 49 + notas oficiales F4-F9 explique 135 partidos.
+
+No cambia HTTP, DataProvider, Snapshot ni Runtime API.
 
 ## Guard de artículo/round LPF oficial · 3.8.67
 

@@ -1,4 +1,20 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.67
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.68
+
+
+## Fragmentos atómicos dentro de `article/main` · 3.8.68
+
+El incidente `tabla=135 / LPF oficial=0` mostró una segunda particularidad del HTML de la LPF: una nota puede contener toda la fecha en un único `<p>` y separar cada línea con `<br>`. La protección de 3.8.67 contra sidebars era correcta, pero `get_text(" ")` fusionaba los 15 partidos en una sola cadena.
+
+Reglas a preservar:
+
+1. nunca volver a parsear el documento completo; el alcance sigue siendo `article/main`;
+2. dentro de ese cuerpo, procesar fragmentos atómicos en orden (`stripped_strings`) para respetar los `<br>`;
+3. mantener `expected_round` como guarda obligatoria cuando se conoce;
+4. aceptar un bloque inline recompuesto sólo si es chico y contiene como máximo un separador de marcador;
+5. sidebars/relacionados siguen fuera del cuerpo y no pueden aportar resultados;
+6. aceptación: una fecha completa de 15 partidos dentro de un único `<p>` debe devolver 15, y `base 49 + F4-F9` debe explicar 135.
+
+No cambia ningún contrato público.
 
 ## Aislamiento de artículo y fecha oficial · 3.8.67
 

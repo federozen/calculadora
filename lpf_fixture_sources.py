@@ -671,22 +671,62 @@ def parse_lpf_official_results_article_html(
         ):
             return []
 
-    # 3.8.67: nunca recorrer el HTML completo. WordPress inserta módulos de
+    # 3.8.68: nunca recorrer el HTML completo. WordPress inserta módulos de
     # relacionados/sidebar con marcadores de otras notas y torneos; si se parsean
     # junto con el cuerpo principal pueden sumar partidos futuros o históricos.
-    # Además, una nota de Fecha N sólo puede aportar partidos cuyo round del fixture
-    # sea N. La pareja por sí sola no alcanza porque un mismo cruce puede aparecer
-    # en otra instancia/temporada.
+    #
+    # A la vez, las notas reales de Primera suelen publicar una fecha entera dentro
+    # de un único <p> separado por <br>. ``tag.get_text(" ")`` convierte entonces
+    # quince resultados en una sola cadena imposible de reconocer. Recorremos los
+    # ``stripped_strings`` *sólo dentro de article/main* para recuperar esos fragmentos
+    # atómicos, manteniendo el round activo. Como respaldo para markup con <strong> o
+    # <span> que parta una línea, aceptamos también bloques chicos que contengan como
+    # máximo un separador de marcador.
+    #
+    # Una nota de Fecha N sólo puede aportar partidos cuyo round del fixture sea N.
+    # La pareja por sí sola no alcanza porque un mismo cruce puede aparecer en otra
+    # instancia/temporada.
     candidates: list[tuple[str, int | None]] = []
     current_round = int(expected_round) if expected_round is not None else None
-    for tag in content_root.find_all(["h1", "h2", "h3", "h4", "p", "li"]):
-        value = re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
+    seen_candidates: set[tuple[str, int | None]] = set()
+
+    def _append_candidate(value: object, scoped_round: int | None) -> None:
+        clean = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not clean:
+            return
+        key = (clean, scoped_round)
+        if key in seen_candidates:
+            return
+        seen_candidates.add(key)
+        candidates.append(key)
+
+    # Camino principal: respeta los <br> de WordPress porque cada tramo visible se
+    # conserva como string independiente.
+    for raw in content_root.stripped_strings:
+        value = re.sub(r"\s+", " ", str(raw or "")).strip()
         if not value:
             continue
         marker = _lpf_round_from_text(value)
         if marker is not None and expected_round is None:
             current_round = marker
-        candidates.append((value, current_round))
+        _append_candidate(value, current_round)
+
+    # Respaldo para una línea cuyo texto esté dividido por tags inline. Evitar
+    # contenedores gigantes con varios partidos: ésos ya quedaron atomizados arriba.
+    for tag in content_root.find_all(["h1", "h2", "h3", "h4", "p", "li", "td", "th"]):
+        value = re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
+        if not value or len(value) > 320:
+            continue
+        separators = value.count("–") + value.count("—") + value.count(" - ")
+        if separators > 1:
+            continue
+        marker = _lpf_round_from_text(value)
+        scoped_round = (
+            int(expected_round) if expected_round is not None
+            else marker if marker is not None
+            else current_round
+        )
+        _append_candidate(value, scoped_round)
 
     records: list[dict] = []
     seen_lines: set[tuple[str, int | None]] = set()

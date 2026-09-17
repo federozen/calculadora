@@ -1,0 +1,14 @@
+ACTUALIZACION 3.8.67 -> 3.8.68
+
+Problema corregido: LPF oficial aportaba 0 cuando una nota real publicaba toda la fecha dentro de un unico <p> separado por <br>.
+
+Archivos funcionales principales:
+- lpf_fixture_sources.py
+- lpf_version.py
+
+Validacion:
+- pytest -q tests/test_lpf_fixture_sources.py
+- pytest -q
+- python release.py check --root .
+
+Criterio de aceptacion: base incluida 49 + LPF oficial Fechas 4-9 debe explicar 135 partidos, sin mezclar Apertura, sidebars ni relacionados.
