@@ -1,0 +1,7 @@
+ACTUALIZACION 3.8.69 -> 3.8.70
+
+Cambio principal: se agrega TyC Sports como fuente alternativa de los marcadores del Clausura 2026 y se corrige el hostname LPF a lpf.org.ar.
+
+Instalacion recomendada: usar el ZIP completo 3.8.70 para evitar mezclar archivos de versiones anteriores.
+
+La validacion sigue cerrada: los resultados solo se aceptan si reproducen exactamente PJ, puntos, GF, GC y DG de la tabla publicada.

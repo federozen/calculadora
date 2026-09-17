@@ -112,6 +112,7 @@ def prepare_automatic_update(
     futbolargentino_played: Sequence[ResultRow] | None = None,
     espn_played: Sequence[ResultRow] | None = None,
     official_played: Sequence[ResultRow] | None = None,
+    tyc_played: Sequence[ResultRow] | None = None,
     fixture: Sequence[Mapping[str, object]] | None = None,
 ) -> dict[str, Any]:
     """Prepara la actualización automática a partir de payloads ya obtenidos.
@@ -128,15 +129,17 @@ def prepare_automatic_update(
     futbolargentino_played = list(futbolargentino_played or [])
     espn_played = list(espn_played or [])
     official_played = list(official_played or [])
+    tyc_played = list(tyc_played or [])
 
     # La colección más nueva gana sólo para hacer avanzar un standings atrasado.
-    # Prioridad para avanzar una tabla atrasada: manual > LPF oficial > ESPN > FA.
+    # Prioridad para avanzar una tabla atrasada: manual > LPF oficial > TyC > ESPN > FA.
     # corrección explícita del mismo partido en esta etapa.
     forward_results = _merge_lpf_results(
         builtin_played,
         previous_played,
         futbolargentino_played,
         espn_played,
+        tyc_played,
         official_played,
         manual_played,
     )
@@ -159,13 +162,14 @@ def prepare_automatic_update(
                     row["source_pos"] = int(previous_pos)
             reconciled_annual = _lpf_reorder_source_positions(rebuilt_annual)
 
-    # Prioridad de la foto completa: manual, LPF oficial, base anterior, incluida,
+    # Prioridad de la foto completa: manual, LPF oficial, TyC, base anterior, incluida,
     # FutbolArgentino.com y ESPN. _lpf_complete_results_for_zones preserva el
     # primer origen cuando dos fuentes discrepan para una misma pareja.
     played = _lpf_complete_results_for_zones(
         prepared_zones,
         manual_played,
         official_played,
+        tyc_played,
         previous_played,
         builtin_played,
         futbolargentino_played,
@@ -176,7 +180,7 @@ def prepare_automatic_update(
     inferred_note = ""
     if not played:
         trusted_baseline = _merge_lpf_results(
-            builtin_played, previous_played, official_played, manual_played
+            builtin_played, previous_played, tyc_played, official_played, manual_played
         )
         inferred_played, inferred_note = _lpf_infer_missing_results(
             prepared_zones, trusted_baseline, fixture
@@ -186,6 +190,7 @@ def prepare_automatic_update(
                 prepared_zones,
                 manual_played,
                 official_played,
+                tyc_played,
                 previous_played,
                 builtin_played,
                 inferred_played,
@@ -204,6 +209,7 @@ def prepare_automatic_update(
             futbolargentino_played,
             builtin_played,
             previous_played,
+            tyc_played,
             official_played,
             manual_played,
         )
@@ -227,6 +233,15 @@ def prepare_automatic_update(
                 builtin_played,
                 previous_played,
                 official_played,
+                manual_played,
+            ),
+        ),
+        (
+            "base validada + TyC Sports",
+            _merge_lpf_results(
+                builtin_played,
+                previous_played,
+                tyc_played,
                 manual_played,
             ),
         ),
@@ -268,6 +283,7 @@ def prepare_automatic_update(
     coverage_note = (
         f"La tabla implica {expected_results if expected_results is not None else '?'} partidos; "
         f"LPF oficial aportó {len(official_played)}, "
+        f"TyC Sports {len(tyc_played)}, "
         f"FutbolArgentino.com {len(futbolargentino_played)}, "
         f"ESPN {len(espn_played)}, la base anterior {len(previous_played)}, "
         f"la base incluida {len(builtin_played)}"

@@ -600,7 +600,7 @@ def _official_score_line(
     marcador. La pareja resuelta siempre debe existir en el fixture de la app.
     """
     line = re.sub(r"\s+", " ", str(text or "")).strip()
-    if not line or "–" not in line and "—" not in line and " - " not in line:
+    if not line or not any(sep in line for sep in ("–", "—", "-")):
         return None
 
     patterns = (
@@ -761,6 +761,93 @@ def parse_lpf_official_results_article_html(
             "source_url": str(source_url or ""),
         })
     return merge_match_records(records)
+
+
+def parse_tyc_clausura_results_html(
+    html: str,
+    *,
+    canon_club: Callable[[str], str],
+    official_fixture: Sequence[Mapping[str, object]],
+    source_url: str = "",
+) -> list[dict]:
+    """Extrae resultados del fixture vivo de TyC Sports para el Clausura 2026.
+
+    La página mantiene en un único documento el fixture futuro y, bajo el encabezado
+    ``Resultados del Torneo Clausura 2026``, los marcadores fecha por fecha. El parser
+    ignora todo lo anterior al encabezado de resultados y exige simultáneamente:
+
+    * una ``Fecha N`` activa;
+    * dos clubes resolubles contra los nombres canónicos;
+    * marcador explícito;
+    * que la pareja pertenezca a ``LPF_FIXTURE`` y al mismo round ``N``.
+
+    De este modo TyC funciona como respaldo de marcadores, no como fuente de reglas,
+    posiciones ni clasificación.
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except Exception as exc:
+        raise RuntimeError(f"BeautifulSoup no está disponible: {exc}") from exc
+
+    fixture_index = official_fixture_index(official_fixture)
+    expected = {team for pair in fixture_index for team in pair}
+    soup = BeautifulSoup(html or "", "lxml")
+    for tag in soup(["script", "style", "noscript", "svg"]):
+        tag.decompose()
+
+    content_root = soup.find("article") or soup.find("main") or soup
+    in_results = False
+    current_round: int | None = None
+    records: list[dict] = []
+
+    for tag in content_root.find_all(["h1", "h2", "h3", "h4", "h5", "p", "li", "td"]):
+        text = re.sub(r"\s+", " ", tag.get_text(" ", strip=True)).strip()
+        if not text:
+            continue
+        folded = _ascii(text)
+        if "resultados del torneo clausura 2026" in folded:
+            in_results = True
+            current_round = None
+            continue
+        if not in_results:
+            continue
+        if folded in {"te puede interesar", "tambien te puede interesar"}:
+            break
+
+        marker = _lpf_round_from_text(text)
+        if marker is not None:
+            current_round = int(marker)
+            continue
+        if current_round is None or not (1 <= current_round <= 16):
+            continue
+
+        parsed = _official_score_line(
+            text,
+            canon_club=canon_club,
+            expected=expected,
+            fixture_index=fixture_index,
+        )
+        if not parsed:
+            continue
+        home, away, home_score, away_score = parsed
+        meta = fixture_index[(home, away)]
+        if int(meta.get("round") or 0) != current_round:
+            continue
+        records.append({
+            "match_id": f"tyc|{current_round}|{home}|{away}",
+            "round": current_round,
+            "home": home,
+            "away": away,
+            "scheduled_at": "",
+            "status": "played",
+            "home_score": home_score,
+            "away_score": away_score,
+            "source": "TyC Sports",
+            "source_url": str(source_url or ""),
+        })
+
+    return merge_match_records(records)
+
 
 def records_from_legacy(
     played: Iterable[tuple[str, str, int, int]],

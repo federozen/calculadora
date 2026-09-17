@@ -1,4 +1,10 @@
-# Developer / Production Bootstrap · 3.8.69
+# Developer / Production Bootstrap · 3.8.70
+
+## Fallback público de resultados · 3.8.70
+
+En staging probar una foto de 9 PJ con la fuente LPF caída: TyC debe poder aportar 135 marcadores explícitos de Fechas 1-9 y la validación transaccional debe reconstruir exactamente la tabla. El parser sólo lee la sección de resultados y valida pareja + round contra `LPF_FIXTURE`. ESPN/FutbolArgentino quedan detrás de TyC.
+
+El host LPF de referencia es `https://lpf.org.ar`; no usar `verify=False`. En producción con Opta, todas estas fuentes públicas quedan como auditor/fallback.
 
 ## Modo tabla autoritativa · 3.8.69
 

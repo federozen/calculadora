@@ -1,4 +1,10 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.69
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.70
+
+## Fuente alternativa TyC + corrección TLS LPF · 3.8.70
+
+Ante el caso real `tabla=135 / LPF=0 / ESPN=0 / FA=0`, la ingesta pública deja de depender de un único sitio. TyC Sports se usa como proveedor de marcadores del Clausura porque su fixture vivo concentra resultados por Fecha 1-9; cada fila debe coincidir con pareja y round de `LPF_FIXTURE` y la foto completa debe reproducir PJ/puntos/GF/GC/DG antes de publicarse. LPF conserva prioridad cuando responde.
+
+El dominio oficial se consulta como `https://lpf.org.ar` sin `www`; no desactivar la validación TLS para sortear certificados. Con Opta, LPF/TyC/ESPN/FA quedan como auditoría/fallback.
 
 ## Tabla autoritativa con historial parcial · 3.8.69
 

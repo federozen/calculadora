@@ -69,7 +69,7 @@ from lpf_display import (
 from lpf_fixture_sources import (
     expected_played_count, merge_match_records, parse_futbolargentino_results_html,
     parse_lpf_official_listing_html, parse_lpf_official_results_article_html,
-    played_pending_from_records,
+    parse_tyc_clausura_results_html, played_pending_from_records,
     validate_fixture_records,
 )
 from lpf_schedule import (
@@ -2222,7 +2222,7 @@ FUTBOLARGENTINO_RESULTS_URLS = (
     "https://www.futbolargentino.com/primera-division/clausura/resultados",
 )
 FUTBOLARGENTINO_REFERER = "https://www.futbolargentino.com/primera-division/"
-LPF_OFFICIAL_PRIMERA_URL = "https://www.lpf.org.ar/categoria/primera/"
+LPF_OFFICIAL_PRIMERA_URL = "https://lpf.org.ar/categoria/primera/"
 LPF_OFFICIAL_PRIMERA_PAGES = tuple(
     LPF_OFFICIAL_PRIMERA_URL if page == 1 else f"{LPF_OFFICIAL_PRIMERA_URL}page/{page}/"
     for page in range(1, 13)
@@ -2234,12 +2234,12 @@ LPF_OFFICIAL_PRIMERA_PAGES = tuple(
 # Todas pasan por la misma guarda Clausura + fixture; una URL por sí sola no valida
 # ningún marcador.
 LPF_OFFICIAL_RESULT_SEED_URLS = (
-    "https://www.lpf.org.ar/?p=85379",  # Fecha 4 · Cerró la 4 en el Kempes
-    "https://www.lpf.org.ar/?p=85760",  # Fecha 5
-    "https://www.lpf.org.ar/?p=85943",  # Fecha 6 · Todo sobre la sexta
-    "https://www.lpf.org.ar/notas/primera/2026/08/25/programacion-de-la-fecha-7-5/",  # Fecha 7
-    "https://www.lpf.org.ar/?p=86880",  # Fecha 8
-    "https://www.lpf.org.ar/notas/primera/2026/09/10/se-mueve-la-novena/",  # Fecha 9
+    "https://lpf.org.ar/?p=85379",  # Fecha 4 · Cerró la 4 en el Kempes
+    "https://lpf.org.ar/?p=85760",  # Fecha 5
+    "https://lpf.org.ar/?p=85943",  # Fecha 6 · Todo sobre la sexta
+    "https://lpf.org.ar/notas/primera/2026/08/25/programacion-de-la-fecha-7-5/",  # Fecha 7
+    "https://lpf.org.ar/?p=86880",  # Fecha 8
+    "https://lpf.org.ar/notas/primera/2026/09/10/se-mueve-la-novena/",  # Fecha 9
 )
 LPF_OFFICIAL_RESULT_SEED_ROUNDS = {
     LPF_OFFICIAL_RESULT_SEED_URLS[0]: 4,
@@ -2250,6 +2250,11 @@ LPF_OFFICIAL_RESULT_SEED_ROUNDS = {
     LPF_OFFICIAL_RESULT_SEED_URLS[5]: 9,
 }
 LPF_SNAPSHOT_MAX_AGE_HOURS = 168  # una semana; después obliga a revisar/cargar manualmente
+TYC_CLAUSURA_RESULTS_URL = (
+    "https://www.tycsports.com/liga-profesional-de-futbol/"
+    "fixture-del-clausura-2026-calendario-de-partidos-y-resultados-id750943.html"
+)
+TYC_LPF_REFERER = "https://www.tycsports.com/liga-profesional-de-futbol/"
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -2403,6 +2408,35 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
         )
     return played, pending, last_url
 
+
+
+def tyc_clausura_results(zones, timeout=30):
+    """Carga los resultados completos del Clausura desde el fixture vivo de TyC.
+
+    Se usa sólo como respaldo de marcadores. La tabla/zonas siguen viniendo del
+    selector de standings y la validación exacta posterior decide si la foto cierra.
+    """
+    html, final_url = _standings_html_get(
+        TYC_CLAUSURA_RESULTS_URL,
+        TYC_LPF_REFERER,
+        timeout=timeout,
+        retries=1,
+    )
+    records = parse_tyc_clausura_results_html(
+        html,
+        canon_club=canon_club,
+        official_fixture=LPF_FIXTURE,
+        source_url=final_url,
+    )
+    played, pending = played_pending_from_records(records)
+    if not played:
+        raise RuntimeError("no pude identificar marcadores del Clausura en el fixture de TyC Sports")
+    expected = expected_played_count(zones)
+    if expected is not None and len(played) < expected:
+        raise RuntimeError(
+            f"TyC Sports aportó {len(played)} resultados y la tabla requiere {expected}"
+        )
+    return played, pending, final_url
 
 def futbolargentino_fixture(zones, timeout=30):
     """Carga resultados y programación del Clausura desde FutbolArgentino.com.
@@ -5409,11 +5443,26 @@ def cargar_lpf_espn(liga="arg.1"):
     except Exception as exc:
         official_error = str(exc)
 
-    # Si la LPF oficial + la base validada ya reconstruyen exactamente la tabla,
-    # no golpear proveedores que hoy pueden bloquear servidores (ESPN 403) o
-    # devolver HTML sin resultados. Se mantienen como fallback real.
+    # Si la LPF oficial + la base validada no reconstruyen la tabla, probar primero
+    # el fixture vivo de TyC, que concentra en una sola página los resultados fecha
+    # por fecha del Clausura. ESPN/FutbolArgentino quedan como fallbacks terciarios.
     official_complete = _lpf_complete_results_for_zones(
         zones, manual_played, official_played, previous_played, builtin_played
+    )
+
+    tyc_raw = []
+    tyc_played = []
+    tyc_error = ""
+    tyc_url = ""
+    if not official_complete:
+        try:
+            tyc_raw, _tyc_pending, tyc_url = tyc_clausura_results(zones, timeout=30)
+            tyc_played = normalize_results_for_zones(zones, tyc_raw or [])
+        except Exception as exc:
+            tyc_error = str(exc)
+
+    tyc_complete = _lpf_complete_results_for_zones(
+        zones, manual_played, official_played, tyc_played, previous_played, builtin_played
     )
 
     jug_raw = []
@@ -5424,7 +5473,7 @@ def cargar_lpf_espn(liga="arg.1"):
     fa_played = []
     fa_error = ""
     fa_url = ""
-    if not official_complete:
+    if not tyc_complete:
         jug_raw, _pen_raw, nota_espn, ferr_espn = espn_fixture(
             liga, 120, desde="2026-07-01"
         )
@@ -5450,6 +5499,7 @@ def cargar_lpf_espn(liga="arg.1"):
         futbolargentino_played=fa_played,
         espn_played=espn_played,
         official_played=official_played,
+        tyc_played=tyc_played,
         fixture=LPF_FIXTURE,
     )
     zones = prepared["zones"]
@@ -5472,6 +5522,8 @@ def cargar_lpf_espn(liga="arg.1"):
     source_notes = []
     if official_played:
         source_notes.append(f"LPF oficial: {len(official_played)} resultados")
+    if tyc_played:
+        source_notes.append(f"TyC Sports: {len(tyc_played)} resultados")
     if fa_played:
         source_notes.append(f"FutbolArgentino.com: {len(fa_played)} resultados")
     if espn_played:
@@ -5488,6 +5540,8 @@ def cargar_lpf_espn(liga="arg.1"):
     result_source_warnings = []
     if official_error:
         result_source_warnings.append("LPF oficial no pudo completar los resultados: " + official_error)
+    if tyc_error:
+        result_source_warnings.append("TyC Sports no pudo completar los resultados: " + tyc_error)
     if ferr_espn:
         result_source_warnings.append("ESPN no pudo completar los resultados: " + ferr_espn)
     if fa_error:
@@ -5495,6 +5549,10 @@ def cargar_lpf_espn(liga="arg.1"):
     if official_raw and not official_played:
         result_source_warnings.append(
             f"LPF oficial devolvió {len(official_raw)} partido(s), pero ninguno coincidió con los clubes/fixture de la tabla cargada."
+        )
+    if tyc_raw and not tyc_played:
+        result_source_warnings.append(
+            f"TyC Sports devolvió {len(tyc_raw)} partido(s), pero ninguno coincidió con los clubes/fixture de la tabla cargada."
         )
     if jug_raw and not espn_played:
         result_source_warnings.append(
@@ -5569,6 +5627,7 @@ def cargar_lpf_espn(liga="arg.1"):
     _result_source_name = " + ".join(
         [name for name, rows in (
             ("Liga Profesional de Fútbol", official_played),
+            ("TyC Sports", tyc_played),
             ("FutbolArgentino.com", fa_played),
             ("ESPN", espn_played),
         ) if rows]

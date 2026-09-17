@@ -1,3 +1,12 @@
+## 3.8.70 · 2026-09-17
+
+- Agrega **TyC Sports** como fuente alternativa de resultados completos del Clausura 2026. Se parsea la página única de fixture/resultados y se valida cada marcador contra `LPF_FIXTURE` y su `Fecha N`.
+- TyC aporta únicamente resultados partido a partido; no reemplaza la tabla publicada ni contiene reglas competitivas. La aceptación final sigue siendo transaccional contra PJ, puntos, GF, GC y DG.
+- Nueva prioridad de ingestión: manual > LPF oficial > TyC > base anterior > base incluida > FutbolArgentino.com > ESPN. ESPN/FA sólo se consultan si LPF + TyC no alcanzan.
+- Corrige el hostname oficial a `https://lpf.org.ar` para evitar el `SSLCertVerificationError` observado con `www.lpf.org.ar`. No se usa `verify=False`.
+- Agrega regresiones para 135 resultados (Fechas 1-9) y aliases reales de TyC como `Gimnasia (Mza.)`, `Ind. Rivadavia Mza.` y `Estudiantes (Río Cuarto)`.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.69 · 2026-09-17
 
 - Cambia la estrategia ante el caso real `tabla = 135 / resultados confirmados = 49`: la calculadora deja de exigir reconstruir los 135 marcadores para poder usar una tabla vigente y coherente.
