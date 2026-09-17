@@ -59,6 +59,21 @@ def test_total_seguro_explica_que_puede_no_ser_el_minimo():
     assert "Puede que alcance con menos" in MAIN or "Puede alcanzar con menos" in MAIN
 
 
+def test_que_necesita_recupera_referencia_de_trabajo_y_combinaciones():
+    tree = ast.parse(MAIN)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_copas_bloque_objetivo")
+    segment = ast.get_source_segment(MAIN, fn) or ""
+    assert "### 📌 Referencia de trabajo" in segment
+    assert "necesita sumar **{faltan_ref} de los {3 * gx} puntos**" in segment
+    assert "_texto_combos(faltan_ref, gx)" in segment
+    assert "Caminos para alcanzar esta referencia" in segment
+    assert "referencia prudente de trabajo" in segment
+    assert "no el mínimo exacto ni una garantía matemática" in segment
+    assert "No hay una combinación propia que alcance esa referencia" in segment
+    assert "Eso no demuestra que el objetivo sea imposible ni que necesite ayuda" in segment
+    assert "### 📌 Total seguro" not in segment
+
+
 def test_escenarios_usa_nombre_claro_para_puntos_y_puesto_final():
     assert '"Puntos y puesto final"' in MAIN
     assert MAIN.count('"Puntaje y puesto"') == 1  # sólo migración de sesión vieja
@@ -113,7 +128,7 @@ def test_ultimas_fechas_muestra_tablero_y_condicionales():
     assert "Reloj de definición" in MAIN
     assert "¿Por qué? · explicar gana / empata / pierde" in MAIN
     assert "Abrir escalera exacta de puntos" in MAIN
-    assert "_lpf_definition_package(" in MAIN
+    assert "lpf_otros_resultados_sim(" in MAIN
     assert "lpf_previa_equipo_texto(" in MAIN
 
 
@@ -212,3 +227,34 @@ def test_otra_cancha_no_recomienda_si_objetivo_ya_esta_cumplido_o_no_hay_riesgo(
     assert 'risk, _ = _lpf_riesgo_descenso(equipo, ctx)' in segment
     assert 'no está hoy en la zona de riesgo usada por esta herramienta' in segment
     assert 'No publico una recomendación de otra cancha' in segment
+
+
+def test_que_necesita_usa_informe_editorial_completo_en_panel_y_puntos_por_objetivo():
+    tree = ast.parse(MAIN)
+    guided = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "render_guided_workspace")
+    guided_segment = ast.get_source_segment(MAIN, guided) or ""
+    pisos = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "render_pisos_workspace")
+    pisos_segment = ast.get_source_segment(MAIN, pisos) or ""
+
+    assert "Lectura generada por el contrato público v1." not in MAIN
+    assert "Lectura editorial completa: separa realidad, proyección, historia, fixture y mínimo exacto." in guided_segment
+    assert "lpf_playoffs_texto(" in guided_segment
+    assert "lpf_copas_necesita_texto(" in guided_segment
+    assert "lpf_descenso_texto(" in guided_segment
+
+    assert "### Qué necesita · informe completo" in pisos_segment
+    assert "Objetivo para desarrollar" in pisos_segment
+    assert "lpf_playoffs_texto(" in pisos_segment
+    assert "lpf_copas_necesita_texto(" in pisos_segment
+    assert "lpf_descenso_texto(" in pisos_segment
+    assert "La tabla breve usa el contrato público de servicios" in pisos_segment
+
+
+def test_copas_permite_desarrollar_un_solo_objetivo_sin_mezclar_informes():
+    tree = ast.parse(MAIN)
+    fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "lpf_copas_necesita_texto")
+    segment = ast.get_source_segment(MAIN, fn) or ""
+    assert "selected_objective=None" in segment
+    assert 'selected_objective in (None, "libertadores")' in segment
+    assert 'selected_objective in (None, "sudamericana")' in segment
+    assert 'selected_objective="libertadores" if objective == "Libertadores" else "sudamericana"' in MAIN

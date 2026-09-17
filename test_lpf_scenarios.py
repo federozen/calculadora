@@ -24,6 +24,7 @@ from lpf_scenarios import (  # noqa: E402
     can_fail_with_points,
     can_finish_exact_rank_by_points,
     can_qualify_with_points,
+    exact_objective_result_states,
     exact_rank_bounds_with_points,
     point_ladder,
     reachable_point_totals,
@@ -306,3 +307,52 @@ def test_point_ladder_conserva_interzonales_que_tocan_un_equipo_de_la_tabla():
 
     assert with_cross_zone["minimum_possible"] == 7
     assert without_cross_zone["minimum_possible"] is None
+
+
+def test_exact_objective_result_states_matches_bruteforce_without_enumerating_other_games():
+    """El semáforo G/E/P debe seguir siendo exacto aunque la UI no enumere 3^N otras canchas."""
+    base = {
+        "A": {"pts": 8},
+        "B": {"pts": 8},
+        "C": {"pts": 7},
+        "D": {"pts": 6},
+    }
+    matches = [
+        ("A", "B"),
+        ("C", "D"),
+        ("A", "C"),
+        ("B", "D"),
+    ]
+    rest = {team: sum(team in match for match in matches) for team in base}
+    own = ("A", "B")
+    cutoff = 2
+    got = exact_objective_result_states(base, rest, matches, "A", own, cutoff)
+    assert got["available"] is True
+
+    own_idx = matches.index(own)
+    own_codes = {"G": "L", "E": "E", "P": "V"}
+    expected = {}
+    for branch, own_code in own_codes.items():
+        can_enter = False
+        can_fail = False
+        for combo in itertools.product(OUTCOMES, repeat=len(matches)):
+            if combo[own_idx] != own_code:
+                continue
+            pts = _final_points(base, matches, combo)
+            strict_above = sum(1 for team in base if team != "A" and pts[team] > pts["A"])
+            equal_or_above = sum(1 for team in base if team != "A" and pts[team] >= pts["A"])
+            can_enter = can_enter or strict_above <= cutoff - 1
+            can_fail = can_fail or equal_or_above >= cutoff
+        expected[branch] = "in" if not can_fail else "out" if not can_enter else "pelea"
+
+    states = {branch["result"]: branch["solver_state"] for branch in got["branches"]}
+    assert states == expected
+
+
+def test_exact_objective_result_states_refuses_incomplete_fixture():
+    base = {"A": {"pts": 4}, "B": {"pts": 4}, "C": {"pts": 3}}
+    matches = [("A", "B")]
+    rest = {"A": 2, "B": 1, "C": 1}
+    got = exact_objective_result_states(base, rest, matches, "A", ("A", "B"), 2)
+    assert got["available"] is False
+    assert "fixture pendiente incompleto" in got["reason"]
