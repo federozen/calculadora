@@ -1,3 +1,12 @@
+## 3.8.65 · 2026-09-17
+
+- Corrige la actualización con la tabla actual de **135 partidos**: LPF oficial aportaba sólo 68 porque el descubridor de noticias exigía títulos con verbos de resultado y omitía notas oficiales vivas con títulos como `Todo sobre la sexta`, `Se fue la séptima`, `Adiós a la fecha 8` y `Culminó la novena`.
+- `parse_lpf_official_listing_html` amplía la selección de candidatos a títulos con semántica de fecha/jornada, ordinales, agenda y programación. La seguridad sigue en el parser del artículo: dos clubes + marcador explícito + pareja existente en `LPF_FIXTURE`.
+- El crawler amplía el archivo de Primera de 6 a **12 páginas**, pero conserva el corte temprano cuando la unión `base validada + LPF oficial` alcanza la cantidad de partidos implícita en las tablas.
+- La nota oficial de la Fecha 5 quedó publicada con permalink corto de WordPress y no aparece de forma estable en el archivo de Primera; `https://www.ligaprofesional.ar/?p=85760` se consulta como semilla oficial adicional y pasa por la misma validación estricta.
+- Se agregan regresiones para los títulos reales de Fechas 6-9 y para exigir que la semilla de Fecha 5 se consulte antes del crawler paginado.
+- Public Service v1, DataProvider v2, Snapshot schema 3 y Runtime API 21 siguen estables.
+
 ## 3.8.64 · 2026-09-08
 
 - Corrige la consideración de **Copa Argentina** en la Tabla Anual: la app todavía inicializaba una foto de octavos del 18/07 y podía presentar clubes ya eliminados como posibles campeones capaces de mover/liberar cupos.

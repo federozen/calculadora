@@ -1,4 +1,10 @@
-# Developer / Production Bootstrap · 3.8.64
+# Developer / Production Bootstrap · 3.8.65
+
+## Ingesta oficial hasta 135 partidos · 3.8.65
+
+En staging agregar un smoke de fuente pública con una foto de 9 PJ por club: el resultado esperado es que **LPF oficial + baseline expliquen 135 partidos** sin necesitar ESPN/FutbolArgentino ni conciliación masiva. Verificar además que títulos editoriales de cierre de Fechas 6-9 sean descubiertos y que la semilla oficial de Fecha 5 continúe validada contra `LPF_FIXTURE`.
+
+Esto no cambia el contrato HTTP ni DataProvider. En producción con Opta, el smoke equivalente debe comprobar que el proveedor explícito entregue identidad/status/marcador por partido y que el auditor reconstruya la misma tabla.
 
 ## Contexto Copa Argentina · 3.8.64
 

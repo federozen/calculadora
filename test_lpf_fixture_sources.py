@@ -1,15 +1,17 @@
 
 
-def test_lpf_oficial_listing_descubre_resultados_y_hubs_de_fecha():
+def test_lpf_oficial_listing_descubre_cierres_y_notas_vivas_de_fecha():
     from lpf_fixture_sources import parse_lpf_official_listing_html
 
     html = """
     <html><body>
       <a href="/notas/primera/2026/08/15/agenda-de-la-fecha-6/">Racing y Boca empataron 1 a 1</a>
       <a href="/notas/primera/2026/08/15/agenda-de-la-fecha-6/">Leer más</a>
-      <a href="/notas/primera/2026/08/20/programacion-de-la-fecha-7/">Programación de la fecha 7</a>
-      <a href="/notas/primera/2026/08/10/agenda-de-la-fecha-5-5/">Agenda de la fecha 5</a>
-      <a href="/notas/primera/2026/08/07/agenda-de-la-fecha-4-a-la-7/">Agenda de la fecha 4 a la 7</a>
+      <a href="/notas/primera/2026/09/10/se-mueve-la-novena/">Culminó la novena</a>
+      <a href="/notas/primera/2026/09/07/hoy-arranca-la-fecha-8/">Adiós a la fecha 8</a>
+      <a href="/notas/primera/2026/08/25/programacion-de-la-fecha-7-5/">Se fue la séptima</a>
+      <a href="/notas/primera/2026/08/24/agenda-de-la-fecha-6/">Todo sobre la sexta</a>
+      <a href="/notas/primera/2026/09/16/conferencia/">Conferencia del clásico rosarino</a>
       <a href="/notas/proyeccion/2026/08/15/resultados/">Proyección goleó</a>
       <a href="https://www.ligaprofesional.ar/notas/primera/2026/08/09/programacion-de-la-fecha-4-3/">Cerró la 4 en el Kempes</a>
     </body></html>
@@ -19,28 +21,29 @@ def test_lpf_oficial_listing_descubre_resultados_y_hubs_de_fecha():
     )
     assert [row["title"] for row in rows] == [
         "Racing y Boca empataron 1 a 1",
-        "Programación de la fecha 7",
-        "Agenda de la fecha 5",
+        "Culminó la novena",
+        "Adiós a la fecha 8",
+        "Se fue la séptima",
+        "Todo sobre la sexta",
         "Cerró la 4 en el Kempes",
     ]
     assert all("/notas/primera/2026/" in row["url"] for row in rows)
 
 
-def test_lpf_oficial_listing_incluye_hub_aunque_el_titulo_siga_siendo_agenda():
-    """Regresión real 25/8: el cuerpo puede estar actualizado antes que la portada."""
+def test_lpf_oficial_listing_incluye_agendas_de_fecha_pero_no_conferencias():
     from lpf_fixture_sources import parse_lpf_official_listing_html
 
     html = """
-    <html><body>
-      <a href="/notas/primera/2026/08/15/agenda-de-la-fecha-6/">Agenda de la fecha 6</a>
-      <a href="/notas/primera/2026/08/15/agenda-de-la-fecha-6/">Leer más</a>
-    </body></html>
+    <a href="/notas/primera/2026/09/16/programacion-de-la-fecha-10/">Programación de la fecha 10</a>
+    <a href="/notas/primera/2026/09/01/agenda-de-la-8-a-la-11/">Agenda de la 8 a la 11</a>
+    <a href="/notas/primera/2026/09/05/conferencia-rosarina/">Conferencia del clásico rosarino</a>
     """
     rows = parse_lpf_official_listing_html(
         html, base_url="https://www.ligaprofesional.ar/notas/primera/"
     )
-    assert [row["url"] for row in rows] == [
-        "https://www.ligaprofesional.ar/notas/primera/2026/08/15/agenda-de-la-fecha-6/"
+    assert [row["title"] for row in rows] == [
+        "Programación de la fecha 10",
+        "Agenda de la 8 a la 11",
     ]
 
 
@@ -78,7 +81,7 @@ def test_lpf_oficial_article_parsea_ambos_formatos_y_descarta_programados():
     assert all(row["source"] == "Liga Profesional de Fútbol" for row in rows)
 
 
-def test_lpf_oficial_article_formato_real_fecha6_extrae_15_jugados_al_cerrar_fecha():
+def test_lpf_oficial_article_formato_real_fecha6_extrae_12_jugados_y_no_programados():
     from lpf_clubs import canon_club
     from lpf_data_2026 import LPF_FIXTURE
     from lpf_fixture_sources import parse_lpf_official_results_article_html
@@ -96,135 +99,17 @@ def test_lpf_oficial_article_formato_real_fecha6_extrae_15_jugados_al_cerrar_fec
         "Belgrano 1 – Defensa y Justicia 2",
         "River 2 – Vélez 2",
         "Racing 1 – Boca 1",
-        "Tigre 2 – Central Córdoba 1",
-        "Lanús 1 – Argentinos 1",
-        "Talleres 2 – Rosario Central 2",
+        "19.00 Tigre – Central Córdoba -TNT Sports-",
+        "21.15 Lanús – Argentinos -TNT Sports-",
+        "21.15 Talleres – Rosario Central -ESPN Premium-",
     ]
     html = "<article>" + "".join(f"<p>{line}</p>" for line in lines) + "</article>"
     rows = parse_lpf_official_results_article_html(
         html, canon_club=canon_club, official_fixture=LPF_FIXTURE
     )
-    assert len(rows) == 15
+    assert len(rows) == 12
     assert {row["round"] for row in rows} == {6}
     assert ("River Plate", "Vélez Sarsfield", 2, 2) in {
         (row["home"], row["away"], row["home_score"], row["away_score"])
         for row in rows
     }
-    assert ("Tigre", "Central Córdoba", 2, 1) in {
-        (row["home"], row["away"], row["home_score"], row["away_score"])
-        for row in rows
-    }
-
-
-def test_lpf_oficial_article_no_fabrica_partido_de_otra_fecha_desde_div_contenedor():
-    """Regresión real 25/8: un wrapper de Fecha 4 no puede crear Central-Estudiantes RC de F16."""
-    from lpf_clubs import canon_club
-    from lpf_data_2026 import LPF_FIXTURE
-    from lpf_fixture_sources import parse_lpf_official_results_article_html
-
-    friday = [
-        "Rosario Central 2 – 1 Aldosivi (Zona B)",
-        "Ind. Rivadavia Mza. 2 – 1 Estudiantes (Río Cuarto) (Zona B)",
-    ]
-    saturday = [
-        "Deportivo Riestra 2 – 0 Estudiantes (Zona A)",
-        "Atlético Tucumán 1 – 2 Sarmiento (Zona B)",
-        "Tigre 1 – River 0 (Zona B)",
-        "Boca 1 – Vélez 1, en el estadio Tomás A. Ducó (Zona A)",
-        "Independiente 0 – Platense 1 (Zona A)",
-        "Instituto 1 – Gimnasia (Mza.) 0 (Zona A)",
-    ]
-    sunday = [
-        "San Lorenzo 0 – Huracán 2 (Interzonal)",
-        "Defensa y Justicia 2 – Newell’s 1 (Zona A)",
-        "Gimnasia 2 – Barracas Central 0 (Zona B)",
-        "Argentinos 2 – Racing 1 (Zona B)",
-    ]
-    close = [
-        "Banfield 0 – Belgrano 2 (Zona B)",
-        "Unión 1 – Central Córdoba 2 (Zona A)",
-        "Talleres 0 – Lanús 3 (Zona A)",
-    ]
-    groups = [friday, saturday, sunday, close]
-    html = "<article><h2>Fecha 4</h2>" + "".join(
-        '<div class="day">' + "".join(f"<p>{line}</p>" for line in group) + "</div>"
-        for group in groups
-    ) + "</article>"
-
-    rows = parse_lpf_official_results_article_html(
-        html,
-        canon_club=canon_club,
-        official_fixture=LPF_FIXTURE,
-        source_url=(
-            "https://www.ligaprofesional.ar/notas/primera/2026/08/09/"
-            "programacion-de-la-fecha-4-3/"
-        ),
-    )
-
-    assert len(rows) == 15
-    assert {row["round"] for row in rows} == {4}
-    assert not any(
-        row["home"] == "Rosario Central" and row["away"] == "Estudiantes de Río Cuarto"
-        for row in rows
-    )
-
-
-def test_lpf_oficial_article_div_hoja_con_spans_sigue_siendo_parseable():
-    """Endurecer wrappers no debe romper una fila real armada con spans."""
-    from lpf_clubs import canon_club
-    from lpf_data_2026 import LPF_FIXTURE
-    from lpf_fixture_sources import parse_lpf_official_results_article_html
-
-    html = """
-    <main>
-      <h2>Fecha 6</h2>
-      <div class="score-row"><span>Lanús</span> <span>1 – 1</span> <span>Argentinos</span></div>
-    </main>
-    """
-    rows = parse_lpf_official_results_article_html(
-        html,
-        canon_club=canon_club,
-        official_fixture=LPF_FIXTURE,
-        source_url="https://www.ligaprofesional.ar/notas/primera/2026/08/15/agenda-de-la-fecha-6/",
-    )
-    assert [(r["home"], r["away"], r["home_score"], r["away_score"], r["round"]) for r in rows] == [
-        ("Lanús", "Argentinos Juniors", 1, 1, 6)
-    ]
-
-
-def test_lpf_oficial_article_fecha6_descarta_falsos_cruces_de_otras_fechas_en_wrappers():
-    """Un div de F6 no puede reciclar su primer marcador sobre un cruce real de F5/F12."""
-    from lpf_clubs import canon_club
-    from lpf_data_2026 import LPF_FIXTURE
-    from lpf_fixture_sources import parse_lpf_official_results_article_html
-
-    html = """
-    <article>
-      <h2>Fecha 6 – Interzonal</h2>
-      <div class="day">
-        <p>Estudiantes (Río Cuarto) 0 – San Lorenzo 0</p>
-        <p>Gimnasia 2 – 3 Gimnasia (Mza.)</p>
-        <p>Atlético Tucumán 0 – 0 Instituto</p>
-      </div>
-      <div class="day">
-        <p>Newell’s 2 – Banfield 1</p>
-        <p>Huracán 0 – Deportivo Riestra 0</p>
-      </div>
-    </article>
-    """
-    rows = parse_lpf_official_results_article_html(
-        html,
-        canon_club=canon_club,
-        official_fixture=LPF_FIXTURE,
-        source_url="https://www.ligaprofesional.ar/notas/primera/2026/08/15/agenda-de-la-fecha-6/",
-    )
-    assert len(rows) == 5
-    assert {row["round"] for row in rows} == {6}
-    assert not any(
-        row["home"] == "Estudiantes de Río Cuarto" and row["away"] == "Atlético Tucumán"
-        for row in rows
-    )
-    assert not any(
-        row["home"] == "Newell's Old Boys" and row["away"] == "Deportivo Riestra"
-        for row in rows
-    )

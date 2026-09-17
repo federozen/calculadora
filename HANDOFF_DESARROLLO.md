@@ -1,4 +1,17 @@
-# Handoff al equipo de desarrollo · Calculadora LPF 3.8.64
+# Handoff al equipo de desarrollo · Calculadora LPF 3.8.65
+
+## Cobertura completa de resultados LPF oficial · 3.8.65
+
+El incidente `tabla=135 / LPF oficial=68` no era un problema del parser de marcadores sino del **descubrimiento de artículos**. La LPF reutiliza notas de agenda y títulos editoriales para cerrar fechas. Desarrollo debe preservar estas reglas:
+
+1. el descubridor puede ser inclusivo con títulos de fecha/jornada/ordinal/agenda/programación;
+2. el parser del artículo sigue siendo estricto: sólo dos clubes + marcador explícito + pareja de `LPF_FIXTURE`;
+3. conservar la semilla oficial 2026 de Fecha 5 (`?p=85760`) mientras ese permalink no sea descubrible de forma estable desde el archivo;
+4. recorrer hasta 12 páginas del archivo sólo cuando haga falta y cortar en cuanto `baseline ∪ oficial` explique los PJ publicados;
+5. no volver a hacer que el título determine por sí solo si un partido está jugado;
+6. con Opta, esta capa queda como fallback/auditor y no como fuente primaria.
+
+Caso de aceptación: una tabla con 9 PJ por club implica **135 partidos** y una sesión fresca con base incluida 49 debe poder completarse desde LPF oficial sin recurrir a inferir varias fechas desde acumulados.
 
 ## Copa Argentina viva · 3.8.64
 

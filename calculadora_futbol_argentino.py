@@ -2225,7 +2225,14 @@ FUTBOLARGENTINO_REFERER = "https://www.futbolargentino.com/primera-division/"
 LPF_OFFICIAL_PRIMERA_URL = "https://www.ligaprofesional.ar/notas/primera/"
 LPF_OFFICIAL_PRIMERA_PAGES = tuple(
     LPF_OFFICIAL_PRIMERA_URL if page == 1 else f"{LPF_OFFICIAL_PRIMERA_URL}page/{page}/"
-    for page in range(1, 7)
+    for page in range(1, 13)
+)
+# Excepción oficial 2026: la nota de la Fecha 5 quedó publicada con permalink
+# corto de WordPress y no aparece de forma estable en el archivo /notas/primera/.
+# Se consulta como semilla adicional; sus marcadores siguen pasando por el mismo
+# parser estricto + validación contra LPF_FIXTURE.
+LPF_OFFICIAL_RESULT_SEED_URLS = (
+    "https://www.ligaprofesional.ar/?p=85760",
 )
 LPF_SNAPSHOT_MAX_AGE_HOURS = 168  # una semana; después obliga a revisar/cargar manualmente
 
@@ -2257,8 +2264,8 @@ def futbolargentino_annual(timeout=30):
 def lpf_official_results(zones, baseline_played=None, timeout=30):
     """Carga marcadores explícitos desde las notas oficiales de Primera.
 
-    Recorre páginas de noticias en orden reciente y sólo descarga artículos cuyos
-    títulos parecen cierres/resultados. Se detiene cuando, junto con la base validada,
+    Recorre páginas de noticias en orden reciente y descarga artículos cuyos títulos
+    parecen cierres o notas vivas de fecha/jornada. Se detiene cuando, junto con la base validada,
     ya hay suficientes parejas para explicar los PJ publicados. La reconciliación
     exacta posterior sigue siendo la que decide si la foto es aceptable.
     """
@@ -2269,6 +2276,39 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
     seen_articles = set()
     errors = []
     last_url = LPF_OFFICIAL_PRIMERA_URL
+
+    # La Fecha 5 de 2026 tiene un permalink corto de WordPress que no aparece de
+    # manera estable en el archivo de Primera. Cargar esa semilla antes del crawler
+    # evita que una instalación fresca quede con un hueco estructural entre F4 y F6.
+    seed_transport = fetch_html_pages(
+        LPF_OFFICIAL_RESULT_SEED_URLS,
+        referer=LPF_OFFICIAL_PRIMERA_URL,
+        timeout=timeout,
+        get_html=_standings_html_get,
+    )
+    for article in seed_transport.get("attempts") or []:
+        source_url = article.get("source_url") or ""
+        if source_url:
+            seen_articles.add(source_url)
+        if article.get("error"):
+            errors.append(f"{source_url}: {article['error']}")
+            continue
+        try:
+            records.extend(parse_lpf_official_results_article_html(
+                article.get("html") or "",
+                canon_club=canon_club,
+                official_fixture=LPF_FIXTURE,
+                source_url=article.get("final_url") or source_url,
+            ))
+            last_url = article.get("final_url") or source_url or last_url
+        except Exception as exc:
+            errors.append(f"{source_url}: {exc}")
+
+    merged_records = merge_match_records(records)
+    played, pending = played_pending_from_records(merged_records)
+    union_pairs = baseline_pairs | {(l, v) for l, v, _gl, _gv in played}
+    if expected is not None and len(union_pairs) >= expected:
+        return played, pending, last_url
 
     for listing_url in LPF_OFFICIAL_PRIMERA_PAGES:
         listing_transport = fetch_html_pages(
