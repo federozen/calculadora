@@ -238,6 +238,7 @@ def test_no_descenso_no_declara_salvado_si_promedios_aun_exigen_puntos(monkeypat
 
     import lpf_pisos as mod
     monkeypatch.setattr(mod, "safe_average_guarantee_points", lambda *args, **kwargs: 3)
+    monkeypatch.setattr(mod, "joint_relegation_exact_ladder", lambda *args, **kwargs: {"available": False})
 
     p = mod.piso_no_descenso(
         anual, rest, matches, "A", n_anual=1, prom_totales=prom_totales, n_prom=1,
@@ -259,6 +260,7 @@ def test_no_descenso_es_exacto_si_anual_manda_y_promedios_ya_quedan_cubiertos(mo
 
     import lpf_pisos as mod
     monkeypatch.setattr(mod, "safe_average_guarantee_points", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(mod, "joint_relegation_exact_ladder", lambda *args, **kwargs: {"available": False})
 
     p = mod.piso_no_descenso(
         anual, rest, matches, "A", n_anual=1, prom_totales=prom_totales, n_prom=1,
@@ -349,3 +351,28 @@ def test_lectura_de_objetivo_cumplido_puede_explicar_una_via_no_basada_en_puntos
         detalle="Ya está clasificado por una vía directa.",
     )
     assert p.lectura() == "Ya está clasificado por una vía directa."
+
+
+def test_no_descenso_usa_solver_conjunto_exacto_en_ultimas_ocho():
+    anual = {
+        "A": {"pts": 8}, "B": {"pts": 9},
+        "C": {"pts": 10}, "D": {"pts": 11},
+    }
+    matches = [("A", "B"), ("C", "D"), ("A", "C"), ("B", "D")]
+    rest = {team: 0 for team in anual}
+    for home, away in matches:
+        rest[home] += 1
+        rest[away] += 1
+    prom_totales = {
+        "A": (18, 20), "B": (19, 20),
+        "C": (25, 20), "D": (30, 20),
+    }
+    p = piso_no_descenso(
+        anual, rest, matches, "A", n_anual=1,
+        prom_totales=prom_totales, n_prom=1,
+    )
+    assert p.exacto is True
+    assert p.piso_exacto == 14
+    assert p.piso_conservador is None
+    assert p.caminos[-1][0] == 14
+    assert p.caminos[-1][1] == "seguro"

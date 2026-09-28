@@ -1,0 +1,16 @@
+CALCULADORA LPF 3.8.73
+
+ACTUALIZACION COPA ARGENTINA — 27/09/2026
+- Boca 3-2 Racing. Boca clasificado a semifinales y enfrentará a Banfield.
+- Atlético Tucumán ya está en semifinales.
+- Platense-Estudiantes de La Plata define el cuarto semifinalista el 01/10.
+- Equipos vivos usados por el motor: Banfield, Boca Juniors, Atlético Tucumán, Platense y Estudiantes de La Plata.
+
+CUENTAS EXACTAS DE ULTIMAS FECHAS
+- Playoffs: se activan cuando al equipo le quedan 8 partidos o menos.
+- Libertadores por Tabla Anual: 8 o menos.
+- Sudamericana por Tabla Anual: 8 o menos.
+- Descenso: 8 o menos, con cálculo conjunto Anual + Promedios.
+- Modo definición: 4 partidos o menos.
+
+VERSION: 3.8.73

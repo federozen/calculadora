@@ -1,0 +1,15 @@
+CALCULADORA LPF 3.8.72
+
+CAMBIO PRINCIPAL
+- Desde 8 partidos restantes o menos, Descenso 2026 ejecuta una cuenta exacta conjunta de Tabla General + promedios.
+- La cuenta aplica la regla de duplicación antes de declarar un mínimo que asegura.
+- Si no existe un total alcanzable que asegure la permanencia, lo informa expresamente.
+- Los empates en puestos de descenso se consideran no asegurados porque requieren desempate.
+
+ARCHIVOS CENTRALES MODIFICADOS
+- lpf_relegation.py
+- lpf_pisos.py
+- calculadora_futbol_argentino.py
+- lpf_version.py
+
+VERSIÓN: 3.8.72
