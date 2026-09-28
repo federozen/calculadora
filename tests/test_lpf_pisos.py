@@ -238,6 +238,7 @@ def test_no_descenso_no_declara_salvado_si_promedios_aun_exigen_puntos(monkeypat
 
     import lpf_pisos as mod
     monkeypatch.setattr(mod, "safe_average_guarantee_points", lambda *args, **kwargs: 3)
+    monkeypatch.setattr(mod, "joint_relegation_exact_ladder", lambda *args, **kwargs: {"available": False})
 
     p = mod.piso_no_descenso(
         anual, rest, matches, "A", n_anual=1, prom_totales=prom_totales, n_prom=1,
@@ -259,6 +260,7 @@ def test_no_descenso_es_exacto_si_anual_manda_y_promedios_ya_quedan_cubiertos(mo
 
     import lpf_pisos as mod
     monkeypatch.setattr(mod, "safe_average_guarantee_points", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(mod, "joint_relegation_exact_ladder", lambda *args, **kwargs: {"available": False})
 
     p = mod.piso_no_descenso(
         anual, rest, matches, "A", n_anual=1, prom_totales=prom_totales, n_prom=1,
