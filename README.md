@@ -1,10 +1,30 @@
-# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.70
+# Calculadora del Fútbol Argentino · LPF 2026 · versión 3.8.73
 
 Aplicación editorial en Python y Streamlit para analizar playoffs por zonas, Tabla Anual, Libertadores, Sudamericana, descenso, promedios y escenarios de una fecha.
 
 La versión vigente siempre está en `lpf_version.__version__` (única fuente de verdad compartida por Streamlit, auditoría y futuras interfaces). El historial completo está en `CHANGELOG.md`.
 
 
+
+
+## Novedad 3.8.73 · Copa Argentina al 27/09 y ventana exacta visible
+
+- Copa Argentina actualizada tras **Boca 3-2 Racing**: Boca y Banfield forman una semifinal.
+- Atlético Tucumán ya está en semifinales y espera al ganador de Platense-Estudiantes de La Plata (01/10).
+- El universo de equipos vivos para la asignación de copas queda en: Banfield, Boca Juniors, Atlético Tucumán, Platense y Estudiantes de La Plata.
+- Se mantiene una única regla de definición: **Playoffs, Libertadores y Sudamericana activan mínimo exacto y escalera exacta con 8 partidos propios o menos**; con **4 o menos** la UI marca *Modo definición*.
+
+## Novedad 3.8.72 · Descenso exacto conjunto en definición
+
+Con 8 partidos o menos, la permanencia se calcula con un solver exacto que cruza Tabla General, promedios, fixture pendiente y la regla de duplicación. La salida informa el **mínimo que asegura la permanencia** o, si no existe, aclara que ni el techo propio garantiza salvarse.
+
+
+## Novedad 3.8.71 · Descenso más claro e historial parcial no bloqueante
+
+- El aviso de historial incompleto deja de mostrarse como salvedad principal cuando la tabla autoritativa tiene un frente uniforme de PJ.
+- En el informe por equipo se aclara que el historial parcial no modifica PJ ni partidos restantes; sólo limita forma, racha y auditoría.
+- La pelea por el descenso deja de usar lenguaje de clasificación/copas y explica la lógica desde el fondo de la tabla.
+- Para la vía anual ya no se muestra la lista confusa de todos los equipos que podrían alcanzar el techo del consultado.
 
 ## Novedad 3.8.70 · TyC como fuente alternativa de los 135 marcadores
 

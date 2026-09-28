@@ -1,3 +1,27 @@
+## 3.8.73 — Copa Argentina actualizada y ventana exacta unificada
+
+- Actualiza Copa Argentina al 27/09/2026: Boca 3-2 Racing y clasificación de Boca a semifinales ante Banfield.
+- Mantiene como vivos a Banfield, Boca Juniors, Atlético Tucumán, Platense y Estudiantes de La Plata.
+- Migra automáticamente las fotos canónicas viejas de octavos/cuartos sin pisar una edición manual distinta.
+- El filtro de seguridad ya no permite reintroducir a Racing, Deportivo Riestra o Independiente Rivadavia como posibles campeones.
+- Documenta de forma explícita la misma ventana exacta para Playoffs y copas: 8 partidos propios o menos; Modo definición con 4 o menos.
+
+## 3.8.72 — Descenso exacto conjunto en últimas fechas
+
+- Con **8 partidos o menos**, el descenso deja de combinar una cuenta anual exacta con una referencia conservadora de promedios: usa un **MILP conjunto** que evalúa ambas vías en el mismo cierre de fixture.
+- El solver respeta la regla de duplicación: si un club ocupa la plaza de descenso por promedios, se lo excluye antes de resolver la plaza de la Tabla General.
+- Los empates en posiciones de descenso se tratan como **no asegurados**, porque requieren partido desempate.
+- La pantalla `Descenso 2026` agrega **Cuenta exacta conjunta · últimas fechas**, con mínimo que asegura la permanencia o confirmación de que ni el techo alcanza para asegurarla.
+- Se agrega una escalera de puntos finales (`seguro` / `no asegura`) calculada contra las dos vías al mismo tiempo.
+- Se elimina en la ventana exacta el mensaje editorial de “hace falta un chequeo exacto”: el chequeo ahora se ejecuta automáticamente cuando fixture y antecedentes de promedios están completos.
+
+## 3.8.71 · 2026-09-27
+
+- Historial parcial: la advertencia detallada queda en Datos y auditoría; en informes se muestra sólo una nota breve y no bloqueante.
+- Descenso anual: narrativa orientada a permanencia, con explicación explícita de que alcanza con dejar al menos un rival por debajo.
+- Descenso anual: se oculta la lista de “amenazas” pensada para copas, que resultaba engañosa para el fondo de la tabla.
+- Escenarios condicionados: “salvación condicionada” / “escenario de descenso” en lugar de “clasificación” / “eliminación”.
+
 ## 3.8.70 · 2026-09-17
 
 - Agrega **TyC Sports** como fuente alternativa de resultados completos del Clausura 2026. Se parsea la página única de fixture/resultados y se valida cada marcador contra `LPF_FIXTURE` y su `Fecha N`.

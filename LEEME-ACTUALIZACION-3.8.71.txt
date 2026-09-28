@@ -1,0 +1,15 @@
+ACTUALIZACION 3.8.70 -> 3.8.71
+
+CAMBIOS PRINCIPALES
+1. El historial partido a partido incompleto ya no aparece como una salvedad principal del informe cuando la tabla vigente tiene un frente uniforme de PJ. La tabla sigue siendo autoritativa para PJ y partidos restantes.
+2. La pantalla de Descenso 2026 usa lenguaje específico de permanencia. Para un equipo último, explica que debe dejar al menos a un rival por debajo y que la vía anual se cruza con el descenso por promedios.
+3. Se elimina del descenso la lista de 29 equipos que podían “alcanzar o superar” el techo del equipo consultado: era una visualización útil para copas, pero confusa para la pelea del fondo.
+4. Los escenarios con menos puntos se muestran como “salvación condicionada” y “escenario de descenso”.
+
+VALIDACION
+- Compila calculadora_futbol_argentino.py.
+- Pruebas nuevas de historial parcial y narrativa de descenso: OK.
+- test_lpf_relegation.py: 5/5 OK.
+- La suite heredada conserva dos fallas preexistentes no vinculadas a este cambio: una expectativa textual “Zona de pelea” y el orden de una nota diagnóstica de fuentes.
+
+Instalacion recomendada: subir el ZIP completo 3.8.71 al repositorio para no mezclar archivos de versiones anteriores.

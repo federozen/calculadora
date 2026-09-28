@@ -62,3 +62,58 @@ def test_editorial_story_does_not_pick_goal_difference_in_bottom_points_tie():
     assert "partido desempate" in text.lower()
     assert "hoy el último es **A**" not in text
     assert "hoy el último es **B**" not in text
+
+
+def test_joint_exact_relegation_matches_bruteforce_toy_case():
+    from itertools import product
+    from fractions import Fraction
+    from lpf_relegation import joint_relegation_exact_ladder
+
+    annual = {
+        "A": {"pts": 8}, "B": {"pts": 9},
+        "C": {"pts": 10}, "D": {"pts": 11},
+    }
+    matches = [("A", "B"), ("C", "D"), ("A", "C"), ("B", "D")]
+    remaining = {team: 0 for team in annual}
+    for home, away in matches:
+        remaining[home] += 1
+        remaining[away] += 1
+    average_totals = {
+        "A": (18, 20), "B": (19, 20),
+        "C": (25, 20), "D": (30, 20),
+    }
+
+    reachable = sorted({8 + 3 * wins + draws for wins in range(3) for draws in range(3 - wins)})
+    unsafe = {points: False for points in reachable}
+    for outcomes in product(range(3), repeat=len(matches)):
+        gains = {team: 0 for team in annual}
+        for (home, away), outcome in zip(matches, outcomes):
+            ph, pa = ((3, 0), (1, 1), (0, 3))[outcome]
+            gains[home] += ph
+            gains[away] += pa
+        final_a = annual["A"]["pts"] + gains["A"]
+        ratios = {
+            team: Fraction(average_totals[team][0] + gains[team], average_totals[team][1] + remaining[team])
+            for team in annual
+        }
+        bottom_avg = [team for team, value in ratios.items() if value == min(ratios.values())]
+        if "A" in bottom_avg:
+            unsafe[final_a] = True
+            continue
+        finals = {team: annual[team]["pts"] + gains[team] for team in annual}
+        for avg_drop in bottom_avg:
+            remaining_annual = [team for team in annual if team != avg_drop]
+            if finals["A"] == min(finals[team] for team in remaining_annual):
+                unsafe[final_a] = True
+                break
+
+    expected = next(points for points in reachable if not unsafe[points])
+    result = joint_relegation_exact_ladder(
+        annual, remaining, matches, average_totals, "A",
+        annual_relegations=1, average_relegations=1,
+    )
+    assert result["available"] is True
+    assert result["guarantee"] == expected == 14
+    assert {row["final_points"]: row["safe"] for row in result["rows"]} == {
+        points: (not unsafe[points]) for points in reachable
+    }

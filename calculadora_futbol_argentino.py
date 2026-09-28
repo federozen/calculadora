@@ -699,10 +699,11 @@ if "ZONAS"              not in st.session_state: st.session_state.ZONAS         
 if "ZONAS_TXT"          not in st.session_state: st.session_state.ZONAS_TXT          = ""
 
 # Copa Argentina 2026 · control de equipos todavía vivos.
-# La foto vieja de octavos se conserva sólo para migrar session_state de releases
-# anteriores. La foto canónica vigente es la de cuartos confirmada el 08/09/2026.
+# Foto oficial al 27/09/2026: Banfield, Atlético Tucumán y Boca ya están en
+# semifinales; Platense y Estudiantes de La Plata juegan el cuarto cruce el 01/10.
 COPA_ARGENTINA_FIXTURE_OFICIAL = "https://www.copaargentina.org/es/fixture.html"
 COPA_ARGENTINA_CUARTOS_OFICIAL = "https://www.copaargentina.org/es/news/11971_Diez-datos-en-la-previa-a-los-Cuartos-de-Final.html"
+COPA_ARGENTINA_BOCA_RACING_OFICIAL = "https://www.copaargentina.org/es/news/11984_Boca-obtuvo-una-victoria-epica-ante-Racing-y-esta-en-Semifinales.html"
 COPA_ARGENTINA_CUADRO_ESPN = "https://www.espn.com.ar/futbol/argentina/nota/_/id/16215014/copa-argentina-2026-asi-esta-el-cuadro-llave-fase-final"
 COPA_ARGENTINA_OCTAVOS_2026 = [
     "Banfield", "Ferrocarril Midland", "Atlético Tucumán", "Independiente",
@@ -715,33 +716,42 @@ COPA_ARGENTINA_CUARTOS_2026 = [
     "Atlético Tucumán", "Independiente Rivadavia",
     "Estudiantes de La Plata", "Platense",
 ]
-COPA_ARGENTINA_CUARTOS_UPDATED = "08/09/2026 · cuadro de cuartos completo"
-COPA_ARGENTINA_CUARTOS_SOURCE = "Sitio oficial de Copa Argentina · previa de Cuartos de Final"
+COPA_ARGENTINA_VIVOS_2026 = [
+    "Banfield", "Boca Juniors", "Atlético Tucumán",
+    "Estudiantes de La Plata", "Platense",
+]
+COPA_ARGENTINA_CURRENT_UPDATED = "27/09/2026 · Boca 3-2 Racing; tres semifinalistas confirmados"
+COPA_ARGENTINA_CURRENT_SOURCE = "Sitio oficial de Copa Argentina · Boca 3-2 Racing (Cuartos de Final)"
 
+# Fotos canónicas anteriores que se migran automáticamente. Una edición manual
+# distinta se respeta para no pisar trabajo de redacción.
 _old_copa_default = list(COPA_ARGENTINA_OCTAVOS_2026)
+_prev_copa_default = list(COPA_ARGENTINA_CUARTOS_2026)
 _old_copa_text = "\n".join(_old_copa_default)
+_prev_copa_text = "\n".join(_prev_copa_default)
 if "LPF_COPA_ARG_VIVOS" not in st.session_state:
-    st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_CUARTOS_2026)
+    st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_VIVOS_2026)
 else:
-    # Migración automática: un usuario que tenía abierta la app antes del cambio
-    # puede conservar session_state aun después del redeploy. Sólo reemplazamos la
-    # foto histórica exacta de octavos; una lista editada manualmente se respeta.
     _saved_copa = list(st.session_state.get("LPF_COPA_ARG_VIVOS") or [])
     _saved_updated = str(st.session_state.get("LPF_COPA_ARG_UPDATED") or "")
-    if _saved_copa == _old_copa_default or _saved_updated.startswith("18/07/2026"):
-        st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_CUARTOS_2026)
-        st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CUARTOS_UPDATED
-        st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CUARTOS_SOURCE
+    if (
+        _saved_copa in (_old_copa_default, _prev_copa_default)
+        or _saved_updated.startswith("18/07/2026")
+        or _saved_updated.startswith("08/09/2026")
+    ):
+        st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_VIVOS_2026)
+        st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CURRENT_UPDATED
+        st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CURRENT_SOURCE
 if "LPF_COPA_ARG_UPDATED" not in st.session_state:
-    st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CUARTOS_UPDATED
+    st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CURRENT_UPDATED
 if "LPF_COPA_ARG_SOURCE" not in st.session_state:
-    st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CUARTOS_SOURCE
+    st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CURRENT_SOURCE
 if "LPF_COPA_ARG_REEMPLAZO" not in st.session_state:
     st.session_state.LPF_COPA_ARG_REEMPLAZO = ""
 if "lpf_copa_arg_alive_txt" not in st.session_state:
     st.session_state.lpf_copa_arg_alive_txt = "\n".join(st.session_state.LPF_COPA_ARG_VIVOS)
-elif str(st.session_state.get("lpf_copa_arg_alive_txt") or "").strip() == _old_copa_text.strip():
-    st.session_state.lpf_copa_arg_alive_txt = "\n".join(COPA_ARGENTINA_CUARTOS_2026)
+elif str(st.session_state.get("lpf_copa_arg_alive_txt") or "").strip() in {_old_copa_text.strip(), _prev_copa_text.strip()}:
+    st.session_state.lpf_copa_arg_alive_txt = "\n".join(COPA_ARGENTINA_VIVOS_2026)
 
 def _secret(k, default=""):
     try:
@@ -2931,10 +2941,18 @@ def promedio_que_necesita_texto(e, base, rest, prev, k=1, pend=None):
                 "Un empate de promedio se considera desfavorable para no declarar una salvación prematura."
             )
         else:
-            L.append(
-                "El total seguro queda fuera de su alcance incluso ganando todo. Eso **no prueba por sí "
-                "solo** que su máximo sea insuficiente: para afirmarlo hace falta un chequeo exacto del fixture."
-            )
+            if int(d.get("r", 0)) <= VENTANA_EXACTA:
+                L.append(
+                    "El total seguro por promedios queda fuera de su alcance incluso ganando todo. Esta referencia, "
+                    "tomada de manera aislada, no decide la permanencia: en la ventana de últimas fechas manda la "
+                    "**cuenta exacta conjunta** de Tabla General + promedios."
+                )
+            else:
+                L.append(
+                    "El total seguro por promedios queda fuera de su alcance incluso ganando todo. Eso no prueba por sí "
+                    f"solo que su máximo sea insuficiente: la cuenta exacta conjunta se activa cuando queden {VENTANA_EXACTA} "
+                    "partidos o menos."
+                )
 
         # En el escenario explícito de ganar todos, cada rival directo pierde ese
         # encuentro y no puede conservar su techo individual general.
@@ -3112,15 +3130,87 @@ def lpf_descenso_texto(Z, rest, apertura=None, prev=None, n_anual=1, n_prom=1, e
                 tit = (f"{equipo} tiene un total seguro de puntos al alcance para salvarse por la Tabla General, "
                        "pero el mínimo exacto todavía debe comprobarse.")
             else:
-                tit = (f"{equipo} sigue en pelea por la Tabla General. El total seguro queda fuera de su techo, "
-                       "pero eso no prueba que necesite ayuda: la dependencia exacta debe resolverla el motor completo.")
+                tit = (f"{equipo} sigue en pelea por la Tabla General. No tiene una salvación garantizada por puntos: "
+                       "necesita terminar por encima de al menos un rival y el desenlace exacto depende de los resultados pendientes.")
         L = [f"## {equipo} · Descenso 2026", f"**{tit}**",
              f"Bajan **{n_anual}** por la Tabla General y **{n_prom}** por promedios. "
              f"Hay que zafar de **las dos** tablas: alcanza con caer en una para descender.",
              f"En la anual está **{pos_anual}º de {n}** con **{pts_e} puntos** y **{gx} partidos** por jugar "
              f"({3*gx} en juego); su techo es **{techo}**."]
+
+        # En las últimas ocho fechas la cuenta sensible se hace de manera conjunta:
+        # anual + promedios + fixture + regla de duplicación. No se publican dos
+        # mínimos independientes como si la interacción entre tablas no existiera.
+        prom_tot = promedio_totales(anual, Z, prev or {})
+        joint_floor = None
+        if gx <= VENTANA_EXACTA and prom_tot and pend:
+            joint_floor = piso_no_descenso(
+                anual, rest, list(pend), equipo,
+                n_anual=n_anual, prom_totales=prom_tot, n_prom=n_prom,
+            )
+            L.append("## 🧮 Cuenta exacta conjunta · últimas fechas")
+            L.append(
+                f"A **{equipo} le quedan {gx} partidos**, por lo que ya está dentro de la ventana exacta de "
+                f"**{VENTANA_EXACTA} o menos**. Desde acá el cálculo cruza en una sola prueba la Tabla General, "
+                "los promedios, todos los partidos pendientes y la regla de que el descendido por promedio se "
+                "excluye al resolver el descenso por la anual."
+            )
+            if joint_floor.exacto and joint_floor.piso_exacto is not None:
+                exact_total = int(joint_floor.piso_exacto)
+                L[1] = (
+                    f"**{equipo} está en ventana de definición: el mínimo exacto conjunto para asegurar la permanencia "
+                    f"es {exact_total} puntos.**"
+                )
+                faltan_exactos = max(0, exact_total - pts_e)
+                L.append(
+                    f"🔒 **Mínimo que asegura la permanencia: {exact_total} puntos.** "
+                    f"Necesita sumar **{faltan_exactos}** de los **{3 * gx}** que quedan. "
+                    "Con ese total no existe ningún cierre compatible que lo haga descender por ninguna de las dos vías."
+                )
+            elif joint_floor.exacto:
+                L[1] = (
+                    f"**{equipo} está en ventana de definición y no tiene un total de puntos que, por sí solo, "
+                    "asegure la permanencia: incluso su techo conserva al menos un cierre de descenso.**"
+                )
+                L.append(
+                    f"⚠️ **No existe un total alcanzable que asegure la permanencia.** Incluso llegando a su techo de "
+                    f"**{techo} puntos**, el solver conjunto encontró al menos un cierre compatible en el que puede "
+                    "descender por promedios o por la Tabla General después de aplicar la regla de duplicación."
+                )
+            else:
+                L.append(
+                    "⚠️ La ventana exacta ya corresponde, pero el solver conjunto no pudo certificarse con la foto actual. "
+                    "Revisá que el fixture pendiente y los antecedentes de promedios estén completos antes de publicar una garantía."
+                )
+
+            if joint_floor.exacto and joint_floor.caminos:
+                L.append("### Escalera exacta de puntos finales")
+                # Mostrar sólo los totales alcanzables cercanos a la definición para
+                # mantener la salida legible. Cada fila ya fue probada contra ambas vías.
+                rows = list(joint_floor.caminos)
+                if len(rows) > 8:
+                    rows = rows[-8:]
+                for total_final, estado_joint, detalle_joint in rows:
+                    if estado_joint == "seguro":
+                        L.append(f"- **{total_final} puntos:** ✅ permanencia asegurada.")
+                    else:
+                        via = "promedios" if "promedio" in detalle_joint.lower() and "tabla general" not in detalle_joint.lower() else "Tabla General"
+                        L.append(f"- **{total_final} puntos:** ⚠️ no asegura; todavía existe un cierre de descenso por {via}.")
+
         L.append("## Vía 1 · Tabla General (anual)")
-        L += _copas_bloque_objetivo(equipo, anual, rest, pend, k_salvarse, "Permanencia por la anual", modo="salvarse")
+        L.append(
+            f"Para salvarse por esta vía, **{equipo} debe terminar {k_salvarse}º o mejor**. "
+            f"Hoy está {pos_anual}º: no necesita superar a toda la tabla, sino conseguir que **al menos un equipo** "
+            "termine por debajo suyo entre los que sigan computando para el descenso por la anual."
+        )
+        L.append(
+            "La lectura final se cruza con promedios: si el último de la anual también desciende por promedio, "
+            "esa plaza de descenso anual pasa al siguiente peor equipo."
+        )
+        L += _copas_bloque_objetivo(
+            equipo, anual, rest, pend, k_salvarse, "Permanencia por la anual",
+            modo="salvarse", mostrar_amenazas=False
+        )
         L.append("## Vía 2 · Promedios")
         L.append(promedio_que_necesita_texto(equipo, anual, rest, prev or {}, n_prom, pend))
         if pend:
@@ -3232,14 +3322,14 @@ def _lpf_copa_arg_alive_for_annual(anual, vivos=None):
     """Wrapper Streamlit de los equipos vivos en Copa Argentina 2026.
 
     Además de normalizar nombres contra la Tabla Anual, aplica como techo la
-    última instancia oficialmente confirmada (cuartos). Así una sesión vieja de
-    octavos no puede volver a presentar a un eliminado como posible campeón.
+    foto oficial vigente. Así una sesión vieja no puede volver a presentar como
+    posible campeón a Racing, Riestra o Independiente Rivadavia, ya eliminados.
     Las futuras actualizaciones manuales sólo pueden reducir este conjunto.
     """
     if vivos is None:
         vivos = st.session_state.get("LPF_COPA_ARG_VIVOS") or []
     return _qualification_copa_argentina_alive(
-        anual, vivos, eligible_pool=COPA_ARGENTINA_CUARTOS_2026
+        anual, vivos, eligible_pool=COPA_ARGENTINA_VIVOS_2026
     )
 
 def _lpf_copa_snapshot(updated="", source=""):
@@ -3716,7 +3806,8 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
             L.append(
                 f"**No existe un total alcanzable que asegure el objetivo.** Incluso ganando sus {gx} partidos y llegando a "
                 f"**{techo} puntos**, el motor encontró al menos una combinación compatible que puede dejarlo afuera. "
-                "Como ése es su máximo, ningún puntaje menor puede asegurar la clasificación."
+                + ("Como ése es su máximo, ningún puntaje menor puede asegurar la permanencia." if salva else
+                 "Como ése es su máximo, ningún puntaje menor puede asegurar la clasificación.")
             )
         elif max_fail_exact is False:
             L.append(
@@ -3758,14 +3849,22 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
         if conditioned:
             L.append("### Cómo puede alcanzar con menos")
             L.append(
-                "Estos puntajes todavía permiten clasificar en algunos escenarios, pero no aseguran el objetivo:"
+                ("Estos puntajes todavía permiten salvarse en algunos escenarios, pero no aseguran la permanencia:"
+                 if salva else
+                 "Estos puntajes todavía permiten clasificar en algunos escenarios, pero no aseguran el objetivo:")
             )
             for row in conditioned[-4:]:
                 example = "; ".join(row.example[:3]) if row.example else "una combinación favorable de resultados"
-                L.append(
-                    f"- **{row.final_points} puntos:** clasificación condicionada. Un camino posible incluye "
-                    f"{example}; también existe un escenario de eliminación."
-                )
+                if salva:
+                    L.append(
+                        f"- **{row.final_points} puntos:** salvación condicionada. Un camino posible incluye "
+                        f"{example}; también existe un escenario de descenso."
+                    )
+                else:
+                    L.append(
+                        f"- **{row.final_points} puntos:** clasificación condicionada. Un camino posible incluye "
+                        f"{example}; también existe un escenario de eliminación."
+                    )
             if guarantee_exact and meta_exacta is not None:
                 L.append(f"- **{meta_exacta} puntos:** mínimo que asegura el objetivo.")
 
@@ -5909,11 +6008,11 @@ with st.sidebar:
                         st.session_state.LPF_COPA_ARG_SOURCE = "ESPN API · arg.copa" + (f" · {_nota_espn}" if _nota_espn else "")
                         ui_success(f"Cotejo aplicado: {len(_vivos_espn)} equipos en partidos pendientes.")
                         st.rerun()
-                if _ca2.button("Restaurar cuadro actual de cuartos", use_container_width=True, key="lpf_ca_reset"):
-                    st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_CUARTOS_2026)
-                    st.session_state.lpf_copa_arg_alive_txt = "\n".join(COPA_ARGENTINA_CUARTOS_2026)
-                    st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CUARTOS_UPDATED
-                    st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CUARTOS_SOURCE
+                if _ca2.button("Restaurar cuadro oficial actual", use_container_width=True, key="lpf_ca_reset"):
+                    st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_VIVOS_2026)
+                    st.session_state.lpf_copa_arg_alive_txt = "\n".join(COPA_ARGENTINA_VIVOS_2026)
+                    st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CURRENT_UPDATED
+                    st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CURRENT_SOURCE
                     st.rerun()
                 _ca_txt = st.text_area(
                     "Un equipo por línea", key="lpf_copa_arg_alive_txt", height=150,
@@ -5923,11 +6022,11 @@ with st.sidebar:
                 ui_caption(
                     f"Foto: {st.session_state.get('LPF_COPA_ARG_UPDATED','sin fecha')} · "
                     f"{st.session_state.get('LPF_COPA_ARG_SOURCE','sin fuente')}. "
-                    "Filtro de seguridad 2026: los eliminados antes de cuartos no pueden volver a liberar cupos aunque persistan en una sesión vieja. "
-                    "Después de cada cruce de cuartos, actualizá esta lista con los sobrevivientes."
+                    "Filtro de seguridad 2026: sólo quedan habilitados los equipos oficialmente vivos en la foto vigente. "
+                    "Boca ya eliminó a Racing y está en semifinales ante Banfield; Atlético Tucumán espera al ganador de Platense-Estudiantes LP."
                 )
                 ui_markdown(
-                    f"[Abrir previa oficial de cuartos]({COPA_ARGENTINA_CUARTOS_OFICIAL}) · "
+                    f"[Boca 3-2 Racing · oficial]({COPA_ARGENTINA_BOCA_RACING_OFICIAL}) · "
                     f"[Abrir fixture oficial]({COPA_ARGENTINA_FIXTURE_OFICIAL}) · "
                     f"[Abrir cuadro de ESPN]({COPA_ARGENTINA_CUADRO_ESPN})"
                 )
@@ -9144,13 +9243,24 @@ def render_newsroom(E):
             "descenso": {"promedios", "annual", "data"},
         }
         _relevant_domains = _domains_by_report.get(_domain, {_domain, "data"})
+        _history_partial_issues = [
+            issue for issue in _quality.issues
+            if issue.level == "warning" and issue.code == "fixture_history_partial"
+        ]
         _relevant_warnings = [issue for issue in _quality.issues
-                              if issue.level == "warning" and issue.domain in _relevant_domains]
+                              if issue.level == "warning"
+                              and issue.domain in _relevant_domains
+                              and issue.code != "fixture_history_partial"]
         _other_blocks = [issue for issue in _quality.issues
                          if issue.level == "blocked" and issue.domain not in _relevant_domains]
         if _relevant_warnings:
             ui_warning("🟡 **Este informe es utilizable, pero tiene estas salvedades:** "
                        + "; ".join(issue.message for issue in _relevant_warnings[:5]))
+        if _history_partial_issues:
+            ui_caption(
+                "Historial de marcadores parcial: no cambia los PJ de la tabla ni los partidos restantes; "
+                "sólo puede limitar forma, racha y la auditoría partido a partido."
+            )
         if _other_blocks:
             _areas = ", ".join(sorted({issue.domain for issue in _other_blocks}))
             ui_info(f"Hay bloqueos pendientes en otras áreas ({_areas}), pero **no afectan este informe de {objective.lower()}**.")
