@@ -9134,17 +9134,24 @@ def render_newsroom(E):
     m3.metric("Tabla Anual", f"{len(annual)} equipos")
     m4.metric("Regla", "LPF 2026 oficial")
     _quality = _lpf_refresh_quality(E)
-    _niv = "ok" if _quality.level == "ok" else "parcial"
-    _faltan = [issue.message for issue in _quality.issues]
+    # El historial parcial no invalida la foto autoritativa ni las cuentas de competencia.
+    # Se conserva exclusivamente en Datos y auditoría para no contaminar la interfaz operativa.
+    _operational_issues = [
+        issue for issue in _quality.issues
+        if issue.code != "fixture_history_partial"
+    ]
+    _blocked_operational = [issue for issue in _operational_issues if issue.level == "blocked"]
+    _warning_operational = [issue for issue in _operational_issues if issue.level == "warning"]
+    _niv = "ok" if not _operational_issues else "parcial"
     _det = list(_quality.details)
-    if _quality.level == "ok":
-        ui_success("🟢 **Datos completos y coherentes.** " + " · ".join(_det))
+    if not _operational_issues:
+        ui_success("🟢 **Tabla vigente coherente para los cálculos.**")
     else:
-        _icon = "🔴" if _quality.level == "blocked" else "🟡"
-        _label = "Hay cálculos bloqueados" if _quality.level == "blocked" else "Hay advertencias para revisar"
+        _icon = "🔴" if _blocked_operational else "🟡"
+        _label = "Hay cálculos bloqueados" if _blocked_operational else "Hay advertencias para revisar"
         ui_warning(f"{_icon} **{_label}.** Abrí **Datos y auditoría** antes de publicar.")
-        with st.expander("Problemas y datos cargados", expanded=_quality.level == "blocked"):
-            for _issue in _quality.issues:
+        with st.expander("Problemas y datos cargados", expanded=bool(_blocked_operational)):
+            for _issue in _operational_issues:
                 ui_markdown(f"- **{_issue.domain}:** {_issue.message}")
             for _d in _det:
                 ui_caption(_d)
@@ -9243,10 +9250,6 @@ def render_newsroom(E):
             "descenso": {"promedios", "annual", "data"},
         }
         _relevant_domains = _domains_by_report.get(_domain, {_domain, "data"})
-        _history_partial_issues = [
-            issue for issue in _quality.issues
-            if issue.level == "warning" and issue.code == "fixture_history_partial"
-        ]
         _relevant_warnings = [issue for issue in _quality.issues
                               if issue.level == "warning"
                               and issue.domain in _relevant_domains
@@ -9256,11 +9259,6 @@ def render_newsroom(E):
         if _relevant_warnings:
             ui_warning("🟡 **Este informe es utilizable, pero tiene estas salvedades:** "
                        + "; ".join(issue.message for issue in _relevant_warnings[:5]))
-        if _history_partial_issues:
-            ui_caption(
-                "Historial de marcadores parcial: no cambia los PJ de la tabla ni los partidos restantes; "
-                "sólo puede limitar forma, racha y la auditoría partido a partido."
-            )
         if _other_blocks:
             _areas = ", ".join(sorted({issue.domain for issue in _other_blocks}))
             ui_info(f"Hay bloqueos pendientes en otras áreas ({_areas}), pero **no afectan este informe de {objective.lower()}**.")
