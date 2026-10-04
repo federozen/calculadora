@@ -6,6 +6,21 @@ La versión vigente está en ``lpf_version.__version__`` (única fuente de verda
 El historial completo está en ``CHANGELOG.md``.
 """
 
+from pathlib import Path
+import sys
+
+# El motor vive en /core para mantener limpia la raíz del repositorio.
+_CORE_DIR = Path(__file__).resolve().parent / "core"
+if str(_CORE_DIR) not in sys.path:
+    sys.path.insert(0, str(_CORE_DIR))
+
+# En Vercel la app corre en el navegador (stlite/Pyodide): las consultas HTTP
+# salen por la función /api/proxy del mismo deploy. En local no cambia nada.
+import web_http as _web_http
+_web_http.install()
+import os
+from lpf_loading import results_text
+
 from lpf_version import __version__
 
 import streamlit as st
@@ -47,13 +62,14 @@ from lpf_models import DataQualityReport
 from lpf_competition_narratives import (
     libertadores_story, relegation_story, round_preview_story, sudamericana_story, zone_story,
 )
-from lpf_scenarios import can_fail_with_points, can_finish_exact_rank_by_points, exact_objective_result_states, exact_result_scenarios, point_ladder, scenario_rank_bounds, best_worst_window_scenarios, reachable_point_totals
+from lpf_scenarios import can_fail_with_points, can_qualify_with_points, can_finish_exact_rank_by_points, exact_objective_result_states, exact_result_scenarios, point_ladder, scenario_rank_bounds, best_worst_window_scenarios, reachable_point_totals
 from lpf_pisos import (
     VENTANA_EXACTA, piso_no_descenso, piso_por_corte, pisos_de_equipo,
     promedio_totales, tabla_pisos_objetivo,
 )
 from lpf_competitive_context import competition_context, historical_reference
-from lpf_conditionals import branch_explanation, key_rival_matrix, next_round_conditionals
+from lpf_conditionals import branch_explanation, editorial_blocks, ordered_editorial_blocks, key_rival_matrix, next_round_conditionals
+from lpf_editorial_round import build_round_article, round_start_snapshot
 from lpf_editorial_definition import (
     all_teams_matrix, branch_cell, branch_state, definition_clock, fight_zone,
     definition_guarantee as _editorial_definition_guarantee,
@@ -341,6 +357,20 @@ def ui_dataframe(data, *args, **kwargs):
     frame = editorialize_frame(data)
     if hasattr(frame, "attrs"):
         frame.attrs.update(original_attrs)
+    if isinstance(frame, pd.DataFrame):
+        # Columnas con números y textos mezclados («—», «No calculado») rompen la
+        # conversión a Arrow y fuerzan un camino lento: se muestran como texto.
+        _mixed = [
+            col for col in frame.columns
+            if frame[col].dtype == object
+            and len({type(v) for v in frame[col] if v is not None and v == v}) > 1
+        ]
+        if _mixed:
+            _attrs = dict(frame.attrs)
+            frame = frame.copy()
+            for col in _mixed:
+                frame[col] = frame[col].map(lambda v: "" if v is None or v != v else str(v))
+            frame.attrs.update(_attrs)
     result = _ST_DATAFRAME(frame, *args, **kwargs)
     if exportable and isinstance(frame, pd.DataFrame) and not frame.empty:
         _UI_TABLE_SEQUENCE += 1
@@ -649,12 +679,18 @@ def next_round_rank_bounds(
     next_round_rank_bounds = _ns_exact['next_round_rank_bounds']
     safe_guarantee_line = _ns_exact['safe_guarantee_line']
 
+@st.cache_data(show_spinner="Calculando la cuenta exacta conjunta de descenso…", max_entries=64)
+def _piso_no_descenso_cached(anual, rest, pend, equipo, n_anual=1, prom_totales=None, n_prom=1):
+    """Cachea el solver conjunto (Anual + promedios): en el navegador tarda varios segundos."""
+    return piso_no_descenso(anual, rest, pend, equipo, n_anual=n_anual, prom_totales=prom_totales, n_prom=n_prom)
+
+
 # ─── CONFIG ─────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title=f"⚽ Calculadora del Fútbol Argentino · v{__version__}",
+    page_title="Calculadora LPF 2026",
     page_icon="⚽",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 ui_markdown("""
@@ -3192,7 +3228,7 @@ def lpf_descenso_texto(Z, rest, apertura=None, prev=None, n_anual=1, n_prom=1, e
         prom_tot = promedio_totales(anual, Z, prev or {})
         joint_floor = None
         if gx <= VENTANA_EXACTA and prom_tot and pend:
-            joint_floor = piso_no_descenso(
+            joint_floor = _piso_no_descenso_cached(
                 anual, rest, list(pend), equipo,
                 n_anual=n_anual, prom_totales=prom_tot, n_prom=n_prom,
             )
@@ -3238,12 +3274,46 @@ def lpf_descenso_texto(Z, rest, apertura=None, prev=None, n_anual=1, n_prom=1, e
                 rows = list(joint_floor.caminos)
                 if len(rows) > 8:
                     rows = rows[-8:]
+                L.append(
+                    "Cada total se probó contra **todos** los cierres posibles del fixture pendiente. "
+                    "«No asegura» quiere decir que existe al menos un cierre real en el que desciende; "
+                    "no que vaya a pasar."
+                )
                 for total_final, estado_joint, detalle_joint in rows:
                     if estado_joint == "seguro":
-                        L.append(f"- **{total_final} puntos:** ✅ permanencia asegurada.")
+                        L.append(f"- **{total_final} puntos · ✅ asegurado.** Con ese total se salva por las dos vías, pase lo que pase.")
+                        continue
+                    low = detalle_joint.lower()
+                    if "promedios" in low and "tabla general" not in low:
+                        L.append(
+                            f"- **{total_final} puntos · ⚠️ no asegura (promedios).** Aun sumando hasta {total_final}, "
+                            "existe un cierre en el que termina último (o empatado último) en la tabla de promedios."
+                        )
+                        continue
+                    import re as _re_joint
+                    _cand = _re_joint.search(r"\((.+?) puede ocupar la plaza por promedios\)", detalle_joint)
+                    _cand_name = _cand.group(1) if _cand else None
+                    below_now = sorted(
+                        ((x, int(anual[x]["pts"])) for x in anual
+                         if x != equipo and int(anual[x]["pts"]) < int(total_final)),
+                        key=lambda kv: (kv[1], kv[0]),
+                    )
+                    texto = (
+                        f"- **{total_final} puntos · ⚠️ no asegura (Tabla General).** Existe un cierre en el que "
+                        f"{equipo} queda último de la Tabla General"
+                        + (f" (por ejemplo, con {_cand_name} descendiendo por promedios)" if _cand_name else "")
+                        + ". "
+                    )
+                    if below_now:
+                        quien = ", ".join(f"{x} (hoy {p})" for x, p in below_now[:6]) + (
+                            f" y {len(below_now) - 6} más" if len(below_now) > 6 else "")
+                        texto += (
+                            f"Con {total_final} necesita que **al menos un equipo que no descienda por promedios** "
+                            f"termine por debajo. Hoy tienen menos de {total_final}: {quien}."
+                        )
                     else:
-                        via = "promedios" if "promedio" in detalle_joint.lower() and "tabla general" not in detalle_joint.lower() else "Tabla General"
-                        L.append(f"- **{total_final} puntos:** ⚠️ no asegura; todavía existe un cierre de descenso por {via}.")
+                        texto += f"Ningún otro rival tiene hoy menos de {total_final}."
+                    L.append(texto + " Un empate en el último lugar obliga a partido desempate.")
 
         L.append("## Vía 1 · Tabla General (anual)")
         L.append(
@@ -3896,27 +3966,91 @@ def _copas_bloque_objetivo(equipo, base_red, rest, pend, k, nombre_obj, modo="en
         conditioned = [row for row in ladder["rows"] if not row.guaranteed]
         if conditioned:
             L.append("### Cómo puede alcanzar con menos")
-            L.append(
-                ("Estos puntajes todavía permiten salvarse en algunos escenarios, pero no aseguran la permanencia:"
-                 if salva else
-                 "Estos puntajes todavía permiten clasificar en algunos escenarios, pero no aseguran el objetivo:")
-            )
+            L.append(_ladder_intro_text(equipo, salva, k, len(base_red)))
             for row in conditioned[-4:]:
-                example = "; ".join(row.example[:3]) if row.example else "una combinación favorable de resultados"
-                if salva:
-                    L.append(
-                        f"- **{row.final_points} puntos:** salvación condicionada. Un camino posible incluye "
-                        f"{example}; también existe un escenario de descenso."
-                    )
-                else:
-                    L.append(
-                        f"- **{row.final_points} puntos:** clasificación condicionada. Un camino posible incluye "
-                        f"{example}; también existe un escenario de eliminación."
-                    )
+                L.extend(_ladder_row_lines(row, salva, len(base_red), k))
             if guarantee_exact and meta_exacta is not None:
-                L.append(f"- **{meta_exacta} puntos:** mínimo que asegura el objetivo.")
+                L.append(
+                    f"- **{meta_exacta} puntos · asegurado.** "
+                    + ("Con ese total se salva pase lo que pase." if salva else
+                       "Con ese total entra pase lo que pase, sin depender de nadie ni del desempate.")
+                )
 
     return L
+
+def _ladder_short_list(items, limit=8):
+    items = list(items or [])
+    if not items:
+        return ""
+    shown = items[:limit]
+    text = ", ".join(shown[:-1]) + (" y " + shown[-1] if len(shown) > 1 else shown[0])
+    if len(items) > limit:
+        text = ", ".join(shown) + f" y {len(items) - limit} más"
+    return text
+
+
+def _ladder_intro_text(equipo, salva, cutoff, n_teams):
+    return (
+        f"Con estos totales {equipo} **no depende sólo de sí mismo**: "
+        + ("la permanencia se define por lo que hagan los de abajo. " if salva else "entra o no según lo que hagan los rivales. ")
+        + "Para cada total se indica la condición exacta y dos cierres reales posibles del fixture pendiente "
+        "(uno a favor y uno en contra; no son los únicos)."
+    )
+
+
+def _ladder_row_lines(row, salva, n_teams, cutoff=None):
+    pts = int(row.final_points)
+    lines = []
+    if salva:
+        stay = list(getattr(row, "rivals_can_stay_below", []) or [])
+        need = max(1, int(n_teams) - int(cutoff)) if cutoff else 1
+        lines.append(
+            f"- **{pts} puntos · depende de otros.** Hoy **{len(stay)}** rival{'es' if len(stay) != 1 else ''} "
+            f"tiene{'n' if len(stay) != 1 else ''} menos de {pts}"
+            + (f": {_ladder_short_list(stay)}" if stay else "")
+            + f". Para salvarse necesita que **al menos {need}** de ellos siga{'n' if need != 1 else ''} por debajo."
+        )
+        below_in = list(getattr(row, "rivals_below_if_in", []) or [])
+        below_out = list(getattr(row, "rivals_below_if_out", []) or [])
+        if below_in:
+            lines.append(f"    - ✅ Se salva, por ejemplo, si terminan por debajo {_ladder_short_list(below_in)}.")
+        lines.append(
+            "    - ❌ Desciende, por ejemplo, si "
+            + (f"sólo queda{'n' if len(below_out) != 1 else ''} por debajo {_ladder_short_list(below_out)} y no alcanza."
+               if below_out else f"todos los demás llegan a {pts} o más.")
+        )
+        return lines
+    reach = list(getattr(row, "rivals_can_reach", []) or [])
+    max_above = int(getattr(row, "max_rivals_above", 0) or 0)
+    need = len(reach) - max_above
+    head = (
+        f"- **{pts} puntos · depende de otros.** Hoy **{len(reach)}** rivales todavía pueden llegar a {pts} o más"
+        + (f": {_ladder_short_list(reach)}" if reach else "")
+        + ". "
+    )
+    if need > 0:
+        head += (
+            f"Para entrar necesita que **al menos {need} de ellos no lleguen** a {pts}; "
+            "si alguno lo iguala, decide el desempate."
+        )
+    else:
+        head += "Aunque todos llegaran, sólo lo dejaría afuera un desempate adverso."
+    lines.append(head)
+    passing = list(getattr(row, "rivals_passing_if_out", []) or [])
+    above = list(getattr(row, "rivals_above_if_in", []) or [])
+    tied = list(getattr(row, "rivals_tied_if_in", []) or [])
+    if passing:
+        lines.append(
+            f"    - ❌ Queda afuera, por ejemplo, si llegan a {pts} o más "
+            f"{_ladder_short_list(passing, limit=10)} ({len(passing)} equipos)."
+        )
+    if above:
+        entra = f"    - ✅ Entra, por ejemplo, si sólo lo supera{'n' if len(above) != 1 else ''} {_ladder_short_list(above)}"
+        if tied and len(above) + len(tied) > max_above:
+            entra += f" (igualan en {pts} {_ladder_short_list(tied)}: define el desempate)"
+        lines.append(entra + ".")
+    return lines
+
 
 def _escenario_maximo_copas_bloque(equipo, base_red, rest, pend, k_lib, k_sud, meta_lib, meta_sud):
     """Explica una sola vez qué pasa si el equipo gana todos sus partidos.
@@ -5187,12 +5321,6 @@ def _procesar_import(jg, pd_, ligas, filtro, solo_fixture=False):
 # UI
 # ═══════════════════════════════════════════════════════════════════════════════════
 
-ui_markdown("""
-<div class="main-header">
-  <h1>⚽ Calculadora del Fútbol Argentino</h1>
-  <p>Versión 3.1 · Base autorreparable, panel por equipo y auditoría por objetivo</p>
-</div>
-""", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  TAREA 3 — Resultados partido a partido (forma / rachas / local-visitante)
@@ -5320,9 +5448,39 @@ def _lpf_infer_single_missing_result(zones, baseline, fixture=None):
     return (inferred, note) if len(inferred) == 1 else ([], "")
 
 
+_LPF_DATA_DIR = Path(__file__).resolve().parent / "core" / "data"
+_LPF_RESULTS_FILE = _LPF_DATA_DIR / "lpf_resultados.txt"
+_LPF_UPDATE_META_FILE = _LPF_DATA_DIR / "lpf_actualizacion.json"
+
+
+def _lpf_file_results_text():
+    """Resultados publicados por la actualización automática del repositorio."""
+    try:
+        return _LPF_RESULTS_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _lpf_update_meta():
+    try:
+        return json.loads(_LPF_UPDATE_META_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
 def _lpf_builtin_results():
-    from lpf_checkpoint import checkpoint_results, cached_results
-    return checkpoint_results() + cached_results()
+    """Resultados incluidos: los fijos del código + los del archivo de datos.
+
+    ``core/data/lpf_resultados.txt`` lo reescribe la tarea programada de GitHub
+    (scripts/actualizar_datos.py). Así la app abre ya al día sin consultar fuentes
+    desde el navegador.
+    """
+    from lpf_checkpoint import checkpoint_results, cached_results, CHECKPOINT_ROUND
+    fixed = checkpoint_results()
+    extra = parse_resultados_lpf(_lpf_file_results_text()) if _lpf_file_results_text().strip() else []
+    rounds = {(g["l"], g["v"]): int(g["f"]) for g in LPF_FIXTURE}
+    extra = [r for r in extra if rounds.get((r[0], r[1]), 0) > CHECKPOINT_ROUND]
+    return _merge_lpf_results(fixed, cached_results(), extra)
 
 
 def _lpf_builtin_opening_snapshot():
@@ -5829,15 +5987,15 @@ def cargar_lpf_espn(liga="arg.1"):
         "avisos_fuente": list(source_warnings or []) + result_source_warnings,
         "fuente_resultados": _result_source_name,
         "url_resultados": official_url if official_played else fa_url,
+        "network_confirmed": bool(official_played or tyc_played or fa_played or espn_played),
     }, None
 
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.header("🔧 Configuración")
-    ui_caption(f"Motor de cálculo · v{__version__}")
+def _render_settings_block():
+    """Ajustes del motor (antes en el panel lateral)."""
 
     # Desempate
-    st.subheader("Criterio de desempate")
+    ui_markdown("#### Criterio de desempate")
     preset_sel = ui_selectbox("Regla", list(PRESETS.keys()), label_visibility="collapsed")
     if PRESETS[preset_sel] != st.session_state.CRITERIOS:
         st.session_state.CRITERIOS = PRESETS[preset_sel]
@@ -5850,7 +6008,7 @@ with st.sidebar:
     st.divider()
 
     # Estructura de clasificación
-    st.subheader("Estructura de clasificación")
+    ui_markdown("#### Estructura de clasificación")
     col1, col2 = st.columns(2)
     with col1:
         st.session_state.DIRECTO = st.number_input("Clasifican directos", min_value=1, max_value=10, value=st.session_state.DIRECTO)
@@ -5910,10 +6068,10 @@ with st.sidebar:
         if st.session_state.PROMEDIOS:
             ui_caption(f"Cargadas previas de {len(st.session_state.PROMEDIOS)} equipos. Pedí «promedios» o «promedio de X» en el chat.")
 
-    st.divider()
 
-    # Cargar datos
-    st.subheader("📥 Cargar datos")
+def _render_load_block():
+    """Carga y actualización de datos (antes en el panel lateral)."""
+    ui_markdown("#### Traer datos de las fuentes")
     ui_caption("Un solo bot\u00f3n carga todo. El resto es para editar a mano o traer de otra fuente.")
     if st.button("\U0001F4E5 Cargar TODO (Clausura + Anual + Promedios)", use_container_width=True, type="primary", key="btn_cargar_todo_side"):
         _a, _b, _an, _pn = cargar_lpf_todo()
@@ -5923,7 +6081,8 @@ with st.sidebar:
                "y el **fixture completo de las 16 fechas** para los cruces mano a mano.")
     if st.button("\U0001F504 Actualizar a hoy (automático)", use_container_width=True, key="btn_espn_refresh_side"):
         with st.spinner("Consultando LPF oficial, ESPN y FutbolArgentino.com\u2026"):
-            _r, _e = cargar_lpf_espn("arg.1")
+            with _web_http.time_budget(90):
+                _r, _e = cargar_lpf_espn("arg.1")
         if _e:
             ui_warning(_e + "  \u2014 mientras tanto podés pegar las tablas en «Otras formas de cargar».")
         else:
@@ -5961,7 +6120,8 @@ with st.sidebar:
                        "a Octavos. La **Tabla General** (para copas y descenso) suma Apertura + Clausura.")
             if st.button("⚡ Traer el Clausura automáticamente", use_container_width=True):
                 with st.spinner("Consultando LPF oficial, ESPN y FutbolArgentino.com…"):
-                    _r, _e = cargar_lpf_espn("arg.1")
+                    with _web_http.time_budget(90):
+                        _r, _e = cargar_lpf_espn("arg.1")
                 if _e:
                     ui_warning(_e)
                 else:
@@ -6340,20 +6500,44 @@ with st.sidebar:
             ui_success(f"Grupo cargado · {len(E['equipos'])} equipos · {_fmt_entero_es(len(E['esc']))} escenarios")
             ui_caption(f"Máx goles/equipo: {E['mg']} · Pendientes: {len(E['pendientes'])}")
 
-# ─── MAIN TABS ───────────────────────────────────────────────────────────────────
+# ─── DATOS INICIALES ─────────────────────────────────────────────────────────────
+# Los ajustes ya no viven en el panel lateral: se recalculan acá en cada corrida
+# para que todas las páginas usen el mismo estado aunque no se abra «Ajustes».
+st.session_state.ZONAS = parse_zonas(st.session_state.get("ZONAS_TXT", ""))
+if "PROM_TXT" in st.session_state:
+    st.session_state.PROMEDIOS = parse_promedios(st.session_state.get("PROM_TXT", ""))
 if not st.session_state.ESTADO:
-    ui_info("\U0001F449 Todav\u00eda no cargaste datos. Toc\u00e1 el bot\u00f3n para cargar el Clausura 2026 completo (o traelo de las fuentes automáticas).")
-    if st.button("\U0001F4E5 Cargar TODO (Clausura + Anual + Promedios)", type="primary", use_container_width=True, key="btn_cargar_todo_main"):
-        cargar_lpf_todo()
-        st.rerun()
-    with st.expander("\u2026o traerlo de fuentes autom\u00e1ticas"):
-        if st.button("\u26a1 Traer el Clausura autom\u00e1ticamente", use_container_width=True, key="btn_espn_main"):
-            with st.spinner("Consultando LPF oficial, ESPN y FutbolArgentino.com\u2026"):
-                _r, _e = cargar_lpf_espn("arg.1")
-            if _e:
-                ui_error(_e)
-            else:
-                st.rerun()
+    # Arranca directamente con la última foto incluida: no hace falta tocar un botón.
+    cargar_lpf_todo()
+    if not st.session_state.ESTADO:
+        ui_error("No pude cargar los datos incluidos de la LPF 2026.")
+        st.stop()
+
+# Modo exportación (lo usa la tarea programada del repositorio, nunca el navegador):
+# actualiza desde las fuentes con Python nativo y guarda la foto en core/data/.
+if os.environ.get("LPF_EXPORT_DATA") == "1":
+    _exp_r, _exp_e = cargar_lpf_espn("arg.1")
+    _exp_state = st.session_state.ESTADO or {}
+    _exp_played = list(_exp_state.get("jugados") or [])
+    _exp_zones = _exp_state.get("zonas_lpf") or {}
+    _exp_pj = [row.get("pj", 0) for base in _exp_zones.values() for row in base.values()]
+    _exp_result = {
+        "ok": not _exp_e and bool((_exp_r or {}).get("network_confirmed")),
+        "error": _exp_e or ("No llegaron resultados confirmados de las fuentes; se conserva la última foto." if not (_exp_r or {}).get("network_confirmed") else ""),
+        "updated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(timespec="seconds"),
+        "fecha_min": min(_exp_pj) if _exp_pj else 0,
+        "fecha_max": max(_exp_pj) if _exp_pj else 0,
+        "resultados": len(_exp_played),
+        "fuente": (_exp_r or {}).get("fuente") or "",
+        "fuente_resultados": (_exp_r or {}).get("fuente_resultados") or "",
+        "sin_confirmar": int((_exp_r or {}).get("sin_confirmar") or 0),
+        "avisos": list((_exp_r or {}).get("avisos_fuente") or []),
+    }
+    if _exp_result["ok"] and _exp_played:
+        _LPF_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        _LPF_RESULTS_FILE.write_text(results_text(_exp_played) + "\n", encoding="utf-8")
+        _LPF_UPDATE_META_FILE.write_text(json.dumps(_exp_result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    st.session_state["_EXPORT_RESULT"] = _exp_result
     st.stop()
 
 E = st.session_state.ESTADO
@@ -6852,23 +7036,10 @@ def _render_chat_explorer(E):
     if "chat_guide_team" in st.session_state and st.session_state.get("chat_guide_team") not in equipos_chat:
         st.session_state["chat_guide_team"] = default_team
 
-    ui_markdown("#### 🧭 Encontrá una opción del chat")
-    ui_caption("No hace falta recordar frases: elegí un equipo, el objetivo activo y un tema. El objetivo se conserva también en Panel por equipo, Visualizaciones y seguimientos del chat.")
-    if E.get("modo") == "lpf2026":
-        _sync_lpf_objective_widget("chat_guide_objective")
-        c_team, c_obj, c_other, c_search = st.columns([1.0, 1.05, 1.0, 1.35])
-    else:
-        c_team, c_other, c_search = st.columns([1.05, 1.05, 1.4])
-        c_obj = None
-    team = c_team.selectbox("Equipo principal", equipos_chat, index=default_idx, key="chat_guide_team")
-    if c_obj is not None:
-        c_obj.selectbox(
-            "Objetivo activo",
-            _LPF_OBJECTIVE_UI_OPTIONS,
-            key="chat_guide_objective",
-            on_change=_lpf_objective_widget_changed,
-            args=("chat_guide_objective",),
-        )
+    ui_markdown("#### 🧭 Elegí una consulta")
+    ui_caption("No hace falta recordar frases: el equipo y el objetivo son los del panel lateral; elegí un tema o buscá una función.")
+    c_other, c_search = st.columns([1.0, 1.4])
+    team = _global_team(equipos_chat)
     otros = [e for e in equipos_chat if e != team] or [team]
     if "chat_guide_other" in st.session_state and st.session_state.get("chat_guide_other") not in otros:
         st.session_state["chat_guide_other"] = otros[0]
@@ -8726,7 +8897,7 @@ def _bloques_listar_grupos():
     gs = _tour_grupos()
     if len(gs) <= 1:
         return [("info", "Tenés cargado un solo grupo. Para tener todos, pegá o importá el torneo "
-                         "completo desde el panel lateral (API o pegar texto).")]
+                         "completo desde Datos → Cargar y actualizar.")]
     lineas = ["**Grupos cargados:**"]
     for lab, (eqs, _, _) in gs.items():
         lineas.append(f"- **Grupo {lab}**: " + ", ".join(eqs))
@@ -8739,7 +8910,7 @@ def _bloques_ver_grupo(lab):
     if lab not in gs:
         disp = ", ".join(gs) if gs else "—"
         return [("warning", f"No encuentro el Grupo {lab}. Disponibles: {disp}. "
-                            "(Si falta, cargá el torneo completo en el panel lateral.)")]
+                            "(Si falta, cargá el torneo completo en Datos → Cargar y actualizar.)")]
     eqs, jug, pen = gs[lab]
     cargar_estado(eqs, jug, pen)
     return [("success", f"Cargué el **Grupo {lab}**: {', '.join(eqs)}."),
@@ -8753,7 +8924,7 @@ def _bloques_buscar_equipo(team_q):
         gs = _tour_grupos()
         if len(gs) <= 1:
             return [("warning", "Solo tengo un grupo cargado, así que no puedo buscar en otros. "
-                                "Cargá el torneo completo (API o pegar) desde el panel lateral.")]
+                                "Cargá el torneo completo desde Datos → Cargar y actualizar.")]
         return [("warning", "No encontré ese equipo en los grupos cargados. ¿Está bien escrito?")]
     eqs, jug, pen = datos
     cargar_estado(eqs, jug, pen)
@@ -9103,9 +9274,9 @@ def _rd_publication(team, objective, mode, exact_text, Z, annual, rest):
 
 
 def render_chat_workspace(E):
-    """Chat guiado/libre embebido dentro de Mesa de redacción."""
+    """Chat guiado/libre."""
     modo = "🤖 con Claude" if (st.session_state.LLM_ON and str(st.session_state.LLM_KEY).strip()) else "🔤 por palabras clave"
-    st.subheader(f"Consultas y chat · {modo}")
+    _page_header("💬", "Consultas y chat", f"Modo {modo} · el LLM se configura en Datos → Ajustes")
     ui_caption(
         "Usalo para preguntas excepcionales o para pedir una salida redactada. "
         "Las cuentas siguen saliendo del motor determinístico; el LLM sólo interpreta y redacta."
@@ -9174,7 +9345,7 @@ def render_chat_workspace(E):
         st.rerun()
 
 
-def render_newsroom(E):
+def render_newsroom(E, section="informe", show_header=True):
     Z = E.get("zonas_lpf") or {}
     if len(Z) < 2:
         ui_warning("Cargá las dos zonas de la LPF para abrir la mesa de redacción.")
@@ -9196,48 +9367,52 @@ def render_newsroom(E):
     _etq_jornada = lpf_etiqueta_jornada(_jor2, _atr2)
     _con_atraso = lpf_equipos_con_atraso(pending or [])
 
-    st.subheader("Mesa de redacción")
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("Datos cargados", f"Fecha {next_date - 1}" if next_date else "Fase terminada")
-    m2.metric("Partidos pendientes", len(pending))
-    m3.metric("Tabla Anual", f"{len(annual)} equipos")
-    m4.metric("Regla", "LPF 2026 oficial")
-    _quality = _lpf_refresh_quality(E)
-    # El historial parcial no invalida la foto autoritativa ni las cuentas de competencia.
-    # Se conserva exclusivamente en Datos y auditoría para no contaminar la interfaz operativa.
-    _operational_issues = [
-        issue for issue in _quality.issues
-        if issue.code != "fixture_history_partial"
-    ]
-    _blocked_operational = [issue for issue in _operational_issues if issue.level == "blocked"]
-    _warning_operational = [issue for issue in _operational_issues if issue.level == "warning"]
-    _niv = "ok" if not _operational_issues else "parcial"
-    _det = list(_quality.details)
-    if not _operational_issues:
-        ui_success("🟢 **Tabla vigente coherente para los cálculos.**")
-    else:
-        _icon = "🔴" if _blocked_operational else "🟡"
-        _label = "Hay cálculos bloqueados" if _blocked_operational else "Hay advertencias para revisar"
-        ui_warning(f"{_icon} **{_label}.** Abrí **Datos y auditoría** antes de publicar.")
-        with st.expander("Problemas y datos cargados", expanded=bool(_blocked_operational)):
-            for _issue in _operational_issues:
-                ui_markdown(f"- **{_issue.domain}:** {_issue.message}")
-            for _d in _det:
-                ui_caption(_d)
-    ui_caption("EXACTO = cuenta determinística y verificable · ESTIMADO = simulación Monte Carlo rotulada como tal")
+    _news_titles = {
+        "informe": ("🗞️", "Informe por equipo", "Qué se sabe (exacto), qué necesita y chances estimadas, listo para la nota"),
+        "previa": ("📅", "Previa de la fecha", "Partidos, narrativa e impacto en las zonas"),
+        "carga": ("✍️", "Cargar resultados", "Marcá los partidos terminados y se recalcula todo"),
+        "reglas": ("📜", "Reglas 2026", "Reglamento aplicado y cómo leer las cuentas"),
+    }
+    if show_header:
+        _page_header(*_news_titles.get(section, _news_titles["informe"]))
+    _niv = "ok"
+    if show_header and section != "reglas":
+        m1, m2, m3, m4 = st.columns(4)
+        _pjs_report = [int(r.get('pj', 0)) for base in Z.values() for r in base.values()]
+        m1.metric("Partidos jugados por equipo", f"{min(_pjs_report)}–{max(_pjs_report)}" if _pjs_report else "—")
+        m2.metric("Partidos pendientes", len(pending))
+        m3.metric("Tabla Anual", f"{len(annual)} equipos")
+        m4.metric("Regla", "LPF 2026 oficial")
+        _quality = _lpf_refresh_quality(E)
+        # El historial parcial no invalida la foto autoritativa ni las cuentas de competencia.
+        # Se conserva exclusivamente en Datos y auditoría para no contaminar la interfaz operativa.
+        _operational_issues = [
+            issue for issue in _quality.issues
+            if issue.code != "fixture_history_partial"
+        ]
+        _blocked_operational = [issue for issue in _operational_issues if issue.level == "blocked"]
+        _warning_operational = [issue for issue in _operational_issues if issue.level == "warning"]
+        _niv = "ok" if not _operational_issues else "parcial"
+        _det = list(_quality.details)
+        if not _operational_issues:
+            ui_success("🟢 **Tabla vigente coherente para los cálculos.**")
+        else:
+            _icon = "🔴" if _blocked_operational else "🟡"
+            _label = "Hay cálculos bloqueados" if _blocked_operational else "Hay advertencias para revisar"
+            ui_warning(f"{_icon} **{_label}.** Abrí **Datos y auditoría** antes de publicar.")
+            with st.expander("Problemas y datos cargados", expanded=bool(_blocked_operational)):
+                for _issue in _operational_issues:
+                    ui_markdown(f"- **{_issue.domain}:** {_issue.message}")
+                for _d in _det:
+                    ui_caption(_d)
+        ui_caption("EXACTO = cuenta determinística y verificable · ESTIMADO = simulación Monte Carlo rotulada como tal")
 
-    report_tab, preview_tab, chat_tab, load_tab, rules_tab = st.tabs(
-        ["Informe por equipo", "Previa de la fecha", "Consultas y chat", "Cargar resultados", "Reglas y auditoría"])
 
-    with report_tab:
-        col_team, col_obj, col_mode = st.columns([1.4, 1, 0.8])
-        team = col_team.selectbox("Equipo", teams, index=teams.index("River Plate") if "River Plate" in teams else 0)
-        _sync_lpf_objective_widget("rd_report_objective")
-        objective = col_obj.selectbox(
-            "Objetivo", _LPF_OBJECTIVE_UI_OPTIONS, key="rd_report_objective",
-            on_change=_lpf_objective_widget_changed, args=("rd_report_objective",),
-        )
-        mode = col_mode.radio("Momento", ["Previa", "Post"], horizontal=True)
+    if section == "informe":
+        team = _global_team(teams)
+        objective = _lpf_objective_label()
+        mode = _pick("Momento", ["Previa", "Post"], key="rd_report_mode")
+        ui_markdown(f"### {editorialize_text(team)} · {objective}")
         lab = lpf_zona_de_equipo(team, Z)
         _domain = ("playoffs" if objective == "Playoffs" else
                    "copas" if objective in ("Libertadores", "Al menos Sudamericana") else "descenso")
@@ -9438,7 +9613,7 @@ def render_newsroom(E):
                                file_name=f"{_norm_club(team).replace(' ', '-')}-{objective.lower()}.md",
                                mime="text/markdown")
 
-    with preview_tab:
+    if section == "previa":
         ui_markdown(f"#### {_etq_jornada}" if next_date else "#### No quedan fechas pendientes")
         if _fechas_disp:
             _cs1, _cs2 = st.columns([1, 3])
@@ -9536,10 +9711,8 @@ def render_newsroom(E):
         with st.expander("Cruces de octavos si terminara hoy"):
             ui_markdown(lpf_cruces_texto(Z))
 
-    with chat_tab:
-        render_chat_workspace(E)
 
-    with load_tab:
+    if section == "carga":
         ui_markdown("#### Carga rápida y recálculo inmediato")
         ui_caption("Marcá sólo los partidos terminados. El marcador actualiza Zona, Tabla Anual, promedios, forma y pendientes.")
         if next_games:
@@ -9587,7 +9760,7 @@ def render_newsroom(E):
                     ui_markdown("- " + _a)
                 ui_caption("EXACTO · Se puede dar si se combinan los resultados indicados.")
 
-    with rules_tab:
+    if section == "reglas":
         ui_markdown("""
 #### Reglas confirmadas para 2026
 
@@ -9640,7 +9813,7 @@ def _lpf_refresh_quality(E):
 def render_data_audit(E):
     """Panel único para verificar Zonas, Anual, Promedios y fixture."""
     import json
-    ui_markdown("## Datos y auditoría")
+    _page_header("🧪", "Auditoría de datos", "Controles de Zonas, Tabla Anual, Promedios y fixture")
     report = _lpf_refresh_quality(E)
     icon = {"ok": "🟢", "warning": "🟡", "blocked": "🔴"}[report.level]
     c1, c2, c3, c4 = st.columns(4)
@@ -9793,20 +9966,33 @@ def _render_point_ladder(team, base, rest, pending, cutoff, title):
     current_cutoff = int(table.iloc[min(cutoff, len(table)) - 1]["PTS"])
     ui_markdown(f"### {title}")
     with st.spinner("Resolviendo el fixture completo…"):
-        exact = point_ladder(base, pending, team, cutoff, max_rows=8, max_matches=110)
+        exact = point_ladder(base, pending, team, cutoff, max_rows=100, max_matches=110)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Puntos actuales", current)
     c2.metric("Corte actual", current_cutoff)
     c3.metric("Techo", ceiling)
-    c4.metric("Mínimo que asegura", exact.get("guarantee") if exact.get("available") else "No calculado")
+    guarantee_label = exact.get('guarantee')
+    c4.metric("Mínimo que asegura", guarantee_label if guarantee_label is not None else "Sin comprobar")
     if not exact.get("available"):
         ui_warning(exact.get("reason") or "No se pudo ejecutar el motor exacto.")
         ui_info("No se publica un mínimo aproximado como si fuera exacto. El mínimo que asegura será el menor puntaje alcanzable que el motor compruebe suficiente pase lo que pase.")
         return
+    if exact.get('minimum_possible') is None:
+        ui_info('No existe un cierre compatible que permita entrar por este corte, aun con desempate favorable.')
+        return
     ui_markdown(
         f"**Mínimo todavía posible:** {exact.get('minimum_possible')} · "
-        f"**Mínimo que asegura:** {exact.get('guarantee')}"
+        f"**Mínimo que asegura:** {guarantee_label if guarantee_label is not None else 'Sin garantía comprobada'}"
     )
+    guarantee = exact.get('guarantee')
+    minimum = exact.get('minimum_possible')
+    if guarantee is not None:
+        ui_markdown(f"**Con {guarantee} puntos asegura {title.split(' · ')[-1]} sin ayuda y aun con desempate adverso.**")
+    if minimum is not None and minimum != guarantee:
+        ui_markdown(f"**Con menos también puede entrar:** desde {minimum} puntos hay cierres compatibles favorables. "
+                    "Eso exige ayuda de otros resultados y, en algunos cierres, del desempate. La tabla incluye todos los totales menores analizados.")
+    if exact.get('impossible_totals'):
+        ui_caption('Puntajes alcanzables que no permiten entrar: ' + ', '.join(map(str, exact['impossible_totals'])) + '.')
     rows = []
     for row in exact.get("rows", []):
         rows.append({
@@ -9814,11 +10000,18 @@ def _render_point_ladder(team, base, rest, pending, cutoff, title):
             "Situación": row.status,
             "¿Puede entrar?": "Sí" if row.can_qualify else "No",
             "¿También puede quedar afuera?": "Sí" if row.can_fail else "No",
-            "Un camino posible": "; ".join(row.example[:4]) if row.example else "No necesita ayuda",
+            "Rivales que pueden llegar": len(getattr(row, "rivals_can_reach", []) or []) if not row.guaranteed else "—",
+            "Condición que cubre todos los cierres": (
+                'Asegura aun con desempate adverso' if row.guaranteed else
+                f'Entra sin desempate si como máximo {max(0, int(cutoff) - 1)} rivales llegan a {row.final_points} o más. '
+                f'Si menos de {int(cutoff)} lo superan pero los empatados exceden los lugares disponibles, decide el desempate.'),
+            "Ejemplos de cierres compatibles": " · ".join(row.example[:2]) if row.example else "No necesita ayuda",
         })
     ui_dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    ui_caption("Los caminos mostrados son ejemplos suficientes, no necesariamente las únicas combinaciones. "
-               "El motor no inventa marcadores: los empates en puntos se abren según desempate favorable o adverso.")
+    ui_caption(f"Para entrar por puntos, como máximo {max(0, int(cutoff) - 1)} rivales pueden terminar por encima. "
+               "Los dos ejemplos (uno en que entra y otro en que queda afuera) son cierres reales del fixture pendiente, "
+               "no los únicos. Si los empatados superan los lugares disponibles, define el desempate. "
+               "Los caminos completos de otras canchas se muestran para la próxima fecha; estos ejemplos abarcan el cierre del torneo.")
 
 
 def _render_exact_next_round_conditionals(team, base, rest, pending):
@@ -9898,6 +10091,7 @@ def _render_exact_next_round_conditionals(team, base, rest, pending):
     st.bar_chart(round_chart)
     ui_caption("También es frecuencia combinatoria. Una igualdad en la línea no se presenta como clasificación asegurada.")
 
+    _render_complete_conditions(team, 'los playoffs', report, scope='next_round')
     ui_markdown("##### Narrativa exacta de la fecha")
     for branch in branches:
         total = max(1, int(branch["total_combinations"]))
@@ -10129,6 +10323,92 @@ def _definition_decisive_matches(report):
     return rows
 
 
+def _render_complete_conditions(team, objective_label, report, *, scope):
+    """Lectura corta y acceso a la partición completa de la jornada."""
+    if not report or not report.get('available'):
+        return
+    branches = report.get('branches') or []
+    ui_markdown('### Qué asegura y qué puede conseguir con menos')
+    for branch in branches:
+        total = int(branch.get('total_combinations', 0))
+        inside = int(branch.get('season_in', 0))
+        outside = int(branch.get('season_out', 0))
+        points = branch.get('final_points_after_round')
+        label = branch.get('result_label')
+        if inside == total:
+            conclusion = f'asegura {objective_label} sin ayuda de otras canchas.'
+        elif inside:
+            conclusion = f'puede asegurar {objective_label}, pero necesita resultados ajenos favorables.'
+        elif outside == total:
+            conclusion = f'queda sin chances de {objective_label}.'
+        else:
+            conclusion = f'todavía no asegura {objective_label}; el objetivo sigue abierto en algunos o todos los caminos.'
+        ui_markdown(f'**{label} · {points} puntos:** {conclusion}')
+
+    ui_caption('Cada camino une condiciones con Y; un camino u otro son alternativas. Las canchas omitidas pueden terminar de cualquier manera. ' 
+               'Se cubren todas las combinaciones de la próxima fecha seleccionada. Los estados de garantía usan puntos y techos restantes; '
+               'seguir abierto no demuestra por sí solo que exista un cierre favorable del torneo completo.')
+    choice = ui_selectbox('Resultado propio para ver todos los caminos',
+                          [b['result_label'] for b in branches], key=f'complete_branch_{scope}_{team}')
+    branch = next(b for b in branches if b['result_label'] == choice)
+    paths = branch.get('condition_paths') or []
+    if not paths:
+        ui_info('Esta foto no contiene el detalle completo de caminos. Actualizá los datos o volvé a calcular la fecha.')
+        return
+    all_rows = [{'Camino': i + 1, 'Condiciones que deben cumplirse juntas': p['text'],
+                 'Objetivo final': p['label'], 'Al terminar esta fecha': p['round_label'],
+                 'Combinaciones cubiertas': p['combinations']} for i, p in enumerate(paths)]
+    favorable = [p for p in paths if p['season_state'] == 'in']
+    if favorable:
+        ui_markdown(f'**{len(favorable)} caminos agrupados aseguran el objetivo con {branch["final_points_after_round"]} puntos:**')
+        for p in favorable[:3]:
+            ui_markdown(f'- {p["text"]}.')
+        if len(favorable) > 3:
+            ui_caption(f'Hay {len(favorable) - 3} alternativas más en el detalle completo.')
+    else:
+        ui_info('Ningún camino asegura el objetivo final con este resultado propio. El detalle muestra cómo termina la fecha y cuándo la pelea sigue abierta.')
+    with st.expander(f'Ver todos los caminos · {len(paths)} grupos / {branch["total_combinations"]} combinaciones', expanded=False):
+        ui_dataframe(pd.DataFrame(all_rows), use_container_width=True, hide_index=True,
+                     export_title=f'Caminos completos · {team} · {choice}',
+                     export_name=f'caminos_{scope}_{team}_{branch["result"]}')
+        ui_caption('Los grupos no se superponen: la suma de las combinaciones cubiertas coincide con el total enumerado. '
+                   'La tabla completa incluye garantía, eliminación, pelea abierta y desempates. No son probabilidades.')
+    with st.expander('Por qué alcanza o por qué no alcanza', expanded=False):
+        ui_markdown(branch_explanation(branch, objective_label))
+    with st.expander('Lectura ampliada · texto para la redacción', expanded=False):
+        blocks = editorial_blocks(report, team, objective_label)
+        natural_ids = [b['id'] for b in blocks]
+        payload = json.dumps(blocks, ensure_ascii=False)
+        model = str(st.session_state.get('LLM_MODEL', ''))
+        digest = hashlib.sha256((payload + model).encode()).hexdigest()
+        cache_key = f'editorial_order_{scope}_{team}'
+        enabled = bool(st.session_state.get('LLM_ON') and str(st.session_state.get('LLM_KEY', '')).strip())
+        if enabled and st.button('Organizar el relato con el asistente', key=f'editorial_button_{scope}_{team}'):
+            try:
+                response = requests.post('https://api.anthropic.com/v1/messages',
+                    headers={'x-api-key': st.session_state.LLM_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+                    json={'model': model, 'max_tokens': 1200,
+                          'system': 'Sos editor deportivo. Ordená TODOS los bloques para una lectura clara: conclusión, caminos, consecuencias, alcance. '
+                                    'No escribas texto ni cambies hechos. Respondé sólo JSON con una clave ids: lista con TODOS los identificadores, una vez cada uno.',
+                          'messages': [{'role': 'user', 'content': payload}]}, timeout=30)
+                response.raise_for_status()
+                raw = ''.join(b.get('text', '') for b in response.json().get('content', []) if b.get('type') == 'text')
+                ids = json.loads(raw)['ids']
+                ordered_editorial_blocks(blocks, ids)
+                st.session_state[cache_key] = {'digest': digest, 'ids': ids}
+            except Exception:
+                ui_warning('El asistente no devolvió un orden completo válido. Se muestra el relato calculado.')
+                st.session_state.pop(cache_key, None)
+        saved = st.session_state.get(cache_key) or {}
+        ids = saved.get('ids') if enabled and saved.get('digest') == digest else natural_ids
+        narrative = ordered_editorial_blocks(blocks, ids)
+        ui_markdown(narrative)
+        st.text_area('Texto para copiar', value=narrative, height=300, key=f'editorial_copy_{scope}_{team}_{hashlib.sha256(narrative.encode()).hexdigest()[:12]}')
+        ui_caption('El relato incluye las tres ramas y ejemplos de caminos. Todas las alternativas están en la tabla completa. '
+                   'El asistente opcional organiza bloques verificados: no cambia cifras ni agrega condiciones.')
+    return branch
+
+
 def _definition_tree_dot(team, objective_label, report):
     """Árbol corto: sólo abre condiciones que cambian el estado matemático."""
     if not report or not report.get("available"):
@@ -10136,7 +10416,7 @@ def _definition_tree_dot(team, objective_label, report):
     points = int(report.get("branches", [{}])[0].get("proof", {}).get("team_points", 0) or 0)
     lines = [
         'digraph {',
-        'graph [rankdir=LR, bgcolor="transparent", pad="0.2", nodesep="0.28", ranksep="0.45"];',
+        'graph [rankdir=TB, bgcolor="transparent", pad="0.2", nodesep="0.28", ranksep="0.45"];',
         'node [shape=box, style="rounded,filled", fontname="Arial", color="#cbd5e1"];',
         f'start [label="{team}\\n{objective_label}", fillcolor="#e2e8f0"];',
     ]
@@ -10155,12 +10435,18 @@ def _definition_tree_dot(team, objective_label, report):
             text, fill = f"{label}\\n{pts} pts\\nSIGUE ABIERTO", "#fef3c7"
         lines.append(f'{bid} [label="{text}", fillcolor="{fill}"];')
         lines.append(f'start -> {bid} [label=" {branch.get("result", "")}"];')
-        condition = str(branch.get("sufficient_condition") or "").strip()
-        if inside != state_total and outside != state_total and condition and condition != "No depende de otros resultados":
-            safe = condition.replace('"', "'")
-            cid = f"c{idx}"
-            lines.append(f'{cid} [label="{safe}\\n→ condición suficiente", fillcolor="#dcfce7"];')
-            lines.append(f'{bid} -> {cid};')
+        paths = branch.get('condition_paths') or []
+        for j, path in enumerate(paths[:3]):
+            safe = path['text'].replace('"', "'").replace(' Y ', '\\nY ')
+            state = path['label']
+            position = path['round_label']
+            cid = f'c{idx}_{j}'
+            color = {'in': '#dcfce7', 'out': '#fee2e2', 'pelea': '#fef3c7'}[path['season_state']]
+            lines.append(f'{cid} [label="{safe}\\n{state}\\nFecha: {position}", fillcolor="{color}"];')
+            lines.append(f'{bid} -> {cid} [label="O"];')
+        if len(paths) > 3:
+            lines.append(f'more{idx} [label="{len(paths) - 3} caminos más\\nVer detalle completo", fillcolor="#e2e8f0"];')
+            lines.append(f'{bid} -> more{idx};')
     lines.append('}')
     return "\n".join(lines)
 
@@ -10561,7 +10847,7 @@ def render_definition_radar(E):
         ui_warning("Cargá las zonas.")
         return
 
-    ui_markdown("## Últimas fechas · tablero de definición")
+    _page_header("🏁", "Últimas fechas", "Tablero de definición: G/E/P, matrices, árbol, partidos bisagra y reloj")
     ui_caption(
         "EXACTO = cuentas matemáticas con puntos y fixture. Los semáforos, matrices, árbol, zona de pelea y reloj "
         "no usan probabilidades. Las estimaciones Monte Carlo siguen fuera de este bloque."
@@ -10576,16 +10862,8 @@ def render_definition_radar(E):
         "rojo→amarillo→verde y la otra cancha estimada en esta misma pantalla. No quedan escondidos detrás del chat."
     )
 
-    ui_markdown("### Configurá el tablero")
-    ui_caption(
-        "Todas las decisiones del análisis están juntas acá arriba. Elegir un equipo no abre una vista distinta ni termina el flujo: "
-        "sólo fija el protagonista. El resultado completo aparece más abajo, en la sección de resultados."
-    )
-    _sync_lpf_objective_widget("radar_objective")
-    objective = ui_selectbox(
-        "Objetivo", _LPF_OBJECTIVE_UI_OPTIONS, key="radar_objective",
-        on_change=_lpf_objective_widget_changed, args=("radar_objective",),
-    )
+    _radar_team = _global_team(E.get("equipos") or [])
+    objective = _lpf_objective_label()
     if objective == "Descenso":
         ui_info(
             "Para descenso no mezclo este semáforo con una simplificación incompleta: la definición combina Tabla Anual, "
@@ -10596,7 +10874,8 @@ def render_definition_radar(E):
 
     lab = None
     if objective == "Playoffs":
-        lab = ui_selectbox("Zona", sorted(Z), key="radar_zone")
+        lab = lpf_zona_de_equipo(_radar_team, Z) if _radar_team else sorted(Z)[0]
+        ui_caption(f"Zona {lab} · la zona sigue al equipo elegido en el panel lateral.")
     ctx = _definition_objective_context(E, objective, lab)
     if not ctx or not ctx.get("base") or int(ctx.get("cutoff") or 0) <= 0:
         ui_warning("No hay una tabla/corte válido para construir este objetivo con los datos cargados.")
@@ -10624,12 +10903,16 @@ def render_definition_radar(E):
         selection_ordered = list(liga_tabla_df(ctx["annual"])["Equipo"])
     team_placeholder = "— Elegí un equipo —"
     team_options = [team_placeholder] + selection_ordered
-    if "radar_team_focus" not in st.session_state or st.session_state.get("radar_team_focus") not in team_options:
-        st.session_state["radar_team_focus"] = team_placeholder
-    team_focus = ui_selectbox(
-        "Equipo principal", team_options, key="radar_team_focus",
-        help="Elegí el club protagonista. Esto no ejecuta el análisis por separado: las demás opciones siguen visibles debajo.",
-    )
+    if _radar_team in selection_ordered:
+        team_focus = _radar_team
+    else:
+        if "radar_team_focus" not in st.session_state or st.session_state.get("radar_team_focus") not in team_options:
+            st.session_state["radar_team_focus"] = team_placeholder
+        ui_caption(f"{editorialize_text(_radar_team)} no participa de esta pelea: elegí otro protagonista.")
+        team_focus = ui_selectbox(
+            "Equipo principal", team_options, key="radar_team_focus",
+            help="Elegí el club protagonista. Esto no ejecuta el análisis por separado: las demás opciones siguen visibles debajo.",
+        )
     team_selected = team_focus != team_placeholder
 
     package = {}
@@ -11003,11 +11286,13 @@ def render_definition_radar(E):
         ui_caption("No hay otra cancha independiente para cruzar en esta fecha.")
 
     # Árbol reducido: sólo ramas con información nueva.
-    ui_markdown("### Árbol reducido del camino")
-    tree = _definition_tree_dot(team_focus, ctx["label"], report)
+    selected_branch = _render_complete_conditions(team_focus, ctx['label'], report, scope='definition')
+    ui_markdown("### Árbol del resultado propio seleccionado")
+    tree_report = {**report, 'branches': [selected_branch]} if selected_branch else report
+    tree = _definition_tree_dot(team_focus, ctx["label"], tree_report)
     if tree:
         _ST_GRAPHVIZ(tree, use_container_width=True)
-        ui_caption("El árbol corta las ramas terminales y no dibuja todas las combinaciones del torneo. Sólo muestra qué cambia el estado.")
+        ui_caption("El árbol muestra hasta tres caminos por resultado propio. Todas las alternativas están en el detalle completo de la próxima fecha.")
 
     # Partidos que más definen: ranking exacto de sensibilidad, no pronóstico.
     ui_markdown("### Partidos que más definen")
@@ -11118,7 +11403,7 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
     no quedan escondidas detrás de comandos del chat.
     """
     if not embedded:
-        ui_markdown("## Escenarios")
+        _page_header("🎲", "Escenarios", "Gana/empata/pierde, qué pasa si…, mejor y peor caso")
     ui_caption("Herramientas inspiradas en la calculadora del Mundial, adaptadas a zonas de 15 equipos. "
                "Los rangos y escenarios por puntos son exactos; las distribuciones están rotuladas como estimación.")
     Z = E.get("zonas_lpf") or {}
@@ -11132,12 +11417,8 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
     if gate:
         ui_warning(gate[1])
         return
-    if default_team in teams:
-        team = default_team
-        ui_markdown(f"### {team}")
-    else:
-        team = ui_selectbox("Equipo", teams, index=teams.index("River Plate") if "River Plate" in teams else 0,
-                            key="scenario_team")
+    team = default_team if default_team in teams else _global_team(teams)
+    ui_markdown(f"### {editorialize_text(team)}")
     lab = lpf_zona_de_equipo(team, Z)
     base = Z[lab]
     annual = lpf_anual_base(Z, E.get("apertura") or {})
@@ -11154,13 +11435,7 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
         st.session_state["scenario_tool_nav"] = "Puntos y puesto final"
     if st.session_state.get("scenario_tool_nav") not in scenario_labels:
         st.session_state["scenario_tool_nav"] = scenario_labels[0]
-    scenario_tool = st.radio(
-        "Herramienta de escenarios",
-        scenario_labels,
-        horizontal=True,
-        key="scenario_tool_nav",
-        help="Todas las herramientas vuelven a quedar visibles y accesibles desde el inicio.",
-    )
+    scenario_tool = _pick("Herramienta", scenario_labels, key="scenario_tool_nav")
 
     if scenario_tool == "Gana / empata / pierde":
         scope_label = st.radio(
@@ -11176,12 +11451,7 @@ def render_scenarios_workspace(E, default_team=None, embedded=False):
             "Sólo postergados": "postponed_only",
             "Fecha + postergados": "extended_window",
         }[scope_label]
-        preview_objective = st.radio(
-            "Lectura complementaria",
-            ["Playoffs", "Libertadores", "Al menos Sudamericana", "Descenso"],
-            horizontal=True,
-            key=f"scenario_result_objective_{team}",
-        )
+        preview_objective = _lpf_objective_label()
         text, frame = lpf_previa_equipo_texto(
             team, Z, rest, pending, annual, previous, scope=scope, objective=preview_objective
         )
@@ -11630,8 +11900,7 @@ def _render_cup_visual_dashboard(E, team, view):
 
 def render_visualizations_workspace(E):
     """Laboratorio visual conectado al mismo motor que los informes y el chat."""
-    ui_markdown("## Visualizaciones")
-    ui_caption("Cada vista responde una pregunta concreta. Exacto y estimado aparecen separados.")
+    _page_header("📊", "Visualizaciones", "Cada vista responde una pregunta concreta. Exacto y estimado aparecen separados.")
     Z = E.get("zonas_lpf") or {}
     rest = E.get("rest") or {}
     pending = E.get("pendientes") or []
@@ -11639,13 +11908,11 @@ def render_visualizations_workspace(E):
     if not teams:
         ui_warning("Cargá la LPF primero.")
         return
-    team = ui_selectbox("Equipo", teams, index=teams.index("River Plate") if "River Plate" in teams else 0, key="viz_team")
+    team = _global_team(teams)
     lab = lpf_zona_de_equipo(team, Z)
-    tab_team, tab_zone, tab_comp, tab_round, tab_other, tab_radar = st.tabs([
-        "Equipo", "Zona", "Copas y descenso", "Próximo partido", "La otra cancha", "Últimas fechas"
-    ])
+    _viz = _pick("Vista", ["Equipo", "Zona", "Copas y descenso", "Próximo partido", "La otra cancha"], key="viz_view")
 
-    with tab_team:
+    if _viz == "Equipo":
         base = Z[lab]
         table = liga_tabla_df(base)
         current = int(base[team]["pts"])
@@ -11665,7 +11932,7 @@ def render_visualizations_workspace(E):
         if st.button("Calcular escalera exacta", key="viz_ladder", use_container_width=True):
             _render_point_ladder(team, base, rest, pending, 8, f"{team} · puntos y clasificación")
 
-    with tab_zone:
+    if _viz == "Zona":
         base = Z[lab]
         zone_table = liga_tabla_df(base).copy()
         zone_table["Estado"] = np.where(zone_table["Pos"] <= 8, "Dentro", "Fuera")
@@ -11675,7 +11942,7 @@ def render_visualizations_workspace(E):
         ui_markdown(f"**Corte:** {zone_table.iloc[7]['Equipo']} con {int(zone_table.iloc[7]['PTS'])} puntos. "
                     f"Primero afuera: {zone_table.iloc[8]['Equipo']} con {int(zone_table.iloc[8]['PTS'])}.")
 
-    with tab_comp:
+    if _viz == "Copas y descenso":
         _comp_view = st.radio(
             "Panorama", ["Libertadores", "Sudamericana", "Descenso"], horizontal=True, key="viz_comp_view"
         )
@@ -11687,7 +11954,7 @@ def render_visualizations_workspace(E):
                 E.get("n_anual", 1), E.get("n_prom", 1),
             ))
 
-    with tab_round:
+    if _viz == "Próximo partido":
         annual = lpf_anual_base(Z, E.get("apertura") or {})
         _viz_preview_label = st.radio(
             "Alcance",
@@ -11724,18 +11991,9 @@ def render_visualizations_workspace(E):
                 st.bar_chart(zone_frame)
                 ui_caption("En puestos, una barra menor es mejor. El intervalo abre los desempates futuros.")
 
-    with tab_other:
-        _other_c1, _other_c2 = st.columns([1, 1.4])
-        with _other_c1:
-            _sync_lpf_objective_widget("viz_other_objective")
-            _viz_other_obj = st.radio(
-                "Objetivo",
-                _LPF_OBJECTIVE_UI_OPTIONS,
-                key="viz_other_objective",
-                on_change=_lpf_objective_widget_changed,
-                args=("viz_other_objective",),
-            )
-        with _other_c2:
+    if _viz == "La otra cancha":
+        _viz_other_obj = _lpf_objective_label()
+        if True:
             _viz_other_label = st.radio(
                 "Partidos a analizar",
                 ["Día del próximo partido", "Fecha oficial específica", "Fecha + postergados"],
@@ -11799,45 +12057,38 @@ def render_visualizations_workspace(E):
             ui_markdown("#### Cruces futuros entre competidores")
             ui_dataframe(crosses, use_container_width=True, hide_index=True)
 
-    with tab_radar:
-        render_definition_radar(E)
 
 
 def render_guided_workspace(E):
     """Una sola puerta de entrada para no depender de memorizar comandos de chat."""
-    ui_markdown("## Panel por equipo")
-    ui_caption("Elegí un equipo y un objetivo una sola vez. Después recorré las vistas sin memorizar preguntas ni comandos del chat.")
     report = _lpf_refresh_quality(E)
-    status = {"ok": "🟢 Datos listos", "warning": "🟡 Datos con advertencias", "blocked": "🔴 Hay cálculos bloqueados"}[report.level]
-    ui_markdown(f"**{status}** · Elegí **Datos y auditoría** en la barra superior para ver el detalle")
 
     Z = E.get("zonas_lpf") or {}
     teams = sorted(E.get("equipos") or [])
     pending = E.get("pendientes") or []
     _guide_rounds = sorted({f for _match, f in _lpf_fecha_de(pending).items() if f is not None})
     if not teams:
-        ui_warning("Primero cargá la LPF desde el panel lateral.")
+        ui_warning("Primero cargá la LPF desde Datos → Cargar y actualizar.")
         return
-    c1, c2, c3 = st.columns([1.15, 1.15, 1.7])
-    team = c1.selectbox("Equipo", teams, index=teams.index("River Plate") if "River Plate" in teams else 0, key="guide_team")
-    _sync_lpf_objective_widget("guide_objective")
-    objective = c2.selectbox(
-        "Objetivo", _LPF_OBJECTIVE_UI_OPTIONS, key="guide_objective",
-        on_change=_lpf_objective_widget_changed, args=("guide_objective",),
-    )
-    task = c3.selectbox("Vista", [
-        "Resumen completo",
-        "Situación general del equipo",
-        "Panorama narrativo de la competencia",
-        "Cómo puede terminar el próximo partido o la fecha",
-        "Qué necesita para alcanzar el objetivo",
-        "Qué resultados ajenos le convienen",
-        "Escalera exacta: mínimo que asegura y caminos con menos",
-        "Comparar con otro equipo",
-        "Cómo viene su zona",
-        "Radar de las últimas fechas",
-        "Herramientas de escenarios adaptadas del Mundial",
-    ], key="guide_task")
+    team = _global_team(teams)
+    objective = _lpf_objective_label()
+    _page_header("🧭", f"Panel de {editorialize_text(team)}", f"Objetivo: {objective}")
+    _guide_views = {
+        "Resumen": "Resumen completo",
+        "Situación": "Situación general del equipo",
+        "Qué necesita": "Qué necesita para alcanzar el objetivo",
+        "Próximo partido": "Cómo puede terminar el próximo partido o la fecha",
+        "Le conviene": "Qué resultados ajenos le convienen",
+        "Escalera exacta": "Escalera exacta: mínimo que asegura y caminos con menos",
+        "Comparar": "Comparar con otro equipo",
+        "Su zona": "Cómo viene su zona",
+        "Panorama": "Panorama narrativo de la competencia",
+        "Árbol y condiciones": "Radar de las últimas fechas",
+        "Previa editorial": "Informe editorial de la fecha",
+        "Consultas del catálogo": "Piezas disponibles sin chat",
+    }
+    _view_label = _pick("Vista", list(_guide_views), key="guide_view")
+    task = _guide_views[_view_label]
     scope = "next_team_match"
     preview_round = None
     other_scope = "next_team_day"
@@ -11882,7 +12133,6 @@ def render_guided_workspace(E):
     if task == "Comparar con otro equipo":
         other = ui_selectbox("Segundo equipo", [x for x in teams if x != team], key="guide_other")
 
-    ui_caption("Las consultas habituales están reunidas en este panel. Para preguntas excepcionales o redacción libre, usá **Mesa de redacción → Consultas y chat**.")
     rest = E.get("rest") or {}
     annual = lpf_anual_base(Z, E.get("apertura") or {})
     previous = st.session_state.get("PROMEDIOS") or {}
@@ -11895,13 +12145,12 @@ def render_guided_workspace(E):
     elif objective == "Descenso":
         _needed_domain = "descenso"
     _gate = _lpf_data_gate(E, _needed_domain)
-    if _gate and task not in ("Cómo viene su zona", "Panorama narrativo de la competencia", "Radar de las últimas fechas"):
+    if _gate and task not in ("Cómo viene su zona", "Panorama narrativo de la competencia", "Radar de las últimas fechas", "Piezas disponibles sin chat", "Informe editorial de la fecha"):
         ui_warning(_gate[1])
         return
 
     if task == "Resumen completo":
         ui_markdown(ficha_liga_texto(team, Z[lab], rest, pending, LPF_ZONAS_PLAYOFF))
-        ui_markdown("### Próximo partido")
         _preview_text, _preview_frame = lpf_previa_equipo_texto(
             team, Z, rest, pending, annual, previous, scope="next_team_match", objective=objective
         )
@@ -11985,6 +12234,7 @@ def render_guided_workspace(E):
     elif task == "Escalera exacta: mínimo que asegura y caminos con menos":
         if objective != "Playoffs":
             ui_info("La escalera exacta está habilitada para playoffs. En copas, el mínimo que asegura sólo se muestra cuando fue comprobado; si no, figura como todavía no calculado.")
+            return
         _render_point_ladder(team, Z[lab], rest, pending, 8, f"{team} · clasificación a playoffs")
     elif task == "Comparar con otro equipo":
         base_all = {team_name: row for base in Z.values() for team_name, row in base.items()}
@@ -11994,14 +12244,17 @@ def render_guided_workspace(E):
         ui_dataframe(_rd_competition_table(Z[lab], rest, 8), use_container_width=True, hide_index=True, height=560)
     elif task == "Radar de las últimas fechas":
         render_definition_radar(E)
+    elif task == "Informe editorial de la fecha":
+        render_round_editorial(E)
+    elif task == "Piezas disponibles sin chat":
+        render_visible_pieces(E, embedded=True)
     else:
         render_scenarios_workspace(E, default_team=team, embedded=True)
 
 
 # ─── CONFIG DEL LLM EN EL PANEL LATERAL ──────────────────────────────────────────
-with st.sidebar:
-    st.divider()
-    st.subheader("🤖 Asistente (LLM)")
+def _render_llm_block():
+    ui_markdown("#### 🤖 Asistente (LLM)")
     st.session_state.LLM_ON = st.toggle(
         "Interpretar preguntas con Claude", value=st.session_state.LLM_ON,
         help="Si lo activás, entiende preguntas más libres. Las cuentas siempre las hace el motor.")
@@ -12020,20 +12273,6 @@ with st.sidebar:
     if st.button("🧹 Limpiar conversación", use_container_width=True):
         st.session_state.chat = [{"role": "assistant", "blocks": [("md", BIENVENIDA)]}]
         st.rerun()
-
-
-_WORKSPACES = [
-    "🧭 Panel por equipo",
-    "🎯 Escenarios",
-    "🗞️ Mesa de redacción",
-    "📊 Visualizaciones",
-    "🧪 Datos y auditoría",
-    "🎯 Puntos por objetivo",
-]
-if st.session_state.get("workspace_nav") == "💬 Chat libre":
-    st.session_state["workspace_nav"] = "🗞️ Mesa de redacción"
-elif st.session_state.get("workspace_nav") not in _WORKSPACES:
-    st.session_state["workspace_nav"] = _WORKSPACES[0]
 
 
 def _prom_totales_para_pisos(anual, Z):
@@ -12166,7 +12405,7 @@ def render_pisos_workspace(E):
     Responde de una sola vez la pregunta más frecuente —«¿cuántos puntos necesita
     para clasificar / entrar a una copa / no descender?»— sin recordar comandos.
     """
-    ui_markdown("## Puntos necesarios por objetivo")
+    _page_header("🎯", "Puntos por objetivo", "Cuántos puntos necesita cada equipo")
     ui_caption(
         "Cuántos puntos necesita cada equipo. **Mínimo posible** = el menor total con el que todavía existe "
         "algún escenario favorable. **Mínimo que asegura** = el menor total comprobado que asegura el objetivo. "
@@ -12177,7 +12416,7 @@ def render_pisos_workspace(E):
     Z = E.get("zonas_lpf") or {}
     teams = sorted(E.get("equipos") or [])
     if not Z or not teams:
-        ui_warning("Primero cargá la LPF desde el panel lateral.")
+        ui_warning("Primero cargá la LPF desde Datos → Cargar y actualizar.")
         return
 
     rest = E.get("rest") or {}
@@ -12191,15 +12430,15 @@ def render_pisos_workspace(E):
     n_prom = int(E.get("n_prom", 1))
     prom_totales = _prom_totales_para_pisos(anual, Z)
 
-    modo = st.radio(
+    modo = _pick(
         "¿Qué querés ver?",
         ["Un equipo, todos sus objetivos", "Todos los equipos, un objetivo"],
-        horizontal=True, key="pisos_modo",
+        key="pisos_modo",
     )
 
     if modo == "Un equipo, todos sus objetivos":
-        idx = teams.index("River Plate") if "River Plate" in teams else 0
-        team = st.selectbox("Equipo", teams, index=idx, key="pisos_team")
+        team = _global_team(teams)
+        ui_markdown(f"### {editorialize_text(team)}")
         lab = lpf_zona_de_equipo(team, Z)
         service_entries = None
         pisos = None
@@ -12261,13 +12500,14 @@ def render_pisos_workspace(E):
                     filas_esc.append({
                         "Puntos finales": pts,
                         "Situación": estado,
-                        "Camino de ejemplo": ejemplo or ("No depende de otros resultados" if "arant" in estado else "—"),
+                        "Así entra / así queda afuera": ejemplo or ("No depende de otros resultados" if ("asegura" in estado or "arant" in estado or estado == "seguro") else "—"),
                     })
                 ui_markdown(f"**Escalera de {elegido['label'].lower()}** — del mínimo posible al mínimo que asegura:")
                 ui_dataframe(pd.DataFrame(filas_esc), use_container_width=True, hide_index=True)
                 ui_caption(
-                    "«Clasificación condicionada» = alcanza con ese puntaje según cómo salgan otros partidos. "
-                    "«Mínimo que asegura» = el menor total comprobado con el que entra sin depender de nadie ni de desempates."
+                    "«Depende de otros resultados» = con ese total puede entrar o quedar afuera según lo que hagan los rivales; "
+                    "se muestra un cierre real de cada caso. «Mínimo que asegura» = el menor total comprobado con el que "
+                    "entra sin depender de nadie ni de desempates."
                 )
         else:
             con_escalera = [p for p in (pisos or []) if p.aplica and p.caminos]
@@ -12280,14 +12520,14 @@ def render_pisos_workspace(E):
                 for pts, estado, ejemplo in elegido.caminos:
                     filas_esc.append({
                         "Puntos finales": pts, "Situación": estado,
-                        "Camino de ejemplo": ejemplo or ("No depende de otros resultados" if "arant" in estado else "—"),
+                        "Así entra / así queda afuera": ejemplo or ("No depende de otros resultados" if ("asegura" in estado or "arant" in estado or estado == "seguro") else "—"),
                     })
                 ui_markdown(f"**Escalera de {elegido.nombre}** — del mínimo posible al mínimo que asegura:")
                 ui_dataframe(pd.DataFrame(filas_esc), use_container_width=True, hide_index=True)
 
         any_prom = prom_totales is not None
         if not any_prom:
-            ui_caption("Para sumar la exigencia por promedios, pegá la tabla de promedios en el panel lateral.")
+            ui_caption("Para sumar la exigencia por promedios, pegá la tabla de promedios en Datos → Ajustes.")
     else:
         _old_cup_objective = st.session_state.get("pisos_obj_all")
         if _old_cup_objective == "Libertadores":
@@ -12348,59 +12588,582 @@ def render_pisos_workspace(E):
     )
 
 
-def _go_to_workspace(workspace, scenario_tool=None):
-    st.session_state["workspace_nav"] = workspace
-    if scenario_tool is not None:
-        st.session_state["scenario_tool_nav"] = scenario_tool
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# NAVEGACIÓN
+# Un menú lateral agrupado por secciones. Equipo y objetivo se eligen una sola
+# vez (panel lateral) y todas las páginas los respetan. Ajustes, fuentes y carga
+# manual quedan en la sección Datos para no ocupar la pantalla principal.
+# ═══════════════════════════════════════════════════════════════════════════════
 
-ui_markdown("### Accesos principales")
-_main_cols = st.columns(len(_WORKSPACES))
-for _col, _label in zip(_main_cols, _WORKSPACES):
-    _col.button(
-        _label,
-        use_container_width=True,
-        type="primary" if st.session_state["workspace_nav"] == _label else "secondary",
-        key=f"workspace_button_{_label}",
-        on_click=_go_to_workspace,
-        args=(_label,),
+def _page_header(icon, title, subtitle=""):
+    sub = f'<p>{editorialize_text(subtitle)}</p>' if subtitle else ""
+    _ST_MARKDOWN(
+        f'<div class="page-head"><h1>{icon} {editorialize_text(title)}</h1>{sub}</div>',
+        unsafe_allow_html=True,
     )
 
-_SCENARIO_SHORTCUTS = [
-    ("Gana / empata / pierde", "Gana / empata / pierde"),
-    ("Qué pasa si…", "Qué pasa si…"),
-    ("Puntos y puesto final", "Puntos y puesto final"),
-    ("Mejor y peor caso", "Mejor y peor caso"),
-    ("Distribución", "Distribución"),
-    ("Clasificados / eliminados", "Clasificados y eliminados"),
-]
-ui_caption("Herramientas rápidas de Escenarios")
-_scenario_cols = st.columns(len(_SCENARIO_SHORTCUTS))
-for _col, (_button_label, _tool_label) in zip(_scenario_cols, _SCENARIO_SHORTCUTS):
-    _col.button(
-        _button_label,
-        use_container_width=True,
-        key=f"scenario_shortcut_{_tool_label}",
-        on_click=_go_to_workspace,
-        args=("🎯 Escenarios", _tool_label),
-    )
 
-_workspace = st.session_state["workspace_nav"]
-if _workspace == "🎯 Puntos por objetivo":
-    render_pisos_workspace(st.session_state.ESTADO)
-    st.stop()
-if _workspace == "🧭 Panel por equipo":
+def _pick(label, options, key, default=None):
+    """Selector compacto (botones segmentados) que nunca queda vacío."""
+    options = list(options)
+    memo = f"{key}__last"
+    if st.session_state.get(key) not in options:
+        fallback = st.session_state.get(memo)
+        if fallback not in options:
+            fallback = default if default in options else options[0]
+        st.session_state[key] = fallback
+    def _keep_selection():
+        # Tocar la opción ya elegida la «deselecciona»: la restauramos para que el
+        # selector nunca quede vacío ni pida dos toques.
+        if st.session_state.get(key) is None:
+            st.session_state[key] = st.session_state.get(memo, options[0])
+
+    value = st.segmented_control(label, options, key=key, format_func=editorialize_text, on_change=_keep_selection)
+    if value is None:
+        value = st.session_state.get(memo) if st.session_state.get(memo) in options else options[0]
+    st.session_state[memo] = value
+    return value
+
+
+def _global_team(teams):
+    teams = list(teams or [])
+    if not teams:
+        return None
+    current = st.session_state.get("GLOBAL_TEAM")
+    if current in teams:
+        return current
+    return "River Plate" if "River Plate" in teams else sorted(teams)[0]
+
+
+def _run_auto_update(rerun=True, budget=90):
+    with st.spinner(f"Actualizando a hoy desde LPF, ESPN, TyC y FutbolArgentino (máx. {budget} s)…"):
+        try:
+            with _web_http.time_budget(budget):
+                _r, _e = cargar_lpf_espn("arg.1")
+        except Exception as exc:  # nunca dejar la app sin arrancar por una fuente caída
+            _r, _e = {}, f"{type(exc).__name__}: {exc}"
+    if _e:
+        st.session_state["_UPDATE_MSG"] = (
+            "warning",
+            "No pude actualizar desde las fuentes. Sigo con la última foto; podés reintentar o cargar "
+            "resultados a mano en Datos → Cargar y actualizar.",
+            _e,
+        )
+        if rerun:
+            st.rerun()
+        return
+    _msg = (f"Actualizado desde {_r.get('fuente') or 'fuente automática'} ✓ · "
+            f"{_r['jug']} resultados · {_r['pend']} pendientes")
+    _extra = []
+    if _r.get("fixture_err"):
+        _extra.append("No pude actualizar resultados: " + _r["fixture_err"])
+    if _r.get("sin_confirmar"):
+        _extra.append(f"{_r['sin_confirmar']} partido(s) sin confirmar no se toman todavía.")
+    st.session_state["_UPDATE_MSG"] = ("warning" if _extra else "success", " ".join([_msg] + _extra))
+    if rerun:
+        st.rerun()
+
+
+def _sidebar_context():
+    E = st.session_state.ESTADO or {}
+    teams = sorted(E.get("equipos") or [])
+    with st.sidebar:
+        _ST_MARKDOWN(
+            '<div class="brand">⚽ <b>Calculadora LPF 2026</b></div>',
+            unsafe_allow_html=True,
+        )
+        if teams:
+            if st.session_state.get("GLOBAL_TEAM") not in teams:
+                st.session_state["GLOBAL_TEAM"] = _global_team(teams)
+            ui_selectbox("Equipo", teams, key="GLOBAL_TEAM")
+        if E.get("modo") == "lpf2026":
+            _sync_lpf_objective_widget("GLOBAL_OBJECTIVE")
+            st.selectbox(
+                "Objetivo", _LPF_OBJECTIVE_UI_OPTIONS, key="GLOBAL_OBJECTIVE",
+                on_change=_lpf_objective_widget_changed, args=("GLOBAL_OBJECTIVE",),
+            )
+            _txt, _ok = lpf_estado_datos(E.get("zonas_lpf"))
+            _pjs = [d.get("pj", 0) for b in (E.get("zonas_lpf") or {}).values() for d in b.values()]
+            _loaded = min(_pjs) if _pjs else 0
+            _expected, _total = lpf_fecha_esperada()
+            if _ok:
+                ui_caption(f"✅ Datos al día · fecha {_loaded} de {_total}")
+            else:
+                ui_caption(f"⚠️ Datos hasta la fecha {_loaded} · según el calendario ya se jugaron {max(_expected, _loaded)} de {_total}")
+            _meta = _lpf_update_meta()
+            if _meta.get("updated_at"):
+                try:
+                    import datetime as _dtm
+                    _when = _dtm.datetime.fromisoformat(_meta["updated_at"]).astimezone(
+                        _dtm.timezone(_dtm.timedelta(hours=-3))).strftime("%d/%m %H:%M")
+                    ui_caption(f"Última actualización automática: {_when}")
+                except Exception:
+                    pass
+            st.button(
+                "🔄 Actualizar a hoy", use_container_width=True, type="secondary" if _ok else "primary",
+                key="btn_update_sidebar",
+                on_click=lambda: st.session_state.__setitem__("_UPDATE_REQUESTED", True),
+            )
+            if st.session_state.pop("_UPDATE_REQUESTED", False):
+                _run_auto_update()
+        _msg = st.session_state.get("_UPDATE_MSG")
+        if _msg:
+            (ui_success if _msg[0] == "success" else ui_warning)(_msg[1])
+            if len(_msg) > 2 and _msg[2]:
+                with st.expander("Detalle de las fuentes"):
+                    ui_caption(_msg[2])
+
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def _cierre_probabilidades(base, rest, pend, cutoff):
+    """% estimado de terminar entre los ``cutoff`` primeros (Monte Carlo)."""
+    try:
+        frame = liga_probabilidades_df(base, rest, pend, [(cutoff, "Clasifica", None)])
+    except Exception:
+        return {}
+    col = "Clasifica %"
+    return {row["Equipo"]: float(row[col]) for _, row in frame.iterrows()} if col in frame else {}
+
+
+def _cierre_lectura(prob):
+    if prob is None:
+        return ""
+    if prob >= 95:
+        return "prácticamente adentro"
+    if prob >= 75:
+        return "muy bien perfilado"
+    if prob >= 50:
+        return "con más chances de entrar que de quedar afuera"
+    if prob >= 25:
+        return "en plena pelea"
+    if prob >= 8:
+        return "necesita una buena racha y ayuda"
+    return "con chances mínimas"
+
+
+def _cierre_fixture_text(team, pending, fecha_map, all_points, pts_label=True):
+    own = [m for m in pending if team in m]
+    own.sort(key=lambda m: (fecha_map.get(m) is None, fecha_map.get(m) or 0))
+    parts = []
+    for local, visitor in own:
+        rival = visitor if local == team else local
+        cond = "de local" if local == team else "de visitante"
+        fecha = fecha_map.get((local, visitor))
+        rival_pts = all_points.get(rival)
+        rival_txt = editorialize_text(rival) + (f" ({rival_pts})" if rival_pts is not None else "")
+        parts.append((f"F{fecha}: " if fecha else "") + f"{rival_txt} {cond}")
+    return parts
+
+
+def _cierre_exact_state(base, pending, team, cutoff):
+    """Mínimo exacto que asegura con búsqueda binaria (≈6 MILP por equipo en vez de ≈30).
+
+    Asegurar es monótono en los puntos finales: si con N no hay cierre que lo deje
+    afuera, con N+1 tampoco. Devuelve (eliminado, garantía).
+    """
+    current = int(base[team].get("pts", 0))
+    left = sum(1 for m in pending if team in m)
+    totals = sorted(reachable_point_totals(current, left))
+    if not totals:
+        return False, None
+    qualify = can_qualify_with_points(base, pending, team, cutoff, totals[-1])
+    if not qualify.feasible and not qualify.proven_infeasible:
+        raise RuntimeError('El solver no terminó de verificar la posibilidad de entrar.')
+    if not qualify.feasible:
+        return True, None
+    failure = can_fail_with_points(base, pending, team, cutoff, totals[-1])
+    if not failure.feasible and not failure.proven_infeasible:
+        raise RuntimeError('No se pudo descartar un cierre adverso.')
+    if failure.feasible:
+        return False, None
+    lo, hi = 0, len(totals) - 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        failure = can_fail_with_points(base, pending, team, cutoff, totals[mid])
+        if not failure.feasible and not failure.proven_infeasible:
+            raise RuntimeError('No se pudo completar la búsqueda de garantía.')
+        if failure.feasible:
+            lo = mid + 1
+        else:
+            hi = mid
+    return False, int(totals[lo])
+
+
+def render_cierre_por_zona(E):
+    """Pieza de redacción: cierre del Clausura zona por zona, equipo por equipo."""
+    _page_header("📝", "Cierre por zona", "Puntos, situación y lo que le queda a cada equipo")
+    Z = E.get("zonas_lpf") or {}
+    rest = E.get("rest") or {}
+    pending = list(E.get("pendientes") or [])
+    if len(Z) < 2:
+        ui_warning("Cargá las dos zonas para armar la pieza.")
+        return
+    cutoff = _LPF_TOP_OCTAVOS
+    c1, c2 = st.columns([1, 1.4])
+    with c1:
+        zonas_sel = _pick("Zonas", ["Las dos", "Zona A", "Zona B"], key="cierre_zonas")
+    with c2:
+        exacto = st.toggle(
+            "Sumar el mínimo exacto que asegura (tarda: hasta ~30 s en el navegador la primera vez)",
+            value=False, key="cierre_exacto",
+            help=f"Usa el motor exacto para cada equipo con {VENTANA_EXACTA} partidos o menos por jugar.",
+        )
+    fecha_map = _lpf_fecha_de(pending)
+    show_estimates = st.toggle('Incluir chances estimadas', value=False, key='cierre_show_estimates')
+    all_points = {team: int(row.get("pts", 0)) for base in Z.values() for team, row in base.items()}
+    annual = lpf_anual_base(Z, E.get("apertura") or {})
+    annual_order = list(liga_tabla_df(annual)["Equipo"]) if annual else []
+    n_annual = len(annual_order)
+    remaining_rounds = sorted({f for f in fecha_map.values() if f is not None})
+
+    lines_md = []
+    intro = (
+        f"Quedan **{len(remaining_rounds)} fecha{'s' if len(remaining_rounds) != 1 else ''}** "
+        f"del Clausura y clasifican los **{cutoff} primeros** de cada zona a octavos. "
+        "Entre paréntesis, los puntos que tiene hoy cada rival."
+    )
+    ui_markdown(intro)
+    ui_caption("La posición y la distancia al corte describen la foto actual; no aseguran el pase. El techo supone ganar todo. "
+               "Las chances, si se activan, son estimaciones separadas.")
+    lines_md.append(intro)
+
+    labels = sorted(Z)
+    if zonas_sel == "Zona A":
+        labels = [x for x in labels if x == "A"]
+    elif zonas_sel == "Zona B":
+        labels = [x for x in labels if x == "B"]
+
+    for lab in labels:
+        base = Z[lab]
+        table = liga_tabla_df(base)
+        probs = _cierre_probabilidades(base, rest, pending, cutoff) if show_estimates else {}
+        cut_pts = int(table.iloc[min(cutoff, len(table)) - 1]["PTS"])
+        next_pts = int(table.iloc[min(cutoff, len(table) - 1)]["PTS"]) if len(table) > cutoff else None
+        head = f"### Zona {lab}"
+        ui_markdown(head)
+        lines_md.append(head)
+        for _, row in table.iterrows():
+            team = row["Equipo"]
+            pos = int(row["Pos"])
+            pts = int(row["PTS"])
+            left = int(rest.get(team, 0))
+            ceiling = pts + 3 * left
+            state = _liga_in_out(team, base, rest, cutoff)
+            prob = probs.get(team)
+            guarantee = None
+            exact_checked = False
+            if exacto and 0 < left <= VENTANA_EXACTA:
+                try:
+                    eliminated, guarantee = _cierre_exact_state(base, pending, team, cutoff)
+                    exact_checked = True
+                    if eliminated:
+                        state = "out"
+                    elif guarantee is not None and guarantee <= pts:
+                        state = "in"
+                except Exception:
+                    guarantee = None
+
+            if state == "in":
+                chance = "**Ya está clasificado** a los octavos."
+            elif state == "out":
+                chance = "**Ya no puede clasificar**: aunque gane todo, no le alcanza."
+            else:
+                if pos <= cutoff:
+                    gap = pts - next_pts if next_pts is not None else 0
+                    where = (f"Hoy está adentro ({pos}º) y le saca {gap} punto{'s' if gap != 1 else ''} al {cutoff + 1}º"
+                             if gap > 0 else f"Hoy está adentro ({pos}º), igualado con el {cutoff + 1}º")
+                else:
+                    gap = cut_pts - pts
+                    where = (f"Hoy está afuera ({pos}º), a {gap} punto{'s' if gap != 1 else ''} del {cutoff}º"
+                             if gap > 0 else
+                             f"Hoy está afuera ({pos}º), igualado en puntos con el {cutoff}º (lo deja afuera el desempate)")
+                chance = where + "."
+                if prob is not None:
+                    pct = "más del 99%" if prob >= 99.5 else ("menos del 1%" if prob < 0.5 else f"{prob:.0f}%")
+                    chance += f" Chance estimada de clasificar: **{pct}**, {_cierre_lectura(prob)}."
+                if guarantee is not None:
+                    need = max(0, int(guarantee) - pts)
+                    chance += f" Se asegura el pase con **{guarantee} puntos** (le faltan {need} de {3 * left})."
+                elif exact_checked:
+                    chance += " Ni ganando todo se asegura el pase: depende también de otros resultados."
+                elif exacto and 0 < left <= VENTANA_EXACTA:
+                    chance += " El mínimo que asegura todavía no pudo comprobarse."
+            extra = ""
+            if team in annual_order and n_annual and annual_order.index(team) + 1 >= n_annual - 2:
+                extra = f" Además pelea abajo: es {annual_order.index(team) + 1}º de la Tabla General."
+            fixture = _cierre_fixture_text(team, pending, fecha_map, all_points)
+            fixture_txt = ("**Le queda:** " + ", ".join(fixture) + ".") if fixture else "**Ya no le quedan partidos.**"
+            line = (
+                f"### {editorialize_text(team)}: {pts} punto{'s' if pts != 1 else ''}, {pos}º\n\n"
+                f"{left} por jugar · techo {ceiling} puntos.\n\n{chance}{extra}\n\n{fixture_txt}"
+            )
+            ui_markdown(line)
+            lines_md.append(line)
+
+    plain = "\n\n".join(lines_md)
+    with st.expander("Texto para copiar", expanded=False):
+        st.text_area("Pieza completa", value=plain.replace("**", ""), height=320, key="cierre_copy",
+                     label_visibility="collapsed")
+        st.download_button("Descargar .md", plain.encode("utf-8"), file_name="cierre_por_zona.md",
+                           mime="text/markdown", key="cierre_md")
+
+
+def render_round_editorial(E):
+    """Previa o actualización por zona, con la estructura de una nota."""
+    _page_header('📅', 'Informe de la fecha', 'Panorama, cruces y cuentas de los 30 equipos')
+    rounds = sorted({int(g['f']) for g in LPF_FIXTURE if int(g['f']) >= 11})
+    pending = list(E.get('pendientes') or [])
+    round_map = {(g['l'], g['v']): int(g['f']) for g in LPF_FIXTURE}
+    current = min((round_map.get(tuple(p), 16) for p in pending), default=16)
+    c1, c2 = st.columns(2)
+    round_no = c1.selectbox('Fecha del informe', rounds, index=rounds.index(max(11, current)),
+                            format_func=lambda n: f'Fecha {n}', key='editorial_round_no')
+    moment = c2.selectbox('Foto para la nota', ['Antes de empezar la fecha', 'Actualizada con los finales cargados'], key='editorial_round_moment')
+    played = list(E.get('jugados') or [])
+    mode = 'before' if moment == 'Antes de empezar la fecha' else 'current'
+    zones = E.get('zonas_lpf') or {}
+    if mode == 'before':
+        snap = round_start_snapshot(played, LPF_FIXTURE, round_no)
+        if not snap.get('available'):
+            ui_warning(snap['reason'])
+            return
+        zones, pending, played = snap['zones'], snap['pending'], snap['played']
+    if not zones:
+        ui_warning('Primero cargá las zonas y los resultados.')
+        return
+    # Sólo fechas/horas explícitas; no usa el horario de compatibilidad de 15:00.
+    schedule = _schedule_build_map(globals().get('_ESPN_FECHA_HORA') or {}, st.session_state.get('LPF_SCHEDULE') or {})
+    article = build_round_article(zones, pending, LPF_FIXTURE, round_no, mode=mode, played=played, schedule=schedule)
+    ui_markdown(f'## {article["title"]}')
+    ui_markdown(article['subtitle'])
+    ui_info(article['scope'])
+    ui_markdown(article['intro'])
+    if mode == 'before':
+        ui_caption('Los partidos ya jugados después de esta foto no modifican la previa. Cambiá a Actualizada para incorporarlos. '
+                   'Los horarios corresponden a la programación cargada, que puede haber cambiado desde el inicio de la fecha.')
+    with st.expander('Cruces de la fecha', expanded=True):
+        for match in article['key_matches']:
+            ui_markdown('- ' + match)
+    c1, c2 = st.columns(2)
+    zone_filter = c1.selectbox('Zona de la pieza', ['Las dos'] + [f'Zona {lab}' for lab in sorted(zones)], key='editorial_zone_filter')
+    team_options = ['Todos'] + [b['team'] for b in article['teams'] if zone_filter == 'Las dos' or zone_filter == f'Zona {b["zone"]}']
+    if st.session_state.get('editorial_team_filter') not in team_options:
+        st.session_state['editorial_team_filter'] = 'Todos'
+    selected_team = c2.selectbox('Equipo de la pieza', team_options, format_func=editorialize_text, key='editorial_team_filter')
+    selected = [b for b in article['teams'] if (zone_filter == 'Las dos' or zone_filter == f'Zona {b["zone"]}') and
+                (selected_team == 'Todos' or b['team'] == selected_team)]
+    text_lines = [article['title'], article['subtitle'], article['scope'], article['intro']]
+    if article['key_matches']:
+        text_lines += ['Cruces de la fecha', *article['key_matches']]
+    previous_zone = None
+    for block in selected:
+        if block['zone'] != previous_zone:
+            ui_markdown(f'## Zona {block["zone"]}')
+            text_lines.append(f'Zona {block["zone"]}')
+            previous_zone = block['zone']
+        ui_markdown(f'### {block["heading"]}')
+        ui_markdown(block['situation'])
+        stats = f'{block["games_played"]} PJ · {block["remaining"]} por jugar · techo {block["ceiling"]} puntos'
+        ui_caption(stats)
+        ui_markdown('**Esta fecha:** ' + block['this_round'])
+        if block['crossing']:
+            with st.expander(f'La cuenta del cruce · {editorialize_text(block["team"])}', expanded=False):
+                ui_markdown(block['crossing'])
+        ui_markdown('**Lo que le queda:** ' + block['fixture'])
+        text_lines += [block['heading'], block['situation'], stats, 'Esta fecha: '+block['this_round'],
+                       block['crossing'], 'Lo que le queda: '+block['fixture']]
+    note = ('L = local; V = visitante. El techo supone ganar todo y no es una proyección. '
+            'La distancia al octavo no es el mínimo que asegura. Estar empatado en puntos puede exigir desempate.')
+    ui_caption(note)
+    text_lines.append(note)
+    copy = '\n\n'.join(s for s in text_lines if s)
+    with st.expander('Título, bajada y cuerpo para copiar', expanded=False):
+        st.text_area('Pieza de la selección', value=copy, height=400,
+                     key='editorial_round_copy_' + hashlib.sha256(copy.encode()).hexdigest()[:12])
+        st.download_button('Descargar la selección .md', copy.encode(), file_name=f'cuentas_fecha_{round_no}_{mode}.md', mime='text/markdown')
+    with st.expander('Cómo leer las cuentas', expanded=False):
+        ui_markdown('**Asegura:** ninguna combinación adversa puede sacarlo. **Puede entrar con menos:** existe un cierre favorable; necesita ayuda o desempate. '
+                    '**Todavía no asegura:** no significa eliminado. **Distancia al corte:** referencia de hoy, no una cantidad fija de puntos que haya que sumar. '
+                    '**Techo:** máximo posible ganando todo, no puntaje esperado. Los estados de esta pieza usan puntos y techos; los cierres del fixture completo se consultan en Escalera exacta.')
+
+
+def render_visible_pieces(E, *, embedded=False):
+    """Da acceso al catálogo existente mediante desplegables, sin pasar por el chat."""
+    if not embedded:
+        _page_header('🧩', 'Más piezas y consultas', 'Las funciones del catálogo, con equipo y objetivo elegidos')
+    teams = sorted(E.get('equipos') or [])
+    if not teams:
+        ui_info('Primero cargá los equipos.')
+        return
+    team = _global_team(teams)
+    others = [t for t in teams if t != team] or [team]
+    other = st.selectbox('Segundo equipo para comparar', others, key='visible_pieces_other')
+    catalog = _chat_catalog(E, team, other)
+    category = st.selectbox('Tema de la pieza', list(catalog), key='visible_pieces_category')
+    options = catalog[category]
+    labels = [p[0] for p in options]
+    if st.session_state.get('visible_pieces_choice') not in labels:
+        st.session_state['visible_pieces_choice'] = labels[0]
+    choice = st.selectbox('Pieza o consulta', labels, key='visible_pieces_choice')
+    _, description, prompt = next(p for p in options if p[0] == choice)
+    ui_caption(description)
+    acc = _parse_kw(prompt, teams)
+    acc['q'] = prompt
+    if acc.get('intent') != 'porque':
+        st.session_state['ULTIMO'] = {k: acc.get(k) for k in ('intent', 'equipo', 'n', 'objetivo', 'q')}
+    render_blocks(ejecutar_accion(acc), prefix='visible_pieces')
+
+
+def _page_pieces():
+    render_visible_pieces(st.session_state.ESTADO)
+
+
+def _page_cierre():
+    render_cierre_por_zona(st.session_state.ESTADO)
+
+
+def _page_panel():
     render_guided_workspace(st.session_state.ESTADO)
-    st.stop()
-if _workspace == "🎯 Escenarios":
+
+
+def _page_points():
+    render_pisos_workspace(st.session_state.ESTADO)
+
+
+def _page_scenarios():
     render_scenarios_workspace(st.session_state.ESTADO)
-    st.stop()
-if _workspace == "🗞️ Mesa de redacción":
-    render_newsroom(st.session_state.ESTADO)
-    st.stop()
-if _workspace == "📊 Visualizaciones":
+
+
+def _page_viz():
     render_visualizations_workspace(st.session_state.ESTADO)
-    st.stop()
-if _workspace == "🧪 Datos y auditoría":
+
+
+def _page_radar():
+    render_definition_radar(st.session_state.ESTADO)
+
+
+def _page_preview():
+    view = st.selectbox('Formato de la previa', ['Nota por zona y equipo', 'Partido por partido y visualizaciones'], key='preview_format')
+    if view == 'Nota por zona y equipo':
+        render_round_editorial(st.session_state.ESTADO)
+    else:
+        render_newsroom(st.session_state.ESTADO, "previa")
+
+
+def _page_report():
+    render_newsroom(st.session_state.ESTADO, "informe")
+
+
+def _page_chat():
+    render_chat_workspace(st.session_state.ESTADO)
+
+
+def _page_load():
+    _page_header("📥", "Cargar y actualizar", "Traer los datos al día o corregirlos a mano")
+    E = st.session_state.ESTADO or {}
+    if E.get("modo") == "lpf2026":
+        render_newsroom(E, "carga", show_header=False)
+        st.divider()
+    _render_load_block()
+
+
+def _page_audit():
     render_data_audit(st.session_state.ESTADO)
-    st.stop()
+    st.divider()
+    render_newsroom(st.session_state.ESTADO, "reglas", show_header=False)
+
+
+def _page_settings():
+    _page_header("⚙️", "Ajustes", "Desempate, estructura, zonas, promedios y asistente")
+    _render_settings_block()
+    st.divider()
+    _render_llm_block()
+    ui_caption(f"Motor de cálculo · v{__version__}")
+
+
+_ST_MARKDOWN("""
+<style>
+.page-head { margin: 0 0 0.75rem; }
+.page-head h1 { font-size: 1.75rem; font-weight: 700; margin: 0; padding: 0; }
+.page-head p { color: #6b7280; margin: 0.2rem 0 0; font-size: 0.95rem; }
+.brand { font-size: 1.1rem; margin: 0 0 0.25rem; }
+div[data-testid="stMainBlockContainer"], .block-container { padding-top: 3.5rem !important; }
+section[data-testid="stSidebar"] div[data-testid="stSidebarNav"] { padding-top: .25rem; }
+div[data-testid="stSegmentedControl"] { margin-bottom: .25rem; }
+</style>
+""", unsafe_allow_html=True)
+
+_PAGES = {
+    "Equipo": [
+        st.Page(_page_panel, title="Panel del equipo", icon="🧭", url_path="panel", default=True),
+        st.Page(_page_points, title="Puntos por objetivo", icon="🎯", url_path="puntos"),
+        st.Page(_page_scenarios, title="Escenarios", icon="🎲", url_path="escenarios"),
+    ],
+    "Competencia": [
+        st.Page(_page_preview, title="Previa de la fecha", icon="📅", url_path="previa"),
+        st.Page(_page_radar, title="Últimas fechas", icon="🏁", url_path="ultimas-fechas"),
+        st.Page(_page_viz, title="Visualizaciones", icon="📊", url_path="visualizaciones"),
+    ],
+    "Redacción": [
+        st.Page(_page_pieces, title="Más piezas y consultas", icon="🧩", url_path="piezas"),
+        st.Page(_page_report, title="Informe por equipo", icon="🗞️", url_path="informe"),
+        st.Page(_page_cierre, title="Cierre por zona", icon="📝", url_path="cierre"),
+        st.Page(_page_chat, title="Consultas y chat", icon="💬", url_path="chat"),
+    ],
+    "Datos": [
+        st.Page(_page_load, title="Cargar y actualizar", icon="📥", url_path="cargar"),
+        st.Page(_page_audit, title="Auditoría y reglas", icon="🧪", url_path="auditoria"),
+        st.Page(_page_settings, title="Ajustes", icon="⚙️", url_path="ajustes"),
+    ],
+}
+
+_nav = st.navigation(_PAGES, position="top")
+_sidebar_context()
+if os.environ.get("LPF_DEBUG_TIMING"):
+    import time as _time_dbg
+    _t_dbg = _time_dbg.perf_counter()
+    import cProfile as _cp_dbg, pstats as _ps_dbg, io as _io_dbg
+    _prof_dbg = _cp_dbg.Profile()
+    try:
+        _prof_dbg.enable()
+        _nav.run()
+    finally:
+        _prof_dbg.disable()
+        if os.environ.get("LPF_DEBUG_TIMING") == "profile":
+            _buf_dbg = _io_dbg.StringIO()
+            _ps_dbg.Stats(_prof_dbg, stream=_buf_dbg).sort_stats("tottime").print_stats(12)
+            print(_buf_dbg.getvalue(), file=sys.stderr, flush=True)
+        print(f"[timing] {getattr(_nav, 'title', '?')}: {(_time_dbg.perf_counter() - _t_dbg):.2f}s", file=sys.stderr, flush=True)
+else:
+    _nav.run()
+
+# Una vez por sesión se intenta traer la fecha actual. Corre DESPUÉS de dibujar la
+# página (fragmento con temporizador), así la app se ve y se puede leer mientras
+# tanto; si las fuentes tardan o fallan, sigue con la última foto incluida y lo
+# avisa en el panel lateral.
+@st.fragment(run_every=1.5)
+def _auto_update_tick():
+    if st.session_state.get("_AUTO_UPDATE_DONE"):
+        return
+    if not st.session_state.get("_AUTO_UPDATE_ARMED"):
+        st.session_state["_AUTO_UPDATE_ARMED"] = True
+        return
+    st.session_state["_AUTO_UPDATE_DONE"] = True
+    _run_auto_update(rerun=False, budget=30)
+    st.rerun(scope="app")
+
+
+def _data_behind_calendar():
+    _zones = (st.session_state.ESTADO or {}).get("zonas_lpf") or {}
+    _pjs = [row.get("pj", 0) for base in _zones.values() for row in base.values()]
+    return (min(_pjs) if _pjs else 0) < lpf_fecha_esperada()[0]
+
+
+if (
+    not st.session_state.get("_AUTO_UPDATE_DONE")
+    and (st.session_state.ESTADO or {}).get("modo") == "lpf2026"
+    and _data_behind_calendar()
+):
+    with st.sidebar:
+        _auto_update_tick()
