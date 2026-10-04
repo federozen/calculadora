@@ -82,6 +82,17 @@ def runtime_compatibility(base_dir: str | Path | None = None) -> dict[str, objec
         checked.append(row)
         if found != LPF_RUNTIME_API:
             mismatches.append(row)
+        elif filename == "lpf_loading.py":
+            # El contrato numérico 21 también existía antes de agregar el corte.
+            # Comprobar la firma de los dos entrypoints evita aceptar esa mezcla.
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+            missing = [name for name in ("prepare_automatic_update", "prepare_offline_load")
+                       if name not in functions or "use_checkpoint" not in
+                       {arg.arg for arg in functions[name].args.kwonlyargs}]
+            if missing:
+                mismatches.append({"file": filename, "expected": "use_checkpoint",
+                                   "found": "firma anterior", "functions": missing})
     return {
         "ok": not mismatches,
         "runtime_api": LPF_RUNTIME_API,

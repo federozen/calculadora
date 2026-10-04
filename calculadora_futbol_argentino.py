@@ -1047,6 +1047,26 @@ from lpf_reconcile import (
     _lpf_normalize_result_identity, _merge_lpf_results,
     _lpf_complete_results_for_zones,
 )
+import importlib as _lpf_importlib
+import inspect as _lpf_inspect
+import lpf_loading as _lpf_loading_module
+
+# Streamlit vuelve a ejecutar la app, pero puede conservar módulos importados
+# por la versión anterior. Revisar las funciones realmente cargadas antes de
+# enlazarlas: el número de contrato en disco no detecta ese caso.
+def _lpf_loading_supports_checkpoint(module):
+    return all(
+        "use_checkpoint" in _lpf_inspect.signature(getattr(module, name)).parameters
+        for name in ("prepare_automatic_update", "prepare_offline_load")
+    )
+
+if not _lpf_loading_supports_checkpoint(_lpf_loading_module):
+    _lpf_loading_module = _lpf_importlib.reload(_lpf_loading_module)
+if not _lpf_loading_supports_checkpoint(_lpf_loading_module):
+    st.error("Falta actualizar lpf_loading.py: el archivo instalado no admite la base fija de la Fecha 10.")
+    st.write("Reemplazá lpf_loading.py con el del ZIP 3.8.76 y reiniciá la app en Streamlit.")
+    st.stop()
+
 from lpf_loading import (
     normalize_results_for_zones, prepare_automatic_update, prepare_offline_load,
 )
