@@ -184,6 +184,24 @@ def fixture_records(
     unresolved_teams = [team for team, count in missing.items() if count]
 
     if unresolved_teams:
+        # Un corte fijo permite PJ desparejos durante F11 sin exigir reconstruir
+        # los 150 marcadores anteriores. Se comprueban todos los acumulados.
+        from lpf_checkpoint import CHECKPOINT_ROUND, checkpoint_matches
+        if checkpoint_matches(zones, [(h, a, *score) for (h, a), score in played_map.items()], fixture):
+            from dataclasses import replace
+            rows = [
+                replace(rec, status="unconfirmed", source="checkpoint_f10")
+                if rec.status == "scheduled" and rec.round_number <= CHECKPOINT_ROUND
+                else rec for rec in rows
+            ]
+            issues.append(AuditIssue(
+                "fixture_history_partial",
+                "Base fija al cierre de la Fecha 10 + resultados confirmados desde la 11. "
+                "Los marcadores históricos faltantes sólo afectan forma/racha y auditoría. "
+                "Los pendientes se identifican por fixture, incluidos los postergados.",
+                "warning", "data", tuple(unresolved_teams),
+            ))
+            return rows, issues
         # El máximo número de PJ no identifica una fecha de manera perfecta cuando
         # hay postergados. Se complementa con la última fecha que sí tiene al menos
         # un resultado explícito. Sólo los cruces tempranos cuyos dos protagonistas

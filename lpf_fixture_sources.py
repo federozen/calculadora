@@ -654,7 +654,8 @@ def parse_lpf_official_results_article_html(
     # Una pareja válida del fixture no alcanza para distinguir torneos porque muchos
     # clubes se enfrentan en ambos. Rechazar explícitamente una nota identificada como
     # Apertura evita sumar un partido viejo o incluso adelantar un PJ futuro.
-    content_root = soup.find("article") or soup.find("main") or soup
+    content_root = (soup.select_one(".elementor-widget-theme-post-content, .entry-content")
+                    or soup.find("article") or soup.find("main") or soup)
     article_text = _ascii(content_root.get_text(" ", strip=True))
     if "torneo apertura" in article_text and "torneo clausura" not in article_text:
         return []
@@ -735,6 +736,10 @@ def parse_lpf_official_results_article_html(
         if key_line in seen_lines:
             continue
         seen_lines.add(key_line)
+        # Las notas vivas también publican el marcador parcial con "En juego".
+        # Un score explícito todavía no acredita un partido terminado.
+        if re.search(r"\b(en juego|en vivo|entretiempo|suspendido|cancelado)\b", _ascii(text)):
+            continue
         parsed = _official_score_line(
             text, canon_club=canon_club, expected=expected, fixture_index=fixture_index
         )
@@ -795,7 +800,8 @@ def parse_tyc_clausura_results_html(
     for tag in soup(["script", "style", "noscript", "svg"]):
         tag.decompose()
 
-    content_root = soup.find("article") or soup.find("main") or soup
+    content_root = (soup.select_one(".elementor-widget-theme-post-content, .entry-content")
+                    or soup.find("article") or soup.find("main") or soup)
     in_results = False
     current_round: int | None = None
     records: list[dict] = []
@@ -805,6 +811,11 @@ def parse_tyc_clausura_results_html(
         if not text:
             continue
         folded = _ascii(text)
+        round_article = re.search(r"fixture de la fecha (\d+) del torneo clausura 2026", folded)
+        if round_article:
+            in_results = True
+            current_round = int(round_article.group(1))
+            continue
         if "resultados del torneo clausura 2026" in folded:
             in_results = True
             current_round = None

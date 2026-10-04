@@ -1,3 +1,11 @@
+## 3.8.75 — 2026-10-04
+
+- Corte inmutable al cierre de F10, con 150 resultados explícitos verificados.
+- Actualización incremental desde F11 y respaldo persistente de resultados nuevos.
+- Corrección del cuerpo de notas Elementor de LPF y exclusión de marcadores En juego.
+- Base inicial con seis finales de F11 de LPF; sin bloqueo por PJ desparejos.
+- Seis regresiones específicas; 46 verificaciones del flujo de datos aprobadas.
+
 ## 3.8.73 — Copa Argentina actualizada y ventana exacta unificada
 
 - Actualiza Copa Argentina al 27/09/2026: Boca 3-2 Racing y clasificación de Boca a semifinales ante Banfield.

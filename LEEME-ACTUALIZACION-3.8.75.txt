@@ -1,0 +1,51 @@
+CALCULADORA LPF 3.8.75 — BASE FIJA F10 + RESULTADOS DESDE F11
+
+Cómo instalar
+Reemplazá los archivos de tu repositorio con el contenido de este ZIP y reiniciá
+la app en Streamlit. Comprobá que el pie diga v3.8.75 y usá Actualizar.
+
+Archivos necesarios para este cambio:
+- calculadora_futbol_argentino.py
+- lpf_checkpoint.py (nuevo: tablas y 150 resultados hasta F10)
+- lpf_loading.py
+- lpf_data_quality.py
+- lpf_fixture_sources.py
+- lpf_runtime.py
+- lpf_version.py
+- pyproject.toml
+- data/lpf_since_round11.json (nuevo: respaldo de finales desde F11)
+
+Qué cambia
+El cierre de F10 es inmutable. Cada actualización recalcula esa base y agrega
+los resultados finales desde F11. Repetir la consulta no duplica puntos ni PJ.
+La Anual se recalcula desde el Apertura fijo + Clausura actualizado.
+Los resultados nuevos se guardan en disco para sobrevivir a un reinicio de la
+sesión (en Streamlit Cloud, el disco puede reiniciarse en un nuevo deploy).
+La app ya no necesita reconstruir todo el Clausura en cada actualización.
+Los PJ desparejos de una fecha en curso no bloquean los cálculos.
+Se corrigió la selección del cuerpo de la nota oficial, que podía leer notas
+relacionadas. Los marcadores rotulados En juego no cuentan como finales.
+
+Datos incluidos y fuentes
+150 finales hasta F10: fixture completo de TyC Sports; los acumulados reproducen
+exactamente los puntos, PJ y goles de los 30 equipos de la foto de cierre.
+https://www.tycsports.com/liga-profesional-de-futbol/fixture-del-clausura-2026-calendario-de-partidos-y-resultados-id750943.html
+https://www.tycsports.com/liga-profesional-de-futbol/fecha-10-del-clausura-2026-resultados-y-partidos-de-la-liga-profesional-argentina-id761584.html
+
+Seis finales de F11 confirmados por LPF e incluidos en el respaldo:
+Independiente 1-4 Instituto; Boca 3-0 Unión; Independiente Rivadavia 1-1 Gimnasia;
+Defensa y Justicia 3-0 San Lorenzo; Atlético Tucumán 2-3 Barracas;
+Newell's 0-0 Lanús.
+https://www.ligaprofesional.ar/notas/primera/2026/09/26/programacion-de-la-fecha-11-4/
+El parcial Huracán-Aldosivi figuraba En juego al consultar y se excluyó.
+La consulta detectó un marcador invertido de Defensa-San Lorenzo en TyC:
+se priorizó el 3-0 publicado por la LPF.
+
+Verificación
+46 pruebas del corte, cargas, estado, fixture y PJ desparejos pasaron.
+Se probaron: 150 marcadores contra 30 tablas, una F11 parcial, repetir una carga,
+recuperar resultados tras reiniciar, respuestas vacías y exclusión de En juego.
+La foto incluida tiene 156 jugados, 84 pendientes y cero conflictos de datos.
+El contrato de módulos se verificó y los Python modificados compilan.
+No se desplegó esta versión en tu servidor. Las consultas siguen dependiendo
+de la disponibilidad de las fuentes; si fallan, se conservan resultados guardados.

@@ -73,11 +73,20 @@ def prepare_offline_load(
     manual_played: Sequence[ResultRow] | None = None,
     previous_played: Sequence[ResultRow] | None = None,
     builtin_played: Sequence[ResultRow] | None = None,
+    use_checkpoint: bool = False,
 ) -> dict[str, Any]:
     """Reconcilia una carga offline sin tocar sesión ni construir el estado final."""
     forward = _merge_lpf_results(
         builtin_played or [], previous_played or [], manual_played or []
     )
+    if use_checkpoint:
+        from lpf_checkpoint import project_checkpoint, checkpoint_results, CHECKPOINT_ROUND
+        rounds = {(g["l"], g["v"]): int(g["f"]) for g in LPF_FIXTURE}
+        forward = checkpoint_results() + [r for r in forward if rounds.get((r[0], r[1]), 0) > CHECKPOINT_ROUND]
+        prepared_zones = project_checkpoint(forward)
+        return {"zones": prepared_zones, "played": forward,
+                "results_text": results_text(forward),
+                "duplicate_repair_note": "", "standings_reconcile_note": ""}
     prepared_zones, duplicate_note = _lpf_repair_single_duplicate_in_zones(
         zones, forward
     )
@@ -114,6 +123,7 @@ def prepare_automatic_update(
     official_played: Sequence[ResultRow] | None = None,
     tyc_played: Sequence[ResultRow] | None = None,
     fixture: Sequence[Mapping[str, object]] | None = None,
+    use_checkpoint: bool = False,
 ) -> dict[str, Any]:
     """Prepara la actualización automática a partir de payloads ya obtenidos.
 
@@ -143,6 +153,34 @@ def prepare_automatic_update(
         official_played,
         manual_played,
     )
+    if use_checkpoint:
+        from lpf_checkpoint import CHECKPOINT_ROUND, project_checkpoint, checkpoint_results
+        rounds = {(g["l"], g["v"]): int(g["f"]) for g in fixture}
+        forward_results = checkpoint_results() + [r for r in forward_results if rounds.get((r[0], r[1]), 0) > CHECKPOINT_ROUND]
+        prepared_zones = project_checkpoint(forward_results, fixture)
+        # El corte absorbe F1–F10: las fuentes sólo aportan marcadores nuevos.
+        rounds = {(g["l"], g["v"]): int(g["f"]) for g in fixture}
+        future_results = [r for r in forward_results if rounds[(r[0], r[1])] > CHECKPOINT_ROUND]
+        behind = [team for base in zones.values() for team, row in base.items()
+                  if int(row.get("pj", 0)) > next(
+                      b[team]["pj"] for b in prepared_zones.values() if team in b)]
+        note = "Base fija: Fecha 10. Actualización por resultados finales desde la Fecha 11."
+        diagnostics = (["La tabla publicada incluye partidos cuyos marcadores todavía no llegaron: "
+                        + ", ".join(behind) + ". Se conservan los últimos resultados confirmados."]
+                       if behind else [])
+        return {
+            "zones": prepared_zones, "played": forward_results,
+            "results_text": results_text(forward_results),
+            "reconciled_annual": sum_opening_and_zones(opening, prepared_zones) if opening_is_valid(opening, prepared_zones) else {},
+            "duplicate_repair_note": "", "standings_reconcile_note": note,
+            "reconcile_note": note, "inferred_played": [], "inferred_note": "",
+            "history_partial": False, "partial_played": [],
+            "partial_results_text": results_text(forward_results),
+            "expected_results": 150 + len(future_results),
+            "diagnostic_notes": diagnostics,
+            "coverage_note": f"{note} {len(future_results)} partido(s) confirmado(s) desde la 11.",
+            "checkpoint": True,
+        }
     prepared_zones, duplicate_repair_note = _lpf_repair_single_duplicate_in_zones(
         zones, forward_results
     )

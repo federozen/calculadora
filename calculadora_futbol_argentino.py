@@ -2232,11 +2232,12 @@ FUTBOLARGENTINO_RESULTS_URLS = (
     "https://www.futbolargentino.com/primera-division/clausura/resultados",
 )
 FUTBOLARGENTINO_REFERER = "https://www.futbolargentino.com/primera-division/"
-LPF_OFFICIAL_PRIMERA_URL = "https://lpf.org.ar/categoria/primera/"
+LPF_OFFICIAL_PRIMERA_URL = "https://www.ligaprofesional.ar/categoria/primera/"
 LPF_OFFICIAL_PRIMERA_PAGES = tuple(
     LPF_OFFICIAL_PRIMERA_URL if page == 1 else f"{LPF_OFFICIAL_PRIMERA_URL}page/{page}/"
     for page in range(1, 13)
 )
+LPF_OFFICIAL_PRIMERA_PAGES = ("https://www.ligaprofesional.ar/home-2026/",) + LPF_OFFICIAL_PRIMERA_PAGES
 # Algunas notas vivas del Clausura quedaron publicadas con permalink corto de
 # WordPress. El archivo de Primera puede enlazarlas como ``/?p=...`` y versiones
 # anteriores las descartaban por no contener ``/notas/primera/``. Se mantienen
@@ -2250,6 +2251,7 @@ LPF_OFFICIAL_RESULT_SEED_URLS = (
     "https://lpf.org.ar/notas/primera/2026/08/25/programacion-de-la-fecha-7-5/",  # Fecha 7
     "https://lpf.org.ar/?p=86880",  # Fecha 8
     "https://lpf.org.ar/notas/primera/2026/09/10/se-mueve-la-novena/",  # Fecha 9
+    "https://www.ligaprofesional.ar/notas/primera/2026/09/26/programacion-de-la-fecha-11-4/",
 )
 LPF_OFFICIAL_RESULT_SEED_ROUNDS = {
     LPF_OFFICIAL_RESULT_SEED_URLS[0]: 4,
@@ -2258,6 +2260,7 @@ LPF_OFFICIAL_RESULT_SEED_ROUNDS = {
     LPF_OFFICIAL_RESULT_SEED_URLS[3]: 7,
     LPF_OFFICIAL_RESULT_SEED_URLS[4]: 8,
     LPF_OFFICIAL_RESULT_SEED_URLS[5]: 9,
+    LPF_OFFICIAL_RESULT_SEED_URLS[6]: 11,
 }
 LPF_SNAPSHOT_MAX_AGE_HOURS = 168  # una semana; después obliga a revisar/cargar manualmente
 TYC_CLAUSURA_RESULTS_URL = (
@@ -2291,7 +2294,7 @@ def futbolargentino_annual(timeout=30):
     )
     return parse_futbolargentino_annual_html(html), final_url
 
-def lpf_official_results(zones, baseline_played=None, timeout=30):
+def lpf_official_results(zones, baseline_played=None, timeout=30, min_round=1):
     """Carga marcadores explícitos desde las notas oficiales de Primera.
 
     Recorre páginas de noticias en orden reciente y descarga artículos cuyos títulos
@@ -2300,7 +2303,13 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
     exacta posterior sigue siendo la que decide si la foto es aceptable.
     """
     expected = expected_played_count(zones)
+    if min_round > 1:
+        expected = sum(max(0, int(row.get("pj", 0)) - (min_round - 1))
+                       for base in zones.values() for row in base.values()) // 2
     baseline = _merge_lpf_results(baseline_played or [])
+    if min_round > 1:
+        rounds = {(g["l"], g["v"]): int(g["f"]) for g in LPF_FIXTURE}
+        baseline = [r for r in baseline if rounds.get((r[0], r[1]), 0) >= min_round]
     baseline_pairs = {(l, v) for l, v, _gl, _gv in baseline}
     records = []
     seen_articles = set()
@@ -2311,7 +2320,8 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
     # manera estable en el archivo de Primera. Cargar esa semilla antes del crawler
     # evita que una instalación fresca quede con un hueco estructural entre F4 y F6.
     seed_transport = fetch_html_pages(
-        LPF_OFFICIAL_RESULT_SEED_URLS,
+        tuple(url for url in LPF_OFFICIAL_RESULT_SEED_URLS
+              if LPF_OFFICIAL_RESULT_SEED_ROUNDS.get(url, 0) >= min_round),
         referer=LPF_OFFICIAL_PRIMERA_URL,
         timeout=timeout,
         get_html=_standings_html_get,
@@ -2338,7 +2348,7 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
     merged_records = merge_match_records(records)
     played, pending = played_pending_from_records(merged_records)
     union_pairs = baseline_pairs | {(l, v) for l, v, _gl, _gv in played}
-    if expected is not None and len(union_pairs) >= expected:
+    if min_round == 1 and expected is not None and len(union_pairs) >= expected:
         return played, pending, last_url
 
     empty_current_pages = 0
@@ -2358,6 +2368,8 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
             links = parse_lpf_official_listing_html(
                 attempt.get("html") or "", base_url=last_url
             )
+            links = [item for item in links
+                     if item.get("round") is None or int(item["round"]) >= min_round]
         except Exception as exc:
             errors.append(f"{listing_url}: {exc}")
             continue
@@ -2406,11 +2418,15 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
         merged_records = merge_match_records(records)
         played, pending = played_pending_from_records(merged_records)
         union_pairs = baseline_pairs | {(l, v) for l, v, _gl, _gv in played}
-        if expected is not None and len(union_pairs) >= expected:
+        if expected is not None and len(union_pairs) >= expected and played:
+            if min_round > 1:
+                played = [r for r in played if rounds.get((r[0], r[1]), 0) >= min_round]
             return played, pending, last_url
 
     merged_records = merge_match_records(records)
     played, pending = played_pending_from_records(merged_records)
+    if min_round > 1:
+        played = [r for r in played if rounds.get((r[0], r[1]), 0) >= min_round]
     if not played:
         raise RuntimeError(
             "; ".join(errors[:3])
@@ -2420,7 +2436,7 @@ def lpf_official_results(zones, baseline_played=None, timeout=30):
 
 
 
-def tyc_clausura_results(zones, timeout=30):
+def tyc_clausura_results(zones, timeout=30, min_round=1):
     """Carga los resultados completos del Clausura desde el fixture vivo de TyC.
 
     Se usa sólo como respaldo de marcadores. La tabla/zonas siguen viniendo del
@@ -2438,11 +2454,23 @@ def tyc_clausura_results(zones, timeout=30):
         official_fixture=LPF_FIXTURE,
         source_url=final_url,
     )
+    # La nota por jornada puede actualizarse antes que el fixture general.
+    if min_round >= 11:
+        round_url = "https://www.tycsports.com/liga-profesional-de-futbol/fecha-11-del-clausura-2026-resultados-y-partidos-de-la-liga-profesional-argentina-id763772.html"
+        try:
+            round_html, round_final = _standings_html_get(round_url, TYC_LPF_REFERER, timeout=timeout, retries=1)
+            records = merge_match_records(records, parse_tyc_clausura_results_html(
+                round_html, canon_club=canon_club, official_fixture=LPF_FIXTURE, source_url=round_final))
+            final_url = round_final
+        except Exception:
+            pass
+    if min_round > 1:
+        records = [r for r in records if int(r.get("round", 0)) >= min_round]
     played, pending = played_pending_from_records(records)
     if not played:
         raise RuntimeError("no pude identificar marcadores del Clausura en el fixture de TyC Sports")
     expected = expected_played_count(zones)
-    if expected is not None and len(played) < expected:
+    if min_round == 1 and expected is not None and len(played) < expected:
         raise RuntimeError(
             f"TyC Sports aportó {len(played)} resultados y la tabla requiere {expected}"
         )
@@ -5273,7 +5301,8 @@ def _lpf_infer_single_missing_result(zones, baseline, fixture=None):
 
 
 def _lpf_builtin_results():
-    return parse_resultados_lpf(RESULTADOS_LPF_2026)
+    from lpf_checkpoint import checkpoint_results, cached_results
+    return checkpoint_results() + cached_results()
 
 
 def _lpf_builtin_opening_snapshot():
@@ -5477,10 +5506,11 @@ def cargar_lpf_todo():
         manual_played=parse_resultados_lpf(st.session_state.get("LPF_RES_TXT") or ""),
         previous_played=list(((st.session_state.get("ESTADO") or {}).get("jugados") or [])),
         builtin_played=_lpf_builtin_results(),
+        use_checkpoint=True,
     )
     zones = prepared["zones"]
     played = prepared["played"]
-    if played and not st.session_state.get("LPF_RES_TXT"):
+    if played:
         st.session_state.LPF_RES_TXT = prepared["results_text"]
 
     state, report = _lpf_rebuild_state(
@@ -5515,7 +5545,10 @@ def cargar_lpf_espn(liga="arg.1"):
 
     zones, annual, source_name, source_warnings, err = lpf_tables_with_fallback(liga)
     if err:
-        return None, err
+        from lpf_checkpoint import checkpoint_zones
+        zones, annual = checkpoint_zones(), {}
+        source_name = "Base fija al cierre de la Fecha 10"
+        source_warnings = [str(err)]
 
     if annual:
         st.session_state.LPF_ANUAL = canon_base(annual)
@@ -5536,7 +5569,7 @@ def cargar_lpf_espn(liga="arg.1"):
     official_url = LPF_OFFICIAL_PRIMERA_URL
     try:
         official_raw, _official_pending, official_url = lpf_official_results(
-            zones, baseline_played=trusted_before_network, timeout=30
+            zones, baseline_played=trusted_before_network, timeout=30, min_round=11
         )
         official_played = normalize_results_for_zones(zones, official_raw or [])
     except Exception as exc:
@@ -5548,6 +5581,13 @@ def cargar_lpf_espn(liga="arg.1"):
     official_complete = _lpf_complete_results_for_zones(
         zones, manual_played, official_played, previous_played, builtin_played
     )
+    if official_played:
+        from lpf_checkpoint import project_checkpoint
+        official_projection = project_checkpoint(_merge_lpf_results(
+            builtin_played, previous_played, official_played, manual_played))
+        if all(int(row.get("pj", 0)) <= official_projection[label][team]["pj"]
+               for label, base in zones.items() for team, row in base.items()):
+            official_complete = True
 
     tyc_raw = []
     tyc_played = []
@@ -5555,12 +5595,12 @@ def cargar_lpf_espn(liga="arg.1"):
     tyc_url = ""
     if not official_complete:
         try:
-            tyc_raw, _tyc_pending, tyc_url = tyc_clausura_results(zones, timeout=30)
+            tyc_raw, _tyc_pending, tyc_url = tyc_clausura_results(zones, timeout=30, min_round=11)
             tyc_played = normalize_results_for_zones(zones, tyc_raw or [])
         except Exception as exc:
             tyc_error = str(exc)
 
-    tyc_complete = _lpf_complete_results_for_zones(
+    tyc_complete = official_complete or _lpf_complete_results_for_zones(
         zones, manual_played, official_played, tyc_played, previous_played, builtin_played
     )
 
@@ -5574,7 +5614,7 @@ def cargar_lpf_espn(liga="arg.1"):
     fa_url = ""
     if not tyc_complete:
         jug_raw, _pen_raw, nota_espn, ferr_espn = espn_fixture(
-            liga, 120, desde="2026-07-01"
+            liga, 21, desde="2026-10-01"
         )
         espn_played = normalize_results_for_zones(zones, jug_raw or [])
         try:
@@ -5600,6 +5640,7 @@ def cargar_lpf_espn(liga="arg.1"):
         official_played=official_played,
         tyc_played=tyc_played,
         fixture=LPF_FIXTURE,
+        use_checkpoint=True,
     )
     zones = prepared["zones"]
     played = prepared["played"]
@@ -5665,15 +5706,16 @@ def cargar_lpf_espn(liga="arg.1"):
         result_source_warnings.append(inferred_note)
     if history_partial:
         result_source_warnings.append(
-            "Historial de marcadores incompleto: se usa la tabla publicada como estado autoritativo y el fixture futuro desde el frente uniforme de PJ. Los resultados confirmados disponibles quedan para forma, racha y auditoría."
+            "Base fija al cierre de la Fecha 10. Se suman resultados finales desde la 11; el historial anterior incompleto sólo afecta forma, racha y auditoría."
         )
         if not played and partial_played:
             played = partial_played
+    result_source_warnings.extend(diagnostic_notes)
 
     # La actualización es transaccional: una consulta vacía o incompleta jamás
     # reemplaza una foto válida por cero resultados. Si ninguna combinación explica
     # los PJ actuales, se conserva el estado anterior y se informa el problema.
-    if not played:
+    if not played and not prepared.get("checkpoint"):
         previous_zones = previous_state.get("zonas_lpf") or {}
         if previous_state and previous_zones:
             return {
@@ -5720,6 +5762,13 @@ def cargar_lpf_espn(liga="arg.1"):
     )
     st.session_state.ESTADO = state
     import datetime as _dt
+    from lpf_checkpoint import save_recent_results
+    try:
+        save_recent_results(played, source_urls=tuple(url for url, rows in (
+            (official_url, official_played), (tyc_url, tyc_played), (fa_url, fa_played)
+        ) if url and rows))
+    except OSError as exc:
+        result_source_warnings.append("Los resultados se actualizaron en sesión, pero no pude guardar el respaldo: " + str(exc))
     _source_updated_at = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
     if str(source_name).startswith("Último respaldo válido"):
         _source_updated_at = (st.session_state.get("LPF_LAST_VALID_SNAPSHOT") or {}).get("updated_at")

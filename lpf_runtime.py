@@ -14,6 +14,7 @@ LPF_RUNTIME_API = 21
 # Sólo módulos cuyo contrato cruza capas y cuya mezcla de versiones puede romper
 # el arranque o la UI. El nivel se incrementa únicamente cuando cambia ese contrato.
 CRITICAL_COMPONENTS = (
+    'lpf_checkpoint.py',
     'lpf_http.py',
     'competition_html_adapters.py',
     'lpf_models.py',
