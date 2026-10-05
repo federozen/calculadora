@@ -69,7 +69,8 @@ from lpf_pisos import (
 )
 from lpf_competitive_context import competition_context, historical_reference
 from lpf_conditionals import branch_explanation, editorial_blocks, ordered_editorial_blocks, key_rival_matrix, next_round_conditionals
-from lpf_editorial_round import build_round_article, round_start_snapshot
+from lpf_editorial_round import build_round_article, round_start_snapshot, build_editorial_piece, piece_html, build_fixture_piece, build_need_piece
+from lpf_copa_argentina import ALIVE as _CUP_ALIVE, UPDATED as _CUP_UPDATED, SOURCE as _CUP_SOURCE, SEMIFINALS as _CUP_SEMIS, normalize_alive as _normalize_cup_alive, sync_copa_state as _sync_copa_state
 from lpf_editorial_definition import (
     all_teams_matrix, branch_cell, branch_state, definition_clock, fight_zone,
     definition_guarantee as _editorial_definition_guarantee,
@@ -752,42 +753,12 @@ COPA_ARGENTINA_CUARTOS_2026 = [
     "Atlético Tucumán", "Independiente Rivadavia",
     "Estudiantes de La Plata", "Platense",
 ]
-COPA_ARGENTINA_VIVOS_2026 = [
-    "Banfield", "Boca Juniors", "Atlético Tucumán",
-    "Estudiantes de La Plata", "Platense",
-]
-COPA_ARGENTINA_CURRENT_UPDATED = "27/09/2026 · Boca 3-2 Racing; tres semifinalistas confirmados"
-COPA_ARGENTINA_CURRENT_SOURCE = "Sitio oficial de Copa Argentina · Boca 3-2 Racing (Cuartos de Final)"
-
-# Fotos canónicas anteriores que se migran automáticamente. Una edición manual
-# distinta se respeta para no pisar trabajo de redacción.
-_old_copa_default = list(COPA_ARGENTINA_OCTAVOS_2026)
-_prev_copa_default = list(COPA_ARGENTINA_CUARTOS_2026)
-_old_copa_text = "\n".join(_old_copa_default)
-_prev_copa_text = "\n".join(_prev_copa_default)
-if "LPF_COPA_ARG_VIVOS" not in st.session_state:
-    st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_VIVOS_2026)
-else:
-    _saved_copa = list(st.session_state.get("LPF_COPA_ARG_VIVOS") or [])
-    _saved_updated = str(st.session_state.get("LPF_COPA_ARG_UPDATED") or "")
-    if (
-        _saved_copa in (_old_copa_default, _prev_copa_default)
-        or _saved_updated.startswith("18/07/2026")
-        or _saved_updated.startswith("08/09/2026")
-    ):
-        st.session_state.LPF_COPA_ARG_VIVOS = list(COPA_ARGENTINA_VIVOS_2026)
-        st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CURRENT_UPDATED
-        st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CURRENT_SOURCE
-if "LPF_COPA_ARG_UPDATED" not in st.session_state:
-    st.session_state.LPF_COPA_ARG_UPDATED = COPA_ARGENTINA_CURRENT_UPDATED
-if "LPF_COPA_ARG_SOURCE" not in st.session_state:
-    st.session_state.LPF_COPA_ARG_SOURCE = COPA_ARGENTINA_CURRENT_SOURCE
+COPA_ARGENTINA_VIVOS_2026 = list(_CUP_ALIVE)
+COPA_ARGENTINA_CURRENT_UPDATED = _CUP_UPDATED
+COPA_ARGENTINA_CURRENT_SOURCE = _CUP_SOURCE
+_sync_copa_state(st.session_state)
 if "LPF_COPA_ARG_REEMPLAZO" not in st.session_state:
     st.session_state.LPF_COPA_ARG_REEMPLAZO = ""
-if "lpf_copa_arg_alive_txt" not in st.session_state:
-    st.session_state.lpf_copa_arg_alive_txt = "\n".join(st.session_state.LPF_COPA_ARG_VIVOS)
-elif str(st.session_state.get("lpf_copa_arg_alive_txt") or "").strip() in {_old_copa_text.strip(), _prev_copa_text.strip()}:
-    st.session_state.lpf_copa_arg_alive_txt = "\n".join(COPA_ARGENTINA_VIVOS_2026)
 
 def _secret(k, default=""):
     try:
@@ -2774,6 +2745,9 @@ def espn_copa_argentina_vivos(timeout=30):
     if len(vivos) < 4:
         return [], nota, ("ESPN respondió, pero no devolvió una fase pendiente completa. "
                           "No reemplacé la lista actual; revisala contra el cuadro oficial.")
+    vivos = _normalize_cup_alive(vivos)
+    if len(vivos) < 4:
+        return [], nota, "La respuesta no coincide con los cuatro semifinalistas confirmados. Uso la foto oficial."
     return vivos, nota, None
 
 def espn_lpf_zonas(liga="arg.1", timeout=30):
@@ -6247,7 +6221,7 @@ def _render_load_block():
                     "Un equipo por línea", key="lpf_copa_arg_alive_txt", height=150,
                     help="Se usa para explicar quién todavía puede obtener la plaza de Copa Argentina y hacer correr las líneas de copas.",
                 )
-                st.session_state.LPF_COPA_ARG_VIVOS = _parse_team_list(_ca_txt)
+                st.session_state.LPF_COPA_ARG_VIVOS = _normalize_cup_alive(_parse_team_list(_ca_txt))
                 ui_caption(
                     f"Foto: {st.session_state.get('LPF_COPA_ARG_UPDATED','sin fecha')} · "
                     f"{st.session_state.get('LPF_COPA_ARG_SOURCE','sin fuente')}. "
@@ -12207,14 +12181,7 @@ def render_guided_workspace(E):
         if text: ui_markdown(text)
         if frame is not None: ui_dataframe(frame, use_container_width=True, hide_index=True)
     elif task == "Qué necesita para alcanzar el objetivo":
-        ui_markdown(_lpf_editorial_need_text(E, team, objective, lab))
-        with st.expander("Resumen operativo · contrato público v1", expanded=False):
-            try:
-                ui_markdown(_lpf_service_need_text(E, team, objective, lab))
-                ui_caption("Resumen JSON-safe usado por API y auditoría; el informe editorial completo es el bloque principal de arriba.")
-            except _LPFServiceContractError as exc:
-                _record_lpf_service_fallback("objective_need_service_summary", exc)
-                ui_caption("El resumen del contrato público no está disponible; el informe editorial principal sigue siendo válido.")
+        _render_need_editorial(E, objective=objective)
     elif task == "Qué resultados ajenos le convienen":
         if objective == "Playoffs":
             text, frame = lpf_otros_resultados_sim(
@@ -13015,8 +12982,183 @@ def render_visible_pieces(E, *, embedded=False):
     render_blocks(ejecutar_accion(acc), prefix='visible_pieces')
 
 
+def _render_need_editorial(E, *, objective=None):
+    """Conclusión breve y detalle progresivo para todos los objetivos."""
+    teams = sorted(E.get('equipos') or [])
+    if not teams:
+        ui_info('Primero cargá los equipos.')
+        return
+    team = _global_team(teams)
+    if objective is None:
+        objective = st.selectbox('Objetivo de la tarjeta',
+            ['Playoffs', 'Libertadores', 'Al menos Sudamericana', 'Descenso'], key='need_piece_objective')
+    elif objective == 'Copas':
+        objective = st.selectbox('Copa objetivo', ['Libertadores', 'Al menos Sudamericana'], key='need_piece_cup')
+    domain = 'descenso' if objective == 'Descenso' else 'copas' if objective != 'Playoffs' else 'playoffs'
+    gate = _lpf_data_gate(E, domain)
+    if gate:
+        ui_warning(gate[1])
+        return
+    zone = lpf_zona_de_equipo(team, E.get('zonas_lpf') or {})
+    try:
+        if objective == 'Descenso':
+            result = _lpf_service_result('relegation', E, team=team)
+        else:
+            kwargs = {'team':team, 'objective':_lpf_service_objective(objective)}
+            if objective == 'Playoffs':
+                kwargs['zone'] = zone
+            result = _lpf_service_result('objective_points', E, **kwargs)
+        piece = build_need_piece(team, objective, result)
+    except (_LPFServiceContractError, ValueError) as exc:
+        ui_warning(str(exc))
+        return
+    ui_markdown('## ' + piece['title'])
+    ui_caption(piece['scope'])
+    with st.container(border=True):
+        ui_markdown('### ' + piece['cards'][0]['title'])
+        ui_markdown(piece['cards'][0]['body'])
+    for card in piece['cards'][1:]:
+        ui_markdown('**' + card['title'] + ':** ' + card['body'])
+    ui_caption(piece['note'])
+    floor = piece['floor']
+    fingerprint = hashlib.sha256(json.dumps({'snapshot':_lpf_service_snapshot(E), 'copa_arg_vivos':E.get('copa_arg_vivos') or [], 'copa_arg_updated':E.get('copa_arg_updated') or ''}, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+    paths = floor.get('caminos') or []
+    with st.expander('Alternativas por puntaje · lo que está comprobado', expanded=False):
+        if paths:
+            labels = {'seguro':'Asegura', 'riesgo':'Conserva riesgo', 'posible':'Puede alcanzar con ayuda',
+                      'imposible':'No alcanza', 'dependiente':'Depende de otros resultados'}
+            rows = [{'Total final':p[0], 'Lectura':labels.get(p[1],p[1]), 'Ejemplo o explicación':p[2]} for p in paths]
+            ui_dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True,
+                         export_title='Alternativas por puntaje', export_name='alternativas_objetivo')
+            ui_caption('Son los totales y ejemplos devueltos por el cálculo, no todas las combinaciones del torneo. Los ejemplos no son requisitos únicos. Los caminos completos de una fecha se consultan en el bloque siguiente.')
+        else:
+            ui_info('Esta consulta no devuelve una escalera de totales. No se infieren caminos a partir de la distancia al corte.')
+    if objective != 'Descenso' and not floor.get('resolved'):
+        with st.expander('Todas las condiciones de esta fecha · ganar, empatar o perder', expanded=False):
+            cache_key = 'need_conditions_cache_' + objective + '_' + team
+            if st.button('Calcular condiciones completas', key='need_conditions_' + objective + '_' + team):
+                try:
+                    package = _lpf_service_result('definition', E, team=team,
+                        objective=_lpf_service_objective(objective), zone=zone,
+                        selected_teams=[team], exact_window=VENTANA_EXACTA)
+                    st.session_state[cache_key] = {'fingerprint':fingerprint, 'package':package}
+                except _LPFServiceContractError as exc:
+                    st.session_state.pop(cache_key, None)
+                    ui_warning(str(exc))
+            cached = st.session_state.get(cache_key) or {}
+            if cached.get('fingerprint') == fingerprint:
+                package = cached['package']
+                report = package.get('report') or {}
+                if report.get('available'):
+                    _render_complete_conditions(team, objective.lower(), report, scope='need_' + objective)
+                else:
+                    ui_info(report.get('reason') or package.get('reason') or 'No hay ramas pendientes disponibles para este equipo en la fecha seleccionada.')
+    elif objective == 'Descenso':
+        ui_caption('Para descenso se usa la comprobación conjunta del torneo; no se reemplaza por ramas de una sola tabla.')
+    with st.expander('Informe ampliado · por qué alcanza o no alcanza', expanded=False):
+        if st.button('Generar informe ampliado', key='need_long_' + objective + '_' + team):
+            st.session_state['need_long_cache'] = {'fingerprint':fingerprint, 'team':team, 'objective':objective,
+                'text':_lpf_editorial_need_text(E, team, objective, zone)}
+        cached_long = st.session_state.get('need_long_cache') or {}
+        if cached_long.get('fingerprint') == fingerprint and cached_long.get('team') == team and cached_long.get('objective') == objective:
+            ui_markdown(cached_long['text'])
+            st.text_area('Informe ampliado para copiar', cached_long['text'], height=400, key='need_long_copy_' + hashlib.sha256(cached_long['text'].encode()).hexdigest()[:12])
+    if objective in ('Libertadores', 'Al menos Sudamericana'):
+        with st.expander('Otra vía: Copa Argentina', expanded=False):
+            alive = E.get('copa_arg_vivos') or []
+            if team in alive:
+                ui_markdown(f'**{editorialize_text(team)} sigue en carrera.** Ganar la Copa Argentina es una vía alternativa a la Libertadores; estar vivo todavía no le asegura la plaza.')
+            else:
+                ui_markdown(f'{editorialize_text(team)} no figura entre los equipos que siguen en la Copa Argentina cargada.')
+            ui_caption(E.get('copa_arg_updated') or _CUP_UPDATED)
+    with st.expander('Texto breve para copiar', expanded=False):
+        st.text_area('Tarjeta lista', piece['text'], height=300,
+            key='need_copy_' + hashlib.sha256(piece['text'].encode()).hexdigest()[:12])
+    cols = st.columns(2)
+    cols[0].download_button('Descargar tarjeta .md', piece['text'].encode(), file_name='que_necesita.md', mime='text/markdown')
+    cols[1].download_button('Descargar tarjeta HTML', piece_html(piece).encode(), file_name='que_necesita.html', mime='text/html')
+
+
+def render_editorial_hub(E):
+    _page_header('🧩', 'Piezas para redacción', 'Elegí un formato, revisá sus cuentas y copiá o descargá la pieza')
+    formats = ['Qué necesita · todos los objetivos', 'Copas · tarjeta del equipo',
+               'Descenso · tarjeta del equipo', 'Cruces de octavos', 'Dificultad del fixture', 'Qué puede definirse esta fecha',
+               'La pelea del 7º, 8º y 9º', 'Tarjeta del equipo', 'Duelos de la fecha', 'Radiografía de la zona',
+               'Semáforo de playoffs', 'Antes y después de la fecha',
+               'Previa completa', 'Copa Argentina', 'Más consultas del catálogo']
+    kind = st.selectbox('Formato de la pieza', formats, key='newsroom_piece_format')
+    if kind in ('Qué necesita · todos los objetivos', 'Copas · tarjeta del equipo', 'Descenso · tarjeta del equipo'):
+        _render_need_editorial(E, objective={'Copas · tarjeta del equipo':'Copas', 'Descenso · tarjeta del equipo':'Descenso'}.get(kind))
+        return
+    if kind == 'Más consultas del catálogo':
+        render_visible_pieces(E, embedded=True)
+        return
+    if kind == 'Previa completa':
+        render_round_editorial(E)
+        return
+    if kind == 'Copa Argentina':
+        ui_markdown('### Los cuatro semifinalistas')
+        ui_markdown('**Boca, Banfield, Atlético Tucumán y Platense.** Racing quedó eliminado por Boca; Estudiantes, por Platense.')
+        for home, away in _CUP_SEMIS:
+            ui_markdown(f'- **{editorialize_text(home)} – {editorialize_text(away)}**')
+        ui_caption(_CUP_UPDATED)
+        ui_markdown(f'[Boca–Racing: fuente oficial]({COPA_ARGENTINA_BOCA_RACING_OFICIAL}) · '
+                    '[Cuadro oficial](' + COPA_ARGENTINA_FIXTURE_OFICIAL + ')')
+        ui_info('Son cruces confirmados, no ganadores proyectados. La vía de Copa Argentina sólo considera los clubes que siguen en carrera.')
+        return
+    zones = E.get('zonas_lpf') or {}
+    teams = sorted(E.get('equipos') or [])
+    if not zones or not teams:
+        ui_info('Primero cargá las zonas.')
+        return
+    team = _global_team(teams)
+    pending = E.get('pendientes') or []
+    round_map = {(g['l'], g['v']): int(g['f']) for g in LPF_FIXTURE}
+    round_no = min((round_map.get(tuple(p), 16) for p in pending), default=16)
+    round_no = max(11, round_no)
+    schedule = _schedule_build_map(globals().get('_ESPN_FECHA_HORA') or {}, st.session_state.get('LPF_SCHEDULE') or {})
+    article = build_round_article(zones, pending, LPF_FIXTURE, round_no, mode='current',
+                                  played=E.get('jugados') or [], schedule=schedule)
+    previous = None
+    if kind == 'Antes y después de la fecha':
+        snap = round_start_snapshot(E.get('jugados') or [], LPF_FIXTURE, round_no)
+        if not snap.get('available'):
+            ui_warning(snap['reason'])
+            return
+        previous = build_round_article(snap['zones'], snap['pending'], LPF_FIXTURE, round_no, played=snap['played'])
+    if kind in ('Cruces de octavos', 'Dificultad del fixture', 'Qué puede definirse esta fecha', 'La pelea del 7º, 8º y 9º'):
+        venue_percent = st.slider('Ajuste editorial de localía (%)', 0, 30, 10, 5,
+                                  help='0 compara sólo PPJ de los rivales. El ajuste no es una probabilidad.',
+                                  key='newsroom_venue_weight') if kind == 'Dificultad del fixture' else 10
+        piece = build_fixture_piece(article, kind, team, zones, pending, LPF_FIXTURE, round_no,
+                                    venue_percent=venue_percent)
+    else:
+        piece = build_editorial_piece(article, kind, team, previous=previous)
+    ui_markdown(f'## {piece["title"]}')
+    ui_caption(piece['scope'])
+    ui_caption('Objetivo de estas piezas: playoffs. Para copas y descenso, abrí Más consultas del catálogo.')
+    for i in range(0, len(piece['cards']), 2):
+        cols = st.columns(2)
+        for j, card in enumerate(piece['cards'][i:i+2]):
+            with cols[j].container(border=True):
+                ui_markdown('### ' + card['title'])
+                ui_markdown(card['body'])
+    ui_caption(piece['note'])
+    if kind == 'Qué puede definirse esta fecha' and (piece.get('report') or {}).get('available'):
+        _render_complete_conditions(team, 'los playoffs', piece['report'], scope='next_round')
+    if kind == 'Cruces de octavos':
+        ui_markdown('[Reglamento oficial LPF 2026](https://www.ligaprofesional.ar/wp-content/uploads/2026/01/Reglamento-Torneos-LPF-Primera-2026-1.pdf)')
+    with st.expander('Texto para copiar', expanded=False):
+        st.text_area('Pieza lista', value=piece['text'], height=330,
+                     key='newsroom_piece_copy_'+hashlib.sha256(piece['text'].encode()).hexdigest()[:12])
+    c1, c2 = st.columns(2)
+    c1.download_button('Descargar texto .md', piece['text'].encode(), file_name='pieza_redaccion.md', mime='text/markdown')
+    c2.download_button('Descargar tarjetas HTML', piece_html(piece).encode(), file_name='pieza_redaccion.html', mime='text/html')
+    ui_caption('El HTML incluye sus estilos y funciona sin fotos ni archivos externos. Se puede publicar en un iframe compatible con HTML estándar.')
+
+
 def _page_pieces():
-    render_visible_pieces(st.session_state.ESTADO)
+    render_editorial_hub(st.session_state.ESTADO)
 
 
 def _page_cierre():
@@ -13094,6 +13236,9 @@ div[data-testid="stSegmentedControl"] { margin-bottom: .25rem; }
 </style>
 """, unsafe_allow_html=True)
 
+_EDITORIAL_PAGE = st.Page(_page_pieces, title="Piezas para redacción", icon="🧩", url_path="piezas")
+_PREVIEW_PAGE = st.Page(_page_preview, title="Previa de la fecha", icon="📅", url_path="previa")
+_REPORT_PAGE = st.Page(_page_report, title="Informe por equipo", icon="🗞️", url_path="informe")
 _PAGES = {
     "Equipo": [
         st.Page(_page_panel, title="Panel del equipo", icon="🧭", url_path="panel", default=True),
@@ -13101,13 +13246,13 @@ _PAGES = {
         st.Page(_page_scenarios, title="Escenarios", icon="🎲", url_path="escenarios"),
     ],
     "Competencia": [
-        st.Page(_page_preview, title="Previa de la fecha", icon="📅", url_path="previa"),
+        _PREVIEW_PAGE,
         st.Page(_page_radar, title="Últimas fechas", icon="🏁", url_path="ultimas-fechas"),
         st.Page(_page_viz, title="Visualizaciones", icon="📊", url_path="visualizaciones"),
     ],
     "Redacción": [
-        st.Page(_page_pieces, title="Más piezas y consultas", icon="🧩", url_path="piezas"),
-        st.Page(_page_report, title="Informe por equipo", icon="🗞️", url_path="informe"),
+        _EDITORIAL_PAGE,
+        _REPORT_PAGE,
         st.Page(_page_cierre, title="Cierre por zona", icon="📝", url_path="cierre"),
         st.Page(_page_chat, title="Consultas y chat", icon="💬", url_path="chat"),
     ],
@@ -13119,6 +13264,14 @@ _PAGES = {
 }
 
 _nav = st.navigation(_PAGES, position="top")
+_sync_copa_state(st.session_state)
+with st.container(border=True):
+    ui_markdown("**Mesa de redacción**")
+    _shortcut_cols = st.columns(3)
+    _shortcut_cols[0].page_link(_EDITORIAL_PAGE, label="Piezas para redacción", icon="🧩", use_container_width=True)
+    _shortcut_cols[1].page_link(_PREVIEW_PAGE, label="Previa de la fecha", icon="📅", use_container_width=True)
+    _shortcut_cols[2].page_link(_REPORT_PAGE, label="Informe por equipo", icon="🗞️", use_container_width=True)
+    ui_caption(f"Versión {__version__} · Qué necesita, copas, descenso, octavos y dificultad del fixture")
 _sidebar_context()
 if os.environ.get("LPF_DEBUG_TIMING"):
     import time as _time_dbg
