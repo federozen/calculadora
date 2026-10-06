@@ -509,3 +509,37 @@ def key_rival_matrix(
         "cells": cells,
         "frequency_note": "Los demás resultados se enumeran exactamente; no se asignan probabilidades.",
     }
+
+
+def editorial_blocks(report, team, objective_label="el objetivo"):
+    """Construye bloques editoriales sólo con las ramas calculadas."""
+    if not report or not report.get("available"):
+        return []
+    blocks = [{"id": "intro", "text": f"{team}: las cuentas para {objective_label}."}]
+    for index, branch in enumerate(report.get("branches") or []):
+        prefix = f"branch_{index}"
+        blocks.append({"id": prefix, "text": branch_explanation(branch, objective_label)})
+        paths = branch.get("condition_paths") or []
+        for path_index, path in enumerate(paths[:3]):
+            text = str(path.get("text") or "").strip()
+            label = str(path.get("label") or "").strip()
+            if text and label:
+                blocks.append({"id": f"{prefix}_path_{path_index}", "text": f"{text}: {label}."})
+        if len(paths) > 3:
+            blocks.append({"id": f"{prefix}_detail", "text": "Hay más alternativas en la tabla completa de caminos."})
+    blocks.append({"id": "scope", "text": "Son condiciones matemáticas de la próxima fecha, no probabilidades. Seguir en pelea no demuestra por sí solo que exista un cierre favorable del torneo completo."})
+    return blocks
+
+
+def ordered_editorial_blocks(blocks, ids):
+    """Ordena bloques verificados; exige todos sus IDs una sola vez."""
+    blocks = list(blocks)
+    known = [block["id"] for block in blocks]
+    if len(set(known)) != len(known):
+        raise ValueError("Los bloques tienen identificadores repetidos")
+    if not isinstance(ids, (list, tuple)) or any(not isinstance(item, str) for item in ids):
+        raise ValueError("El orden debe ser una lista de identificadores")
+    if len(ids) != len(known) or set(ids) != set(known):
+        raise ValueError("El orden debe incluir todos los bloques una sola vez")
+    by_id = {block["id"]: block["text"] for block in blocks}
+    return "\n\n".join(by_id[item] for item in ids)
