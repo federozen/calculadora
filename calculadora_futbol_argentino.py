@@ -43,7 +43,8 @@ from lpf_services import (
 )
 
 _REQUIRED_RUNTIME_API = 21
-_RUNTIME_REPORT = runtime_compatibility()
+# El chequeo puede importarse desde core/, pero los módulos viven en la raíz.
+_RUNTIME_REPORT = runtime_compatibility(base_dir=Path(__file__).resolve().parent)
 if LPF_RUNTIME_API != _REQUIRED_RUNTIME_API:
     st.error("⚠️ Archivos del motor desincronizados")
     st.write(

@@ -97,6 +97,8 @@ def _runtime_compatibility_uncached(base_dir: str | Path | None = None) -> dict[
     checked: list[dict[str, object]] = []
     for filename in CRITICAL_COMPONENTS:
         path = root / filename
+        if not path.exists() and (root / "core" / filename).exists():
+            path = root / "core" / filename
         found = _read_runtime_api(path) if path.exists() else None
         row = {"file": filename, "expected": LPF_RUNTIME_API, "found": found}
         checked.append(row)
