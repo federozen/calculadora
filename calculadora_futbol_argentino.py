@@ -14,10 +14,20 @@ _CORE_DIR = Path(__file__).resolve().parent / "core"
 if str(_CORE_DIR) not in sys.path:
     sys.path.insert(0, str(_CORE_DIR))
 
-# En Vercel la app corre en el navegador (stlite/Pyodide): las consultas HTTP
-# salen por la función /api/proxy del mismo deploy. En local no cambia nada.
-import web_http as _web_http
-_web_http.install()
+# Adaptador opcional de stlite/Pyodide. Streamlit usa requests directamente.
+# Si falta el adaptador, los contextos de presupuesto no alteran el transporte
+# nativo: siguen vigentes los timeouts definidos en lpf_http.
+try:
+    import web_http as _web_http
+except ModuleNotFoundError as _web_http_error:
+    if _web_http_error.name != "web_http":
+        raise
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    _web_http = SimpleNamespace(time_budget=lambda seconds: nullcontext())
+else:
+    _web_http.install()
 import os
 from lpf_loading import results_text
 
